@@ -1,149 +1,229 @@
-# LifeSync — Smart Life Management System
+# LifeSync
 
-**AI-powered health and finance tracking via natural language.**
-Graduation Project — Birzeit University
+LifeSync is a full-stack health and finance tracking app with:
 
----
+- Express + Sequelize + MySQL backend
+- React + Vite frontend
+- OpenAI-powered NLP chat for logging entries
+- Optional Firebase sync for chat history
+- OTP-based registration flow via email
 
-## Quick Start
+## Verified Status
 
-### Backend
-```bash
-cd lifesync
+Verified on 2026-03-30 in this workspace:
+
+- `client` builds successfully with `npm run build`
+- the built frontend serves correctly and opens at `/login`
+- backend tests pass when the minimum required environment variables are provided
+- the backend server does not start in this machine as-is because MySQL is not installed here
+- Docker is not installed on this machine, so Docker Compose could not be validated end-to-end
+
+## What I Ran
+
+Backend:
+
+```powershell
+cd .\lifesync
 npm install
-cp .env.example .env          # Edit with MySQL, JWT, OpenAI keys
-mysql -u root -p -e "CREATE DATABASE lifesync_db;"
-npm run seed                  # Seeds categories + admin
-npm run dev                   # http://localhost:5000
-npm test                      # 75 tests
+$env:NODE_ENV='test'
+$env:JWT_SECRET='test_jwt_secret_for_ci_pipeline_32ch'
+$env:JWT_REFRESH_SECRET='test_refresh_secret_for_ci_pipe'
+$env:ENCRYPTION_KEY='test_encryption_key_for_ci_32ch!'
+$env:OPENAI_API_KEY='sk-test'
+npm test -- --forceExit --detectOpenHandles
 ```
 
-### Frontend
-```bash
-cd lifesync/client
+Frontend:
+
+```powershell
+cd .\lifesync\client
 npm install
-cp .env.example .env
-npm run dev                   # http://localhost:5173
-npm run build                 # Production build → dist/
+npm run build
+npm run preview -- --host 127.0.0.1 --port 4173
 ```
 
-Default admin: **admin@lifesync.app** / **Admin@123456**
+## Requirements
 
----
+To run the full app locally you need:
 
-## Architecture
+- Node.js 20+ and npm
+- MySQL 8+
+- an `.env` file for the backend
+- an `.env` file for the frontend
+- a valid OpenAI API key for real NLP chat behavior
+- a real SMTP provider for production OTP emails
+- Firebase credentials if you want real-time chat sync
 
-```
-lifesync/
-├── server/                          # Express.js Backend
-│   ├── config/                      # DB, Firebase, Sequelize CLI
-│   ├── controllers/                 # Auth (OTP), Chat (NLP), Health, Finance, Admin
-│   ├── middleware/                   # JWT auth, role check, validation, error handler
-│   ├── migrations/                  # Full schema with 9 tables
-│   ├── models/                      # User, HealthLog, FinancialLog, Category, etc.
-│   ├── routes/                      # RESTful API routes
-│   ├── seeders/                     # 18 default categories + admin user
-│   ├── services/
-│   │   ├── ai/nlpService.js         # OpenAI NLP with clarification logic
-│   │   ├── ai/insightsService.js    # Weekly AI insight generation
-│   │   └── otpService.js            # Two-step email OTP
-│   └── utils/                       # Tokens, encryption, response helpers
-├── client/                          # React.js Frontend (Vite)
-│   └── src/
-│       ├── components/
-│       │   ├── dashboard/           # HealthCorrelationChart, SpendingChart,
-│       │   │                        # MoodActivityChart, InsightCards
-│       │   ├── layout/AppLayout.jsx # Sidebar navigation
-│       │   └── ui/Skeleton.jsx      # Loading skeletons
-│       ├── contexts/AuthContext.jsx  # JWT session management
-│       ├── pages/
-│       │   ├── LoginPage.jsx        # Login form
-│       │   ├── RegisterPage.jsx     # 3-step OTP registration
-│       │   ├── DashboardPage.jsx    # Unified health + finance dashboard
-│       │   ├── ChatPage.jsx         # Conversational AI assistant
-│       │   ├── HealthPage.jsx       # Health log CRUD list
-│       │   ├── FinancePage.jsx      # Finance log CRUD list
-│       │   └── AdminPage.jsx        # Admin monitoring portal
-│       ├── services/
-│       │   ├── api.js               # Axios with JWT interceptor
-│       │   └── firebase.js          # Real-time chat subscription
-│       └── styles/globals.css       # Tailwind + design tokens
-└── tests/                           # Jest test suites (75 tests)
+For production, you should also add:
+
+- managed MySQL
+- managed Redis
+- HTTPS and a real domain
+- monitoring, error tracking, backups, and secret management
+
+## Local Setup
+
+### 1. Backend
+
+```powershell
+cd .\lifesync
+Copy-Item .env.example .env
 ```
 
----
+Edit `.env` and set at least:
 
-## API Endpoints
-
-### Registration (Two-Step OTP — SR1.2)
-| Step | Endpoint | Body |
-|------|----------|------|
-| 1 | `POST /api/auth/register/send-otp` | `{ email }` |
-| 1.5 | `POST /api/auth/register/verify-otp` | `{ email, code }` |
-| 2 | `POST /api/auth/register/complete` | `{ email, username, password }` |
-
-### NLP Chat (with clarification flow)
-| Endpoint | Description |
-|----------|-------------|
-| `POST /api/chat` | Send message → NLP → entities or clarification |
-| `GET /api/chat/history` | Chat history with pagination |
-| `GET /api/chat/sessions` | List all sessions |
-
-### Health & Finance CRUD
-`/api/health-logs` and `/api/finance` — standard CRUD + weekly summaries
-
-### Admin
-`/api/admin/dashboard` · `/api/admin/users` · `/api/admin/logs`
-
----
-
-## Key Features
-
-### NLP Clarification Flow
-```
-User: "I spent 10"
-Bot:  "What was the $10 for?"
-      [Food] [Transport] [Shopping] [Other]     ← Quick-action buttons
-User: clicks [Food]
-Bot:  "Logged $10 expense for Food & Dining! 🍽️"
+```env
+NODE_ENV=development
+PORT=5000
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=lifesync_db
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+JWT_SECRET=replace_with_a_real_32_plus_char_secret
+JWT_REFRESH_SECRET=replace_with_a_second_real_secret
+ENCRYPTION_KEY=replace_with_a_real_32_plus_char_key
+OPENAI_API_KEY=sk-...
+CORS_ORIGIN=http://localhost:5173
+APP_URL=http://localhost:5000
 ```
 
-### Cross-Domain Linking
+Create the database, then run:
+
+```powershell
+npm install
+npm run migrate
+npm run seed
+npm run dev
 ```
-User: "Spent $50 on a healthy dinner"
-→ FinancialLog: $50 expense (Food & Dining)
-→ HealthLog: nutrition (healthy dinner)
-→ LinkedDomain: bridge record with 0.85 confidence
+
+Backend health check:
+
+```text
+http://localhost:5000/api/health
 ```
 
-### Dashboard Visualizations
-- **Health Trends**: Multi-line Chart.js (Steps + Sleep correlation)
-- **Spending**: Doughnut/Bar chart by expense category
-- **Mood vs. Activity**: Scatter plot with color-coded mood levels
-- **AI Insight Cards**: Cross-domain pattern detection with scores
+### 2. Frontend
 
-### Security
-- Bcrypt password hashing (12 salt rounds)
-- JWT access/refresh token pair
-- AES-256 field encryption for sensitive text data
-- Helmet security headers + CORS + rate limiting
-- Protected routes with JWT middleware
-- Admin role-based access control
-
----
-
-## Tech Stack
-**Backend**: Express.js · Sequelize (MySQL) · Firebase Admin · OpenAI API · JWT · Bcrypt
-**Frontend**: React 19 · Vite · Tailwind CSS v4 · Chart.js · D3.js · React Router · Axios · Firebase Client
-**Testing**: Jest (75 tests across 4 suites)
-
----
-
-## Test Coverage
+```powershell
+cd .\lifesync\client
+Copy-Item .env.example .env
+npm install
+npm run dev
 ```
-4 suites, 75 tests:
-├── nlp.test.js        → 39 tests (entity validation, normalization, classification)
-├── otp.test.js        → 16 tests (OTP lifecycle)
-├── encryption.test.js → 17 tests (AES encrypt/decrypt)
-└── app.test.js        →  3 tests (Express configuration)
+
+Default frontend URL:
+
+```text
+http://localhost:5173
 ```
+
+For production builds:
+
+```powershell
+npm run build
+```
+
+## Environment Notes
+
+- `OPENAI_API_KEY` must be present before the backend boots because the OpenAI client is created at module load time.
+- Firebase is optional. If it is not configured, Firebase-backed chat sync is skipped.
+- SMTP is optional in development. In production, use a real provider.
+- For Gmail SMTP, set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_SECURE=false`, and set `SMTP_FROM_EMAIL` to the same Gmail address as `SMTP_USER`.
+- The backend code expects `DB_PASSWORD`, not `DB_PASS`.
+
+## Current Deployment Gaps
+
+This project is close to a strong student/demo app, but it is not yet production-ready. These are the main missing pieces.
+
+### Blocking issues to fix in code/config
+
+1. Docker Compose uses the wrong database password variable for the backend.
+   The app reads `DB_PASSWORD`, but `docker-compose.yml` sets `DB_PASS`.
+
+2. Custom rate limiters trigger IPv6 validation warnings from `express-rate-limit`.
+   This should be fixed before production so rate limiting is correct and clean.
+
+3. OTP state is stored in memory.
+   Restarting the server or scaling to multiple instances will break registration flows.
+
+4. Chat clarification state is stored in memory.
+   Restarting the server or scaling horizontally will lose active clarification sessions.
+
+5. The encryption helper currently uses `JWT_SECRET` instead of `ENCRYPTION_KEY`.
+   That couples two unrelated secrets and makes key rotation harder.
+
+6. The seed script creates a default admin with a known password.
+   That is acceptable for local development only and must be removed or overridden for real deployment.
+
+7. The backend depends on OpenAI credentials at startup.
+   If the key is missing, the app can fail before a user ever hits the chat route.
+
+### Missing production infrastructure
+
+1. Managed MySQL with backups and restore strategy
+2. Managed Redis for OTP and clarification/session state
+3. Real SMTP provider for OTP delivery
+4. Secret management for API keys and JWT secrets
+5. HTTPS, DNS, and environment-specific CORS settings
+6. Centralized logs, uptime monitoring, and error tracking
+
+### Missing launch readiness items
+
+1. Privacy policy and terms of service
+2. Data retention and account deletion policy
+3. Production incident logging and alerting
+4. Password reset / account recovery flow
+5. Load testing and basic security review
+
+## Recommended Production Architecture
+
+- Frontend: static host or Nginx container
+- Backend: Node.js service host
+- Database: managed MySQL
+- Cache/session store: managed Redis
+- Email: managed SMTP provider
+- Optional realtime layer: Firebase
+
+## Cloudflare Frontend Deploy
+
+If you deploy the frontend to Cloudflare, do not publish the raw `client/index.html` source file. It references `/src/main.jsx` and will render a blank page on a static host.
+
+Use:
+
+- build command: `npm run build:client`
+- static asset directory: `client/dist`
+
+This repo now includes `wrangler.jsonc` with SPA fallback enabled for Cloudflare Workers static assets.
+
+## Important Files
+
+- `server/app.js`
+- `server/config/database.js`
+- `server/middleware/rateLimiter.js`
+- `server/services/otpService.js`
+- `server/services/ai/nlpService.js`
+- `server/utils/encryption.js`
+- `server/seeders/seed.js`
+- `client/src/App.jsx`
+- `client/src/services/api.js`
+- `client/nginx.conf`
+- `docker-compose.yml`
+
+## Summary
+
+What works today:
+
+- frontend build
+- frontend preview
+- backend tests with env variables
+- app structure is complete enough for a real product foundation
+
+What is still missing before real deployment:
+
+- database and runtime infrastructure
+- Redis-backed ephemeral state
+- Docker/config fixes
+- production secrets and email setup
+- security and operations hardening
+- legal and recovery flows

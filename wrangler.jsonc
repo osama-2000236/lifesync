@@ -1,12 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "lifesync",
-  "compatibility_date": "2025-09-27",
+  "name": "cloudflare-workers-autoconfig-lifesync",
+  "compatibility_date": "2026-03-31",
   "observability": {
     "enabled": true
   },
   "assets": {
-    "directory": "client"
+    "directory": "./client/dist",
+    "not_found_handling": "single-page-application"
   },
   "compatibility_flags": [
     "nodejs_compat"

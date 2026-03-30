@@ -221,7 +221,7 @@ const sendOTPEmail = async (email, code) => {
     }
 
     const mailOptions = {
-      from: `"LifeSync" <noreply@lifesync.app>`,
+      from: `"${process.env.SMTP_FROM_NAME || 'LifeSync'}" <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || 'noreply@lifesync.app'}>`,
       to: email,
       subject: 'LifeSync — Your Verification Code',
       html: `
