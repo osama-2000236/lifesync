@@ -1,0 +1,183 @@
+// src/pages/DashboardPage.jsx
+import { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { healthAPI, financeAPI, insightsAPI } from '../services/api';
+import HealthCorrelationChart from '../components/dashboard/HealthCorrelationChart';
+import SpendingChart from '../components/dashboard/SpendingChart';
+import MoodActivityChart from '../components/dashboard/MoodActivityChart';
+import InsightCards from '../components/dashboard/InsightCards';
+import { SkeletonCard } from '../components/ui/Skeleton';
+import {
+  Footprints, Moon, SmilePlus, Droplets, TrendingUp, TrendingDown,
+  Wallet, Heart, BarChart3, Activity
+} from 'lucide-react';
+
+export default function DashboardPage() {
+  const { user } = useAuth();
+  const [healthData, setHealthData] = useState([]);
+  const [financeData, setFinanceData] = useState([]);
+  const [healthSummary, setHealthSummary] = useState(null);
+  const [financeSummary, setFinanceSummary] = useState(null);
+  const [insights, setInsights] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [spendingView, setSpendingView] = useState('doughnut');
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [healthRes, financeRes, hSummary, fSummary, insightsRes] = await Promise.allSettled([
+          healthAPI.getLogs({ limit: 100 }),
+          financeAPI.getLogs({ limit: 100 }),
+          healthAPI.getWeeklySummary(),
+          financeAPI.getWeeklySummary(),
+          insightsAPI.getCurrent(),
+        ]);
+
+        if (healthRes.status === 'fulfilled') setHealthData(healthRes.value.data.data?.logs || []);
+        if (financeRes.status === 'fulfilled') setFinanceData(financeRes.value.data.data?.logs || []);
+        if (hSummary.status === 'fulfilled') setHealthSummary(hSummary.value.data.data);
+        if (fSummary.status === 'fulfilled') setFinanceSummary(fSummary.value.data.data);
+        if (insightsRes.status === 'fulfilled') setInsights(insightsRes.value.data.data?.insights || null);
+      } catch (err) {
+        console.warn('Dashboard data fetch error:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // Compute quick stats from summary data
+  const quickStats = [
+    {
+      label: 'Steps Today',
+      value: healthSummary?.steps?.total?.toLocaleString() || '—',
+      icon: Footprints,
+      color: 'text-emerald-500',
+      bg: 'bg-emerald-50',
+    },
+    {
+      label: 'Avg Sleep',
+      value: healthSummary?.sleep?.avg ? `${Number(healthSummary.sleep.avg).toFixed(1)}h` : '—',
+      icon: Moon,
+      color: 'text-indigo-500',
+      bg: 'bg-indigo-50',
+    },
+    {
+      label: 'Mood',
+      value: healthSummary?.mood?.avg ? `${Number(healthSummary.mood.avg).toFixed(1)}` : '—',
+      icon: SmilePlus,
+      color: 'text-amber-500',
+      bg: 'bg-amber-50',
+    },
+    {
+      label: 'Water Avg',
+      value: healthSummary?.water?.avg ? `${Number(healthSummary.water.avg).toFixed(1)}L` : '—',
+      icon: Droplets,
+      color: 'text-sky-500',
+      bg: 'bg-sky-50',
+    },
+  ];
+
+  const greeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  };
+
+  return (
+    <div className="p-6 lg:p-8 max-w-7xl mx-auto animate-fade-up">
+      {/* ─── Header ─── */}
+      <div className="mb-8">
+        <h1 className="font-display text-2xl lg:text-3xl font-bold text-navy-900">
+          {greeting()}, {user?.name || user?.username} 👋
+        </h1>
+        <p className="text-navy-500 mt-1">Here&apos;s your unified lifestyle overview.</p>
+      </div>
+
+      {/* ─── Quick Stats ─── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        {loading ? (
+          [1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)
+        ) : (
+          quickStats.map(({ label, value, icon: Icon, color, bg }) => (
+            <div key={label} className="bg-white rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow border border-navy-50">
+              <div className="flex items-center justify-between mb-3">
+                <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center`}>
+                  <Icon className={`w-5 h-5 ${color}`} />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-navy-900">{value}</p>
+              <p className="text-xs text-navy-400 mt-1 font-medium">{label}</p>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* ─── Main Grid: Charts + Insights ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Column 1-2: Charts */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Health Trends */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-emerald-500" />
+                <h2 className="font-display text-lg font-bold text-navy-800">Health Trends</h2>
+              </div>
+              <span className="text-xs text-navy-400 font-medium px-3 py-1 rounded-full bg-navy-50">Last 7 days</span>
+            </div>
+            <HealthCorrelationChart healthData={healthData} loading={loading} />
+          </div>
+
+          {/* Two-column: Spending + Mood/Activity */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Spending */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2">
+                  <Wallet className="w-5 h-5 text-coral-500" />
+                  <h2 className="font-display text-base font-bold text-navy-800">Spending</h2>
+                </div>
+                <div className="flex gap-1 bg-navy-50 rounded-lg p-0.5">
+                  {['doughnut', 'bar'].map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setSpendingView(v)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                        spendingView === v ? 'bg-white shadow text-navy-700' : 'text-navy-400 hover:text-navy-600'
+                      }`}
+                    >
+                      {v === 'doughnut' ? '◐' : '☰'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <SpendingChart financeData={financeData} loading={loading} view={spendingView} />
+            </div>
+
+            {/* Mood vs Activity */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
+              <div className="flex items-center gap-2 mb-5">
+                <Heart className="w-5 h-5 text-purple-500" />
+                <h2 className="font-display text-base font-bold text-navy-800">Mood vs. Activity</h2>
+              </div>
+              <MoodActivityChart healthData={healthData} loading={loading} />
+            </div>
+          </div>
+        </div>
+
+        {/* Column 3: AI Insights */}
+        <div className="space-y-6">
+          <div className="flex items-center gap-2 mb-1">
+            <BarChart3 className="w-5 h-5 text-navy-500" />
+            <h2 className="font-display text-lg font-bold text-navy-800">Insights</h2>
+          </div>
+          <InsightCards insights={insights} loading={loading} />
+        </div>
+      </div>
+    </div>
+  );
+}
