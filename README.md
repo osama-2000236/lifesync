@@ -185,6 +185,17 @@ This project is close to a strong student/demo app, but it is not yet production
 - Email: managed SMTP provider
 - Optional realtime layer: Firebase
 
+## Cloudflare Frontend Deploy
+
+If you deploy the frontend to Cloudflare, do not publish the raw `client/index.html` source file. It references `/src/main.jsx` and will render a blank page on a static host.
+
+Use:
+
+- build command: `npm run build:client`
+- static asset directory: `client/dist`
+
+This repo now includes `wrangler.jsonc` with SPA fallback enabled for Cloudflare Workers static assets.
+
 ## Important Files
 
 - `server/app.js`
