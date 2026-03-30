@@ -191,10 +191,13 @@ If you deploy the frontend to Cloudflare, do not publish the raw `client/index.h
 
 Use:
 
-- build command: `npm run build:client`
-- static asset directory: `client/dist`
+- production deploy command: `npm run deploy`
+- preview deploy command: `npm run preview`
+- static asset directory from `wrangler.jsonc`: `./client/dist`
 
 This repo now includes `wrangler.jsonc` with SPA fallback enabled for Cloudflare Workers static assets.
+
+The `deploy` and `preview` scripts build the frontend before calling Wrangler, so Cloudflare does not need a separate build step.
 
 ## Important Files
 

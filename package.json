@@ -12,8 +12,9 @@
     "migrate:undo": "npx sequelize-cli db:migrate:undo:all",
     "test": "jest --verbose --forceExit",
     "test:watch": "jest --watch",
-    "deploy": "wrangler deploy",
-    "preview": "wrangler dev"
+    "deploy": "npm run build:client && wrangler deploy",
+    "preview": "npm run build:client && wrangler versions upload",
+    "worker:dev": "wrangler dev"
   },
   "keywords": [
     "health-tracking",
