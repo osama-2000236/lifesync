@@ -198,6 +198,7 @@ Use:
 This repo now includes `wrangler.jsonc` with SPA fallback enabled for Cloudflare Workers static assets.
 
 The `deploy` and `preview` scripts build the frontend before calling Wrangler, so Cloudflare does not need a separate build step.
+Those scripts also install the frontend dependencies inside `client/` before running Vite, because Workers Builds only installs the root package by default.
 
 ## Important Files
 

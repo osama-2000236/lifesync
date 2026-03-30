@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server/app.js",
     "dev": "nodemon server/app.js",
-    "build:client": "npm --prefix client run build",
+    "install:client": "npm --prefix client ci",
+    "build:client": "npm run install:client && npm --prefix client run build",
     "seed": "node server/seeders/seed.js",
     "migrate": "npx sequelize-cli db:migrate",
     "migrate:undo": "npx sequelize-cli db:migrate:undo:all",
