@@ -16,14 +16,30 @@ function NavBar() {
           </div>
           <span className="font-display font-bold text-navy-900">{APP_NAME}</span>
         </Link>
-        <Link
-          to="/"
-          className="flex items-center gap-1.5 text-sm text-navy-500 hover:text-navy-800 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          {' '}
-          Back to home
-        </Link>
+        <div className="flex items-center gap-2">
+          <div className="hidden md:flex items-center gap-1 rounded-xl border border-navy-100 bg-white/70 px-1 py-1">
+            <Link
+              to="/privacy"
+              className="text-sm font-medium text-emerald-700 px-3 py-1.5 rounded-lg bg-emerald-50"
+            >
+              Privacy
+            </Link>
+            <Link
+              to="/terms"
+              className="text-sm font-medium text-navy-500 hover:text-navy-800 px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-colors"
+            >
+              Terms
+            </Link>
+          </div>
+          <Link
+            to="/"
+            className="flex items-center gap-1.5 text-sm text-navy-500 hover:text-navy-800 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            {' '}
+            Back to home
+          </Link>
+        </div>
       </div>
     </nav>
   );

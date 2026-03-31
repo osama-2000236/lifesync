@@ -78,6 +78,20 @@ function NavBar() {
         </Link>
 
         <div className="flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-1 rounded-xl border border-navy-100 bg-white/70 px-1 py-1">
+            <Link
+              to="/privacy"
+              className="text-sm font-medium text-navy-500 hover:text-navy-900 px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-all"
+            >
+              Privacy
+            </Link>
+            <Link
+              to="/terms"
+              className="text-sm font-medium text-navy-500 hover:text-navy-900 px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-all"
+            >
+              Terms
+            </Link>
+          </div>
           <Link
             to="/login"
             className="text-sm font-medium text-navy-600 hover:text-navy-900 px-4 py-2 rounded-lg hover:bg-navy-50 transition-all"
