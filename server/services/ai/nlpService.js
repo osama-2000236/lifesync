@@ -1,6 +1,6 @@
 // server/services/ai/nlpService.js
 // ============================================
-// NLP Service v2 — OpenAI Integration
+// NLP Service v2 — AI Provider Integration
 // Enhanced with:
 //   - Strict entity extraction (Amount, Category, Duration, Activity)
 //   - Auto-classification (Health vs. Finance)
@@ -8,24 +8,8 @@
 //   - Conversation context awareness
 // ============================================
 
-const OpenAI = require('openai');
 require('dotenv').config();
-
-let openaiClient = null;
-
-const getOpenAIClient = () => {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OpenAI API key is not configured.');
-  }
-
-  if (!openaiClient) {
-    openaiClient = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-  }
-
-  return openaiClient;
-};
+const { getAIClient, getAIModel } = require('./providerClient');
 
 // ============================================
 // SYSTEM PROMPT — Core NLP Instructions
@@ -162,7 +146,7 @@ Parse this in context of the original message. Extract full entities now that am
 };
 
 /**
- * Parse a natural language message using OpenAI
+ * Parse a natural language message using the configured AI provider
  * @param {string} message - The user's input
  * @param {Object|null} pendingClarification - Previous clarification context
  * @returns {Object} Parsed result
@@ -182,8 +166,8 @@ const parseMessage = async (message, pendingClarification = null) => {
       messages.push({ role: 'user', content: message });
     }
 
-    const completion = await getOpenAIClient().chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    const completion = await getAIClient().chat.completions.create({
+      model: getAIModel(),
       messages,
       temperature: 0.05,
       max_tokens: 1000,
@@ -193,7 +177,7 @@ const parseMessage = async (message, pendingClarification = null) => {
     const rawResponse = completion.choices[0]?.message?.content;
     const processingTime = Date.now() - startTime;
 
-    if (!rawResponse) throw new Error('Empty response from OpenAI');
+    if (!rawResponse) throw new Error('Empty response from AI provider');
 
     let parsed;
     try {
@@ -360,8 +344,8 @@ Respond ONLY with valid JSON:
   "financial_health_score": <1-100>
 }`;
 
-    const completion = await getOpenAIClient().chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    const completion = await getAIClient().chat.completions.create({
+      model: getAIModel(),
       messages: [
         {
           role: 'system',
