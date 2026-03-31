@@ -17,23 +17,29 @@ function NavBar() {
           <span className="font-display font-bold text-navy-900">{APP_NAME}</span>
         </Link>
         <div className="flex items-center gap-2">
-          <div className="hidden md:flex items-center gap-1 rounded-xl border border-navy-100 bg-white/70 px-1 py-1">
+          <div className="flex items-center gap-1 rounded-xl border border-navy-100 bg-white/70 px-1 py-1">
+            <Link
+              to="/"
+              className="text-sm font-medium text-navy-500 hover:text-navy-800 px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-colors whitespace-nowrap"
+            >
+              Home
+            </Link>
             <Link
               to="/privacy"
-              className="text-sm font-medium text-emerald-700 px-3 py-1.5 rounded-lg bg-emerald-50"
+              className="text-sm font-medium text-emerald-700 px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-50 whitespace-nowrap"
             >
               Privacy
             </Link>
             <Link
               to="/terms"
-              className="text-sm font-medium text-navy-500 hover:text-navy-800 px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-colors"
+              className="text-sm font-medium text-navy-500 hover:text-navy-800 px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-colors whitespace-nowrap"
             >
               Terms
             </Link>
           </div>
           <Link
             to="/"
-            className="flex items-center gap-1.5 text-sm text-navy-500 hover:text-navy-800 transition-colors"
+            className="hidden sm:flex items-center gap-1.5 text-sm text-navy-500 hover:text-navy-800 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             {' '}

@@ -77,30 +77,36 @@ function NavBar() {
           <span className="font-display text-lg font-bold text-navy-900">LifeSync</span>
         </Link>
 
-        <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center gap-1 rounded-xl border border-navy-100 bg-white/70 px-1 py-1">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-xl border border-navy-100 bg-white/70 px-1 py-1">
+            <Link
+              to="/"
+              className="text-sm font-medium text-emerald-700 px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-50 whitespace-nowrap"
+            >
+              Home
+            </Link>
             <Link
               to="/privacy"
-              className="text-sm font-medium text-navy-500 hover:text-navy-900 px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-all"
+              className="text-sm font-medium text-navy-500 hover:text-navy-900 px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-all whitespace-nowrap"
             >
               Privacy
             </Link>
             <Link
               to="/terms"
-              className="text-sm font-medium text-navy-500 hover:text-navy-900 px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-all"
+              className="text-sm font-medium text-navy-500 hover:text-navy-900 px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-all whitespace-nowrap"
             >
               Terms
             </Link>
           </div>
           <Link
             to="/login"
-            className="text-sm font-medium text-navy-600 hover:text-navy-900 px-4 py-2 rounded-lg hover:bg-navy-50 transition-all"
+            className="hidden sm:inline-flex text-sm font-medium text-navy-600 hover:text-navy-900 px-4 py-2 rounded-lg hover:bg-navy-50 transition-all whitespace-nowrap"
           >
             Sign in
           </Link>
           <Link
             to="/register"
-            className="text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-emerald-600 px-5 py-2 rounded-xl shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all"
+            className="hidden sm:inline-flex text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-emerald-600 px-5 py-2 rounded-xl shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all whitespace-nowrap"
           >
             Get started free
           </Link>
