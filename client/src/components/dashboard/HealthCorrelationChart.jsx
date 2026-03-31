@@ -1,72 +1,70 @@
-// src/components/dashboard/HealthCorrelationChart.jsx
 import { useMemo } from 'react';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement,
-  LineElement, Title, Tooltip, Legend, Filler
+  LineElement, Tooltip, Legend, Filler,
 } from 'chart.js';
+import ChartEmptyState from './ChartEmptyState';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
+
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export default function HealthCorrelationChart({ healthData = [], loading }) {
-  const chartData = useMemo(() => {
-    // Group health data by day, extract steps and sleep
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const dayMap = {};
+  const { hasData, chartData } = useMemo(() => {
+    const dayMap = Object.fromEntries(DAYS.map((day) => [day, { steps: 0, sleep: 0 }]));
+    let hasRelevantData = false;
 
-    // Initialize
-    days.forEach((d) => { dayMap[d] = { steps: 0, sleep: 0 }; });
+    healthData.forEach((entry) => {
+      const date = new Date(entry.logged_at || entry.created_at);
+      const dayName = DAYS[date.getDay() === 0 ? 6 : date.getDay() - 1];
 
-    // If we have real data, map it
-    if (healthData.length > 0) {
-      healthData.forEach((entry) => {
-        const date = new Date(entry.logged_at || entry.created_at);
-        const dayName = days[date.getDay() === 0 ? 6 : date.getDay() - 1];
-        if (entry.type === 'steps') dayMap[dayName].steps += Number(entry.value) || 0;
-        if (entry.type === 'sleep') dayMap[dayName].sleep += Number(entry.value) || 0;
-      });
-    } else {
-      // Demo data for visualization
-      const demoSteps = [6200, 8400, 5100, 9800, 7300, 11200, 4500];
-      const demoSleep = [7.2, 6.5, 8.1, 5.8, 7.0, 6.3, 8.5];
-      days.forEach((d, i) => {
-        dayMap[d].steps = demoSteps[i];
-        dayMap[d].sleep = demoSleep[i];
-      });
-    }
+      if (entry.type === 'steps') {
+        dayMap[dayName].steps += Number(entry.value) || 0;
+        hasRelevantData = true;
+      }
+
+      if (entry.type === 'sleep') {
+        dayMap[dayName].sleep += Number(entry.value) || 0;
+        hasRelevantData = true;
+      }
+    });
 
     return {
-      labels: days,
-      datasets: [
-        {
-          label: 'Steps',
-          data: days.map((d) => dayMap[d].steps),
-          borderColor: '#10b981',
-          backgroundColor: 'rgba(16, 185, 129, 0.08)',
-          borderWidth: 2.5,
-          pointRadius: 4,
-          pointBackgroundColor: '#10b981',
-          pointBorderColor: '#fff',
-          pointBorderWidth: 2,
-          tension: 0.4,
-          fill: true,
-          yAxisID: 'y',
-        },
-        {
-          label: 'Sleep (hrs)',
-          data: days.map((d) => dayMap[d].sleep),
-          borderColor: '#6366f1',
-          backgroundColor: 'rgba(99, 102, 241, 0.08)',
-          borderWidth: 2.5,
-          pointRadius: 4,
-          pointBackgroundColor: '#6366f1',
-          pointBorderColor: '#fff',
-          pointBorderWidth: 2,
-          tension: 0.4,
-          fill: true,
-          yAxisID: 'y1',
-        },
-      ],
+      hasData: hasRelevantData,
+      chartData: {
+        labels: DAYS,
+        datasets: [
+          {
+            label: 'Steps',
+            data: DAYS.map((day) => dayMap[day].steps),
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.08)',
+            borderWidth: 2.5,
+            pointRadius: 4,
+            pointBackgroundColor: '#10b981',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            tension: 0.4,
+            fill: true,
+            yAxisID: 'y',
+          },
+          {
+            label: 'Sleep (hrs)',
+            data: DAYS.map((day) => dayMap[day].sleep),
+            borderColor: '#6366f1',
+            backgroundColor: 'rgba(99, 102, 241, 0.08)',
+            borderWidth: 2.5,
+            pointRadius: 4,
+            pointBackgroundColor: '#6366f1',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            tension: 0.4,
+            fill: true,
+            yAxisID: 'y1',
+          },
+        ],
+      },
     };
   }, [healthData]);
 
@@ -120,8 +118,17 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
     },
   };
 
-  if (loading) {
-    return <div className="h-64 skeleton rounded-xl" />;
+  if (loading) return <div className="h-64 skeleton rounded-xl" />;
+
+  if (!hasData) {
+    return (
+      <ChartEmptyState
+        title="No health trends yet"
+        description="Add health logs or sync Google Fit to unlock your weekly steps and sleep chart."
+        actionTo="/health"
+        actionLabel="Add health data"
+      />
+    );
   }
 
   return (

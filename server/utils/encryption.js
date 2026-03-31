@@ -8,7 +8,7 @@
 const CryptoJS = require('crypto-js');
 require('dotenv').config();
 
-const ENCRYPTION_KEY = process.env.JWT_SECRET; // Reuse a strong secret; in production, use a dedicated key
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET;
 
 /**
  * Encrypt a value for storage

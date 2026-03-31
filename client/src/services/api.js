@@ -59,6 +59,13 @@ export const authAPI = {
   refresh: (refreshToken) => api.post('/auth/refresh', { refreshToken }),
   getProfile: () => api.get('/auth/me'),
   updateProfile: (data) => api.put('/auth/me', data),
+  forgotPasswordSendOTP: (email) => api.post('/auth/forgot-password/send-otp', { email }),
+  forgotPasswordVerifyOTP: (email, code) => api.post('/auth/forgot-password/verify-otp', { email, code }),
+  resetPassword: (email, password) => api.post('/auth/forgot-password/reset', { email, password }),
+  changePassword: (currentPassword, newPassword) => api.post('/auth/change-password', { currentPassword, newPassword }),
+  changeEmailSendOTP: (newEmail) => api.post('/auth/change-email/send-otp', { newEmail }),
+  changeEmailVerifyOTP: (newEmail, code) => api.post('/auth/change-email/verify-otp', { newEmail, code }),
+  deleteAccount: () => api.delete('/auth/me'),
 };
 
 // ─── Chat API ───

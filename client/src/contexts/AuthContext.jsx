@@ -1,5 +1,5 @@
-// src/contexts/AuthContext.jsx
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
 import { getGoogleClientId } from '../config/runtime';
 
@@ -11,10 +11,20 @@ export const useAuth = () => {
   return ctx;
 };
 
+const getOnboardingKey = (userId) => `onboarding_done_${userId}`;
+
 export function AuthProvider({ children }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const googleAuthEnabled = Boolean(getGoogleClientId());
+
+  const clearSession = useCallback(() => {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    setUser(null);
+  }, []);
 
   const persistSession = useCallback((payload) => {
     localStorage.setItem('accessToken', payload.accessToken);
@@ -23,21 +33,36 @@ export function AuthProvider({ children }) {
     return payload;
   }, []);
 
-  // ─── Load user on mount ───
+  const updateCurrentUser = useCallback((nextUser) => {
+    setUser(nextUser);
+    return nextUser;
+  }, []);
+
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     if (token) {
       authAPI.getProfile()
         .then(({ data }) => setUser(data.data.user))
-        .catch(() => {
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-        })
+        .catch(() => clearSession())
         .finally(() => setLoading(false));
     } else {
       setLoading(false);
     }
-  }, []);
+  }, [clearSession]);
+
+  useEffect(() => {
+    if (loading || !user || user.role === 'admin') return;
+
+    const onboardingDone = localStorage.getItem(getOnboardingKey(user.id));
+    if (!onboardingDone && location.pathname !== '/onboarding') {
+      navigate('/onboarding', { replace: true });
+      return;
+    }
+
+    if (onboardingDone && location.pathname === '/onboarding') {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [loading, user, location.pathname, navigate]);
 
   const login = useCallback(async (email, password) => {
     const { data } = await authAPI.login(email, password);
@@ -55,10 +80,8 @@ export function AuthProvider({ children }) {
   }, [persistSession]);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    setUser(null);
-  }, []);
+    clearSession();
+  }, [clearSession]);
 
   const isAdmin = user?.role === 'admin';
 
@@ -72,6 +95,8 @@ export function AuthProvider({ children }) {
       logout,
       isAdmin,
       googleAuthEnabled,
+      updateCurrentUser,
+      onboardingStorageKey: user?.id ? getOnboardingKey(user.id) : null,
     }}
     >
       {children}

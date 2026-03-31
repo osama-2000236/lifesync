@@ -1,5 +1,4 @@
-// src/pages/DashboardPage.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { healthAPI, financeAPI, insightsAPI } from '../services/api';
 import HealthCorrelationChart from '../components/dashboard/HealthCorrelationChart';
@@ -8,9 +7,21 @@ import MoodActivityChart from '../components/dashboard/MoodActivityChart';
 import InsightCards from '../components/dashboard/InsightCards';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import {
-  Footprints, Moon, SmilePlus, Droplets, TrendingUp, TrendingDown,
-  Wallet, Heart, BarChart3, Activity
+  Footprints, Moon, SmilePlus, Droplets,
+  Wallet, Heart, BarChart3, Activity,
 } from 'lucide-react';
+
+const mapHealthSummary = (payload) => {
+  const rows = payload?.summary || [];
+  return rows.reduce((acc, row) => {
+    acc[row.type] = {
+      avg: Number(row.avg_value) || 0,
+      total: Number(row.total_value) || 0,
+      count: Number(row.entry_count) || 0,
+    };
+    return acc;
+  }, {});
+};
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -25,7 +36,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [healthRes, financeRes, hSummary, fSummary, insightsRes] = await Promise.allSettled([
+        const [healthRes, financeRes, healthSummaryRes, financeSummaryRes, insightsRes] = await Promise.allSettled([
           healthAPI.getLogs({ limit: 100 }),
           financeAPI.getLogs({ limit: 100 }),
           healthAPI.getWeeklySummary(),
@@ -35,8 +46,8 @@ export default function DashboardPage() {
 
         if (healthRes.status === 'fulfilled') setHealthData(healthRes.value.data.data?.logs || []);
         if (financeRes.status === 'fulfilled') setFinanceData(financeRes.value.data.data?.logs || []);
-        if (hSummary.status === 'fulfilled') setHealthSummary(hSummary.value.data.data);
-        if (fSummary.status === 'fulfilled') setFinanceSummary(fSummary.value.data.data);
+        if (healthSummaryRes.status === 'fulfilled') setHealthSummary(healthSummaryRes.value.data.data);
+        if (financeSummaryRes.status === 'fulfilled') setFinanceSummary(financeSummaryRes.value.data.data);
         if (insightsRes.status === 'fulfilled') setInsights(insightsRes.value.data.data?.insights || null);
       } catch (err) {
         console.warn('Dashboard data fetch error:', err);
@@ -48,32 +59,33 @@ export default function DashboardPage() {
     fetchData();
   }, []);
 
-  // Compute quick stats from summary data
+  const normalizedHealthSummary = useMemo(() => mapHealthSummary(healthSummary), [healthSummary]);
+
   const quickStats = [
     {
-      label: 'Steps Today',
-      value: healthSummary?.steps?.total?.toLocaleString() || '—',
+      label: '7-Day Steps',
+      value: normalizedHealthSummary.steps?.total ? normalizedHealthSummary.steps.total.toLocaleString() : '—',
       icon: Footprints,
       color: 'text-emerald-500',
       bg: 'bg-emerald-50',
     },
     {
       label: 'Avg Sleep',
-      value: healthSummary?.sleep?.avg ? `${Number(healthSummary.sleep.avg).toFixed(1)}h` : '—',
+      value: normalizedHealthSummary.sleep?.avg ? `${normalizedHealthSummary.sleep.avg.toFixed(1)}h` : '—',
       icon: Moon,
       color: 'text-indigo-500',
       bg: 'bg-indigo-50',
     },
     {
-      label: 'Mood',
-      value: healthSummary?.mood?.avg ? `${Number(healthSummary.mood.avg).toFixed(1)}` : '—',
+      label: 'Avg Mood',
+      value: normalizedHealthSummary.mood?.avg ? normalizedHealthSummary.mood.avg.toFixed(1) : '—',
       icon: SmilePlus,
       color: 'text-amber-500',
       bg: 'bg-amber-50',
     },
     {
-      label: 'Water Avg',
-      value: healthSummary?.water?.avg ? `${Number(healthSummary.water.avg).toFixed(1)}L` : '—',
+      label: 'Avg Water',
+      value: normalizedHealthSummary.water?.avg ? `${normalizedHealthSummary.water.avg.toFixed(1)}L` : '—',
       icon: Droplets,
       color: 'text-sky-500',
       bg: 'bg-sky-50',
@@ -89,7 +101,6 @@ export default function DashboardPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto animate-fade-up">
-      {/* ─── Header ─── */}
       <div className="mb-8">
         <h1 className="font-display text-2xl lg:text-3xl font-bold text-navy-900">
           {greeting()}, {user?.name || user?.username} 👋
@@ -97,7 +108,6 @@ export default function DashboardPage() {
         <p className="text-navy-500 mt-1">Here&apos;s your unified lifestyle overview.</p>
       </div>
 
-      {/* ─── Quick Stats ─── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {loading ? (
           [1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)
@@ -116,11 +126,8 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* ─── Main Grid: Charts + Insights ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Column 1-2: Charts */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Health Trends */}
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
@@ -132,9 +139,7 @@ export default function DashboardPage() {
             <HealthCorrelationChart healthData={healthData} loading={loading} />
           </div>
 
-          {/* Two-column: Spending + Mood/Activity */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Spending */}
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2">
@@ -142,23 +147,27 @@ export default function DashboardPage() {
                   <h2 className="font-display text-base font-bold text-navy-800">Spending</h2>
                 </div>
                 <div className="flex gap-1 bg-navy-50 rounded-lg p-0.5">
-                  {['doughnut', 'bar'].map((v) => (
+                  {['doughnut', 'bar'].map((value) => (
                     <button
-                      key={v}
-                      onClick={() => setSpendingView(v)}
+                      key={value}
+                      onClick={() => setSpendingView(value)}
                       className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                        spendingView === v ? 'bg-white shadow text-navy-700' : 'text-navy-400 hover:text-navy-600'
+                        spendingView === value ? 'bg-white shadow text-navy-700' : 'text-navy-400 hover:text-navy-600'
                       }`}
                     >
-                      {v === 'doughnut' ? '◐' : '☰'}
+                      {value === 'doughnut' ? '◐' : '☰'}
                     </button>
                   ))}
                 </div>
               </div>
-              <SpendingChart financeData={financeData} loading={loading} view={spendingView} />
+              <SpendingChart
+                financeData={financeData}
+                financeSummary={financeSummary}
+                loading={loading}
+                view={spendingView}
+              />
             </div>
 
-            {/* Mood vs Activity */}
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
               <div className="flex items-center gap-2 mb-5">
                 <Heart className="w-5 h-5 text-purple-500" />
@@ -169,7 +178,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Column 3: AI Insights */}
         <div className="space-y-6">
           <div className="flex items-center gap-2 mb-1">
             <BarChart3 className="w-5 h-5 text-navy-500" />
