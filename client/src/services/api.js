@@ -1,7 +1,12 @@
 // src/services/api.js
 import axios from 'axios';
 
-const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+const DEFAULT_PROD_API_URL = 'https://lifesync-production-6f3e.up.railway.app/api';
+
+const API_BASE = (
+  import.meta.env.VITE_API_URL
+  || (import.meta.env.DEV ? '/api' : DEFAULT_PROD_API_URL)
+).replace(/\/$/, '');
 
 const api = axios.create({
   baseURL: API_BASE,
