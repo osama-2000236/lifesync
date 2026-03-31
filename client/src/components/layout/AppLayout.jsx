@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   LayoutDashboard, MessageCircle, Heart, Wallet, Shield,
-  LogOut, Menu, X, Activity, ChevronRight, Plug,
+  LogOut, Menu, X, Activity, ChevronRight, Plug, Globe, FileText,
 } from 'lucide-react';
 
 const navItems = [
@@ -12,6 +12,12 @@ const navItems = [
   { to: '/health', label: 'Health', icon: Heart },
   { to: '/finance', label: 'Finance', icon: Wallet },
   { to: '/integrations', label: 'Integrations', icon: Plug },
+];
+
+const publicPageItems = [
+  { to: '/landing', label: 'Landing', icon: Globe },
+  { to: '/privacy', label: 'Privacy', icon: Shield },
+  { to: '/terms', label: 'Terms', icon: FileText },
 ];
 
 export default function AppLayout() {
@@ -80,6 +86,17 @@ export default function AppLayout() {
               </NavLink>
             </>
           )}
+
+          <div className="pt-4 pb-2 px-4">
+            <p className="text-[10px] uppercase tracking-widest text-navy-300 font-semibold">Public Pages</p>
+          </div>
+          {publicPageItems.map(({ to, label, icon: Icon }) => (
+            <NavLink key={to} to={to} className={navLinkClass} onClick={() => setSidebarOpen(false)}>
+              <Icon className="w-[18px] h-[18px]" />
+              <span>{label}</span>
+              <ChevronRight className="w-4 h-4 ml-auto opacity-0 -translate-x-1 group-hover:opacity-50 group-hover:translate-x-0 transition-all" />
+            </NavLink>
+          ))}
         </nav>
 
         <div className="px-4 pb-4">

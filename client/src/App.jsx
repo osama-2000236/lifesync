@@ -81,6 +81,7 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/" element={<RootRoute />} />
+          <Route path="/landing" element={<LandingPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/terms" element={<TermsPage />} />
 
