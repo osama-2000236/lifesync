@@ -1,47 +1,34 @@
 const OpenAI = require('openai');
 require('dotenv').config();
 
-const SUPPORTED_PROVIDERS = new Set(['deepseek', 'openai']);
 let cachedClient = null;
 
 const normalizeProvider = (value) => value?.trim().toLowerCase() || '';
 
 const resolveAIProvider = () => {
   const configuredProvider = normalizeProvider(process.env.AI_PROVIDER);
-  if (configuredProvider) {
-    if (!SUPPORTED_PROVIDERS.has(configuredProvider)) {
-      throw new Error(`Unsupported AI provider: ${process.env.AI_PROVIDER}`);
-    }
-    return configuredProvider;
+
+  if (!configuredProvider) {
+    return 'deepseek';
   }
 
-  if (process.env.DEEPSEEK_API_KEY) return 'deepseek';
-  if (process.env.OPENAI_API_KEY) return 'openai';
+  if (configuredProvider !== 'deepseek') {
+    throw new Error(`Unsupported AI provider: ${process.env.AI_PROVIDER}`);
+  }
+
   return 'deepseek';
 };
 
 const getProviderSettings = () => {
-  const provider = resolveAIProvider();
-
-  if (provider === 'deepseek') {
-    const apiKey = process.env.DEEPSEEK_API_KEY || '';
-    return {
-      provider,
-      apiKey,
-      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-      clientOptions: {
-        apiKey,
-        baseURL: 'https://api.deepseek.com',
-      },
-    };
-  }
+  const apiKey = process.env.DEEPSEEK_API_KEY || '';
 
   return {
-    provider,
-    apiKey: process.env.OPENAI_API_KEY || '',
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    provider: resolveAIProvider(),
+    apiKey,
+    model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
     clientOptions: {
-      apiKey: process.env.OPENAI_API_KEY || '',
+      apiKey,
+      baseURL: 'https://api.deepseek.com',
     },
   };
 };
@@ -50,8 +37,7 @@ const getAIClient = () => {
   const settings = getProviderSettings();
 
   if (!settings.apiKey) {
-    const providerName = settings.provider === 'deepseek' ? 'DeepSeek' : 'OpenAI';
-    throw new Error(`${providerName} API key is not configured.`);
+    throw new Error('DeepSeek API key is not configured.');
   }
 
   const signature = JSON.stringify({

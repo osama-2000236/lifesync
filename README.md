@@ -131,7 +131,6 @@ npm run build
 ## Environment Notes
 
 - `DEEPSEEK_API_KEY` is required for live chat parsing and model-backed summaries when `AI_PROVIDER=deepseek`.
-- If you keep `OPENAI_API_KEY`, the backend can still use OpenAI as a temporary fallback until you finish the migration.
 - Firebase is optional. If it is not configured, Firebase-backed chat sync is skipped.
 - SMTP is optional in development. In production, use a real provider.
 - For Gmail SMTP, set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_SECURE=false`, and set `SMTP_FROM_EMAIL` to the same Gmail address as `SMTP_USER`.

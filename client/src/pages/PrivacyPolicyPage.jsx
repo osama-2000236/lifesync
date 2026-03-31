@@ -165,8 +165,7 @@ export default function PrivacyPolicyPage() {
               <li><strong>Railway</strong> — backend hosting and database infrastructure</li>
               <li><strong>Cloudflare</strong> — frontend hosting and content delivery</li>
               <li><strong>Firebase (Google)</strong> — real-time chat message synchronization</li>
-              <li><strong>DeepSeek</strong> — our intended AI provider for natural-language logging and generated summaries</li>
-              <li><strong>Compatible fallback AI provider</strong> — may be used temporarily during migration if explicitly configured by deployment administrators</li>
+              <li><strong>DeepSeek</strong> — AI language processing for natural-language logging and generated summaries</li>
               <li><strong>Nodemailer / SMTP provider</strong> — transactional email delivery such as OTP codes</li>
             </ul>
             <p className="mt-3">We do not share your personal information with advertisers or data brokers.</p>
