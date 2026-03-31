@@ -1,7 +1,7 @@
 // server/services/ai/insightsService.js
 // ============================================
 // Insights Service
-// Gathers weekly data and generates AI-powered summaries
+// Gathers weekly data and generates model-backed summaries
 // ============================================
 
 const { Op } = require('sequelize');
@@ -57,7 +57,7 @@ const generateAndStoreInsights = async (userId) => {
     nest: true,
   });
 
-  // Call OpenAI to analyze
+  // Call the configured AI provider to analyze
   const insights = await generateWeeklyInsights(
     { metrics: healthData, period: { start: weekAgo, end: now } },
     { transactions: financeData, period: { start: weekAgo, end: now } }

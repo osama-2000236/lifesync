@@ -2,8 +2,11 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
+import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import TermsPage from './pages/TermsPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import NotFoundPage from './pages/NotFoundPage';
 import AppLayout from './components/layout/AppLayout';
@@ -68,7 +71,8 @@ function PublicRoute() {
 function RootRoute() {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
-  return <Navigate to={user ? '/dashboard' : '/login'} replace />;
+  if (user) return <Navigate to="/dashboard" replace />;
+  return <LandingPage />;
 }
 
 export default function App() {
@@ -77,6 +81,8 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/" element={<RootRoute />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
 
           <Route element={<PublicRoute />}>
             <Route path="/login" element={<LoginPage />} />

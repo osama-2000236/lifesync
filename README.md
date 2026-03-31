@@ -4,9 +4,10 @@ LifeSync is a full-stack health and finance tracking app with:
 
 - Express + Sequelize + MySQL backend
 - React + Vite frontend
-- OpenAI-powered NLP chat for logging entries
+- DeepSeek-powered NLP chat for logging entries
 - Optional Firebase sync for chat history
 - OTP-based registration flow via email
+- Public landing, privacy, and terms pages for Google-ready deployment
 
 ## Verified Status
 
@@ -29,7 +30,8 @@ $env:NODE_ENV='test'
 $env:JWT_SECRET='test_jwt_secret_for_ci_pipeline_32ch'
 $env:JWT_REFRESH_SECRET='test_refresh_secret_for_ci_pipe'
 $env:ENCRYPTION_KEY='test_encryption_key_for_ci_32ch!'
-$env:OPENAI_API_KEY='sk-test'
+$env:AI_PROVIDER='deepseek'
+$env:DEEPSEEK_API_KEY='ds-test'
 npm test -- --forceExit --detectOpenHandles
 ```
 
@@ -50,7 +52,7 @@ To run the full app locally you need:
 - MySQL 8+
 - an `.env` file for the backend
 - an `.env` file for the frontend
-- a valid OpenAI API key for real NLP chat behavior
+- a valid DeepSeek API key for real NLP chat behavior
 - a real SMTP provider for production OTP emails
 - Firebase credentials if you want real-time chat sync
 
@@ -83,7 +85,9 @@ DB_PASSWORD=your_mysql_password
 JWT_SECRET=replace_with_a_real_32_plus_char_secret
 JWT_REFRESH_SECRET=replace_with_a_second_real_secret
 ENCRYPTION_KEY=replace_with_a_real_32_plus_char_key
-OPENAI_API_KEY=sk-...
+AI_PROVIDER=deepseek
+DEEPSEEK_API_KEY=ds-...
+DEEPSEEK_MODEL=deepseek-chat
 CORS_ORIGIN=http://localhost:5173
 APP_URL=http://localhost:5000
 ```
@@ -126,7 +130,8 @@ npm run build
 
 ## Environment Notes
 
-- `OPENAI_API_KEY` must be present before the backend boots because the OpenAI client is created at module load time.
+- `DEEPSEEK_API_KEY` is required for live chat parsing and model-backed summaries when `AI_PROVIDER=deepseek`.
+- If you keep `OPENAI_API_KEY`, the backend can still use OpenAI as a temporary fallback until you finish the migration.
 - Firebase is optional. If it is not configured, Firebase-backed chat sync is skipped.
 - SMTP is optional in development. In production, use a real provider.
 - For Gmail SMTP, set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_SECURE=false`, and set `SMTP_FROM_EMAIL` to the same Gmail address as `SMTP_USER`.
@@ -156,8 +161,8 @@ This project is close to a strong student/demo app, but it is not yet production
 6. The seed script creates a default admin with a known password.
    That is acceptable for local development only and must be removed or overridden for real deployment.
 
-7. The backend depends on OpenAI credentials at startup.
-   If the key is missing, the app can fail before a user ever hits the chat route.
+7. Google Fit still requires production OAuth configuration on the Google Cloud side.
+   The app needs a real callback URL, consent screen URLs, and approved origins before that integration is launch-ready.
 
 ### Missing production infrastructure
 
@@ -170,11 +175,9 @@ This project is close to a strong student/demo app, but it is not yet production
 
 ### Missing launch readiness items
 
-1. Privacy policy and terms of service
-2. Data retention and account deletion policy
-3. Production incident logging and alerting
-4. Password reset / account recovery flow
-5. Load testing and basic security review
+1. Google Cloud consent-screen setup using the live homepage, privacy, and terms URLs
+2. Production incident logging and alerting
+3. Load testing and basic security review
 
 ## Recommended Production Architecture
 
@@ -207,9 +210,13 @@ Those scripts also install the frontend dependencies inside `client/` before run
 - `server/middleware/rateLimiter.js`
 - `server/services/otpService.js`
 - `server/services/ai/nlpService.js`
+- `server/services/ai/providerClient.js`
 - `server/utils/encryption.js`
 - `server/seeders/seed.js`
 - `client/src/App.jsx`
+- `client/src/pages/LandingPage.jsx`
+- `client/src/pages/PrivacyPolicyPage.jsx`
+- `client/src/pages/TermsPage.jsx`
 - `client/src/services/api.js`
 - `client/nginx.conf`
 - `docker-compose.yml`
