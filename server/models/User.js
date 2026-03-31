@@ -112,6 +112,7 @@ User.prototype.comparePassword = async function (candidatePassword) {
  */
 User.prototype.toSafeJSON = function () {
   const values = { ...this.get() };
+  values.auth_provider = this.firebase_uid ? 'google' : 'local';
   delete values.hashed_password;
   delete values.firebase_uid;
   return values;

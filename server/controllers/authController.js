@@ -1,10 +1,8 @@
 // server/controllers/authController.js
 // ============================================
 // Authentication Controller v2
-// Implements Two-Step Registration (SR1.2):
-//   Step 1: POST /register/send-otp   → email → OTP sent
-//   Step 2: POST /register/complete    → OTP + username + password → account created
-// Also: Login, Token Refresh, Profile
+// Implements OTP registration, password recovery,
+// account management, Google sign-in, and profile flows.
 // ============================================
 
 const { body } = require('express-validator');
@@ -81,37 +79,77 @@ const googleLoginValidation = [
     .withMessage('Google credential is required.'),
 ];
 
+const forgotPasswordValidation = [
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Valid email required.'),
+];
+
+const resetPasswordValidation = [
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Valid email required.'),
+  body('password')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters.')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('Password must contain uppercase, lowercase, and a number.'),
+];
+
+const changePasswordValidation = [
+  body('currentPassword').notEmpty().withMessage('Current password is required.'),
+  body('newPassword')
+    .isLength({ min: 8 })
+    .withMessage('New password must be at least 8 characters.')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('New password must contain uppercase, lowercase, and a number.'),
+];
+
+const changeEmailSendValidation = [
+  body('newEmail')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Please provide a valid new email address.'),
+];
+
+const changeEmailVerifyValidation = [
+  body('newEmail')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Please provide a valid new email address.'),
+  body('code')
+    .isLength({ min: 6, max: 6 })
+    .isNumeric()
+    .withMessage('Verification code must be a 6-digit number.'),
+];
+
+const isGoogleManagedAccount = (user) => Boolean(user?.firebase_uid);
+
 // ============================================
 // STEP 1: SEND OTP
 // ============================================
 
-/**
- * POST /api/auth/register/send-otp
- * Step 1 of registration: Send a verification code to the email
- */
 const sendRegistrationOTP = async (req, res, next) => {
   try {
     const { email } = req.body;
 
-    // Check if email is already registered
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
       return error(res, 'An account with this email already exists.', 409, 'DUPLICATE_EMAIL');
     }
 
-    // Generate OTP
     const otpResult = createOTP(email);
     if (!otpResult.success) {
       return error(res, otpResult.message, 429, 'OTP_COOLDOWN');
     }
 
-    // Send OTP via email
     const emailResult = await sendOTPEmail(email, otpResult.code);
 
     return success(res, {
       email,
       expiresIn: otpResult.expiresIn,
-      // Include preview URL in development for testing
       ...(process.env.NODE_ENV === 'development' && emailResult.previewUrl
         ? { previewUrl: emailResult.previewUrl }
         : {}),
@@ -125,16 +163,11 @@ const sendRegistrationOTP = async (req, res, next) => {
 // STEP 1.5: VERIFY OTP
 // ============================================
 
-/**
- * POST /api/auth/register/verify-otp
- * Verify the OTP code (intermediate step before setting credentials)
- */
 const verifyRegistrationOTP = async (req, res, next) => {
   try {
     const { email, code } = req.body;
 
     const result = verifyOTP(email, code);
-
     if (!result.success) {
       const statusCode = result.code === 'OTP_MAX_ATTEMPTS' ? 429 : 400;
       return error(res, result.message, statusCode, result.code);
@@ -153,15 +186,10 @@ const verifyRegistrationOTP = async (req, res, next) => {
 // STEP 2: COMPLETE REGISTRATION
 // ============================================
 
-/**
- * POST /api/auth/register/complete
- * Step 2: After OTP verification, set username and password
- */
 const completeRegistration = async (req, res, next) => {
   try {
     const { email, username, password, name } = req.body;
 
-    // Verify that the email was OTP-verified
     if (!isEmailVerified(email)) {
       return error(
         res,
@@ -171,34 +199,29 @@ const completeRegistration = async (req, res, next) => {
       );
     }
 
-    // Check for duplicate username
     const existingUsername = await User.findOne({ where: { username } });
     if (existingUsername) {
       return error(res, 'This username is already taken.', 409, 'DUPLICATE_USERNAME');
     }
 
-    // Double-check email isn't taken (race condition guard)
     const existingEmail = await User.findOne({ where: { email } });
     if (existingEmail) {
       consumeOTP(email);
       return error(res, 'An account with this email already exists.', 409, 'DUPLICATE_EMAIL');
     }
 
-    // Create the user (password hashed via beforeCreate hook)
     const user = await User.create({
       username,
       email,
       hashed_password: password,
       name: name || null,
       role: 'user',
-      verified_email: true, // Email was verified via OTP
+      verified_email: true,
       is_active: true,
     });
 
-    // Consume the OTP (one-time use complete)
     consumeOTP(email);
 
-    // Generate tokens
     const tokens = generateTokenPair(user);
 
     return created(res, {
@@ -214,10 +237,6 @@ const completeRegistration = async (req, res, next) => {
 // LOGIN
 // ============================================
 
-/**
- * POST /api/auth/login
- * Authenticate user and return JWT tokens
- */
 const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
@@ -236,7 +255,6 @@ const login = async (req, res, next) => {
       return error(res, 'Invalid email or password.', 401, 'INVALID_CREDENTIALS');
     }
 
-    // Update last login timestamp
     await user.update({ last_login_at: new Date() });
 
     const tokens = generateTokenPair(user);
@@ -250,10 +268,6 @@ const login = async (req, res, next) => {
   }
 };
 
-/**
- * POST /api/auth/google
- * Authenticate or register a user using a Google ID token.
- */
 const loginWithGoogle = async (req, res, next) => {
   try {
     const { credential } = req.body;
@@ -336,10 +350,6 @@ const loginWithGoogle = async (req, res, next) => {
 // TOKEN REFRESH
 // ============================================
 
-/**
- * POST /api/auth/refresh
- * Generate new token pair using refresh token
- */
 const refreshToken = async (req, res, next) => {
   try {
     const { refreshToken: token } = req.body;
@@ -372,22 +382,16 @@ const refreshToken = async (req, res, next) => {
 // PROFILE
 // ============================================
 
-/**
- * GET /api/auth/me
- */
 const getProfile = async (req, res) => {
   return success(res, { user: req.user.toSafeJSON() }, 'Profile retrieved.');
 };
 
-/**
- * PUT /api/auth/me
- */
 const updateProfile = async (req, res, next) => {
   try {
     const { name, avatar_url } = req.body;
     const updates = {};
-    if (name !== undefined) updates.name = name;
-    if (avatar_url !== undefined) updates.avatar_url = avatar_url;
+    if (name !== undefined) updates.name = name || null;
+    if (avatar_url !== undefined) updates.avatar_url = avatar_url || null;
 
     await req.user.update(updates);
     return success(res, { user: req.user.toSafeJSON() }, 'Profile updated.');
@@ -396,24 +400,222 @@ const updateProfile = async (req, res, next) => {
   }
 };
 
+// ============================================
+// FORGOT PASSWORD
+// ============================================
+
+const forgotPasswordSendOTP = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ where: { email } });
+    if (!user) {
+      return success(res, { email }, 'If this email is registered, a reset code has been sent.');
+    }
+
+    if (isGoogleManagedAccount(user) || !user.hashed_password) {
+      return error(
+        res,
+        'This account uses Google Sign-In and does not have a password to reset.',
+        400,
+        'GOOGLE_ACCOUNT'
+      );
+    }
+
+    const otpResult = createOTP(email);
+    if (!otpResult.success) {
+      return error(res, otpResult.message, 429, 'OTP_COOLDOWN');
+    }
+
+    await sendOTPEmail(email, otpResult.code);
+
+    return success(res, { email, expiresIn: otpResult.expiresIn }, 'Password reset code sent to your email.');
+  } catch (err) {
+    next(err);
+  }
+};
+
+const forgotPasswordVerifyOTP = async (req, res, next) => {
+  try {
+    const { email, code } = req.body;
+
+    const result = verifyOTP(email, code);
+    if (!result.success) {
+      const statusCode = result.code === 'OTP_MAX_ATTEMPTS' ? 429 : 400;
+      return error(res, result.message, statusCode, result.code);
+    }
+
+    return success(res, { email, verified: true }, 'Code verified. You may now reset your password.');
+  } catch (err) {
+    next(err);
+  }
+};
+
+const resetPassword = async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!isEmailVerified(email)) {
+      return error(res, 'Email not verified. Please complete the OTP step first.', 403, 'EMAIL_NOT_VERIFIED');
+    }
+
+    const user = await User.findOne({ where: { email } });
+    if (!user) {
+      return error(res, 'User not found.', 404);
+    }
+
+    if (isGoogleManagedAccount(user) || !user.hashed_password) {
+      consumeOTP(email);
+      return error(
+        res,
+        'This account uses Google Sign-In and does not have a password to reset.',
+        400,
+        'GOOGLE_ACCOUNT'
+      );
+    }
+
+    await user.update({ hashed_password: password });
+    consumeOTP(email);
+
+    return success(res, null, 'Password reset successfully. You can now sign in.');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ============================================
+// CHANGE PASSWORD (authenticated)
+// ============================================
+
+const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (isGoogleManagedAccount(req.user) || !req.user.hashed_password) {
+      return error(res, 'This account uses Google Sign-In and has no password to change.', 400, 'GOOGLE_ACCOUNT');
+    }
+
+    const isMatch = await req.user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return error(res, 'Current password is incorrect.', 401, 'WRONG_PASSWORD');
+    }
+
+    await req.user.update({ hashed_password: newPassword });
+    return success(res, null, 'Password changed successfully.');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ============================================
+// CHANGE EMAIL (authenticated)
+// ============================================
+
+const changeEmailSendOTP = async (req, res, next) => {
+  try {
+    const { newEmail } = req.body;
+
+    if (isGoogleManagedAccount(req.user)) {
+      return error(res, 'This account uses Google Sign-In and cannot change email here.', 400, 'GOOGLE_ACCOUNT');
+    }
+
+    if (req.user.email === newEmail) {
+      return error(res, 'New email must be different from your current email.', 400, 'EMAIL_UNCHANGED');
+    }
+
+    const existingUser = await User.findOne({ where: { email: newEmail } });
+    if (existingUser) {
+      return error(res, 'An account with this email already exists.', 409, 'DUPLICATE_EMAIL');
+    }
+
+    const otpResult = createOTP(newEmail);
+    if (!otpResult.success) {
+      return error(res, otpResult.message, 429, 'OTP_COOLDOWN');
+    }
+
+    const emailResult = await sendOTPEmail(newEmail, otpResult.code);
+
+    return success(res, {
+      newEmail,
+      expiresIn: otpResult.expiresIn,
+      ...(process.env.NODE_ENV === 'development' && emailResult.previewUrl
+        ? { previewUrl: emailResult.previewUrl }
+        : {}),
+    }, 'Verification code sent to your new email address.');
+  } catch (err) {
+    next(err);
+  }
+};
+
+const changeEmailVerifyOTP = async (req, res, next) => {
+  try {
+    const { newEmail, code } = req.body;
+
+    if (isGoogleManagedAccount(req.user)) {
+      return error(res, 'This account uses Google Sign-In and cannot change email here.', 400, 'GOOGLE_ACCOUNT');
+    }
+
+    const result = verifyOTP(newEmail, code);
+    if (!result.success) {
+      const statusCode = result.code === 'OTP_MAX_ATTEMPTS' ? 429 : 400;
+      return error(res, result.message, statusCode, result.code);
+    }
+
+    const existingUser = await User.findOne({ where: { email: newEmail } });
+    if (existingUser && existingUser.id !== req.user.id) {
+      consumeOTP(newEmail);
+      return error(res, 'An account with this email already exists.', 409, 'DUPLICATE_EMAIL');
+    }
+
+    await req.user.update({
+      email: newEmail,
+      verified_email: true,
+    });
+    consumeOTP(newEmail);
+
+    return success(res, { user: req.user.toSafeJSON() }, 'Email updated successfully.');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ============================================
+// DELETE ACCOUNT (authenticated)
+// ============================================
+
+const deleteAccount = async (req, res, next) => {
+  try {
+    await req.user.update({ is_active: false });
+    return success(res, null, 'Account deleted. We\'re sorry to see you go.');
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
-  // Step 1: Send OTP
   sendRegistrationOTP,
   sendOtpValidation,
-  // Step 1.5: Verify OTP
   verifyRegistrationOTP,
   verifyOtpValidation,
-  // Step 2: Complete registration
   completeRegistration,
   completeRegistrationValidation,
-  // Login
   login,
   loginValidation,
   loginWithGoogle,
   googleLoginValidation,
-  // Token refresh
   refreshToken,
-  // Profile
   getProfile,
   updateProfile,
+  forgotPasswordSendOTP,
+  forgotPasswordVerifyOTP,
+  resetPassword,
+  forgotPasswordValidation,
+  resetPasswordValidation,
+  changePassword,
+  changePasswordValidation,
+  changeEmailSendOTP,
+  changeEmailVerifyOTP,
+  changeEmailSendValidation,
+  changeEmailVerifyValidation,
+  deleteAccount,
 };

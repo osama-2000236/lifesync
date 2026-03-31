@@ -1,10 +1,9 @@
-// src/components/layout/AppLayout.jsx
 import { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   LayoutDashboard, MessageCircle, Heart, Wallet, Shield,
-  LogOut, Menu, X, Activity, ChevronRight
+  LogOut, Menu, X, Activity, ChevronRight, Plug,
 } from 'lucide-react';
 
 const navItems = [
@@ -12,6 +11,7 @@ const navItems = [
   { to: '/chat', label: 'Assistant', icon: MessageCircle },
   { to: '/health', label: 'Health', icon: Heart },
   { to: '/finance', label: 'Finance', icon: Wallet },
+  { to: '/integrations', label: 'Integrations', icon: Plug },
 ];
 
 export default function AppLayout() {
@@ -31,9 +31,10 @@ export default function AppLayout() {
         : 'text-navy-500 hover:bg-navy-50 hover:text-navy-700'
     }`;
 
+  const userInitial = (user?.name || user?.username || '?')[0].toUpperCase();
+
   return (
     <div className="flex h-screen bg-surface overflow-hidden">
-      {/* ─── Mobile Overlay ─── */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-navy-950/40 backdrop-blur-sm z-40 lg:hidden"
@@ -41,13 +42,11 @@ export default function AppLayout() {
         />
       )}
 
-      {/* ─── Sidebar ─── */}
       <aside className={`
         fixed lg:static inset-y-0 left-0 z-50 w-72 bg-white border-r border-navy-100
         flex flex-col transition-transform duration-300 ease-out
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
-        {/* Logo */}
         <div className="flex items-center gap-3 px-6 py-5 border-b border-navy-50">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-md">
             <Activity className="w-5 h-5 text-white" strokeWidth={2.5} />
@@ -61,7 +60,6 @@ export default function AppLayout() {
           </button>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={navLinkClass} onClick={() => setSidebarOpen(false)}>
@@ -84,16 +82,23 @@ export default function AppLayout() {
           )}
         </nav>
 
-        {/* User Card */}
         <div className="px-4 pb-4">
           <div className="flex items-center gap-3 p-3 rounded-xl bg-navy-50/60">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-navy-300 to-navy-500 flex items-center justify-center text-white text-sm font-bold">
-              {(user?.name || user?.username || '?')[0].toUpperCase()}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-navy-800 truncate">{user?.name || user?.username}</p>
-              <p className="text-[11px] text-navy-400 truncate">{user?.email}</p>
-            </div>
+            <Link to="/profile" className="flex items-center gap-3 flex-1 min-w-0 group">
+              <div className="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-navy-300 to-navy-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 group-hover:ring-2 group-hover:ring-emerald-400 transition-all">
+                {user?.avatar_url ? (
+                  <img src={user.avatar_url} alt="Profile avatar" className="w-full h-full object-cover" />
+                ) : (
+                  userInitial
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-navy-800 truncate group-hover:text-emerald-700 transition-colors">
+                  {user?.name || user?.username}
+                </p>
+                <p className="text-[11px] text-navy-400 truncate">{user?.email}</p>
+              </div>
+            </Link>
             <button
               onClick={handleLogout}
               className="p-2 rounded-lg hover:bg-navy-100 text-navy-400 hover:text-coral-500 transition-colors"
@@ -105,9 +110,7 @@ export default function AppLayout() {
         </div>
       </aside>
 
-      {/* ─── Main Content ─── */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Mobile Header */}
         <header className="lg:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-navy-100">
           <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-navy-50 text-navy-600">
             <Menu className="w-5 h-5" />

@@ -1,19 +1,21 @@
-// src/App.jsx
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
-// Eagerly loaded (small, needed immediately)
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import NotFoundPage from './pages/NotFoundPage';
 import AppLayout from './components/layout/AppLayout';
 
-// Lazy loaded (heavy pages with Chart.js, D3, etc.)
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const ChatPage = lazy(() => import('./pages/ChatPage'));
 const HealthPage = lazy(() => import('./pages/HealthPage'));
 const FinancePage = lazy(() => import('./pages/FinancePage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const OnboardingPage = lazy(() => import('./pages/OnboardingPage'));
+const IntegrationsPage = lazy(() => import('./pages/IntegrationsPage'));
 
 function LoadingScreen() {
   return (
@@ -30,7 +32,6 @@ function LoadingScreen() {
   );
 }
 
-// Suspense fallback for lazy-loaded pages
 function PageLoader() {
   return (
     <div className="flex items-center justify-center h-full min-h-[50vh]">
@@ -42,7 +43,6 @@ function PageLoader() {
   );
 }
 
-// Redirect to /login if not authenticated
 function ProtectedRoute() {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
@@ -50,7 +50,6 @@ function ProtectedRoute() {
   return <AppLayout />;
 }
 
-// Admin-only gate
 function AdminRoute() {
   const { user, loading, isAdmin } = useAuth();
   if (loading) return <LoadingScreen />;
@@ -59,7 +58,6 @@ function AdminRoute() {
   return <Outlet />;
 }
 
-// Redirect to /dashboard if already logged in
 function PublicRoute() {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
@@ -67,14 +65,23 @@ function PublicRoute() {
   return <Outlet />;
 }
 
+function RootRoute() {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  return <Navigate to={user ? '/dashboard' : '/login'} replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <Routes>
+          <Route path="/" element={<RootRoute />} />
+
           <Route element={<PublicRoute />}>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           </Route>
 
           <Route element={<ProtectedRoute />}>
@@ -82,13 +89,15 @@ export default function App() {
             <Route path="/chat" element={<Suspense fallback={<PageLoader />}><ChatPage /></Suspense>} />
             <Route path="/health" element={<Suspense fallback={<PageLoader />}><HealthPage /></Suspense>} />
             <Route path="/finance" element={<Suspense fallback={<PageLoader />}><FinancePage /></Suspense>} />
+            <Route path="/profile" element={<Suspense fallback={<PageLoader />}><ProfilePage /></Suspense>} />
+            <Route path="/onboarding" element={<Suspense fallback={<PageLoader />}><OnboardingPage /></Suspense>} />
+            <Route path="/integrations" element={<Suspense fallback={<PageLoader />}><IntegrationsPage /></Suspense>} />
             <Route element={<AdminRoute />}>
               <Route path="/admin" element={<Suspense fallback={<PageLoader />}><AdminPage /></Suspense>} />
             </Route>
           </Route>
 
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

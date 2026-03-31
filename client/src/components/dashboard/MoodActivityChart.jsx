@@ -1,72 +1,45 @@
-// src/components/dashboard/MoodActivityChart.jsx
 import { useMemo } from 'react';
 import { Scatter } from 'react-chartjs-2';
 import { Chart as ChartJS, LinearScale, PointElement, Tooltip, Legend } from 'chart.js';
+import ChartEmptyState from './ChartEmptyState';
 
 ChartJS.register(LinearScale, PointElement, Tooltip, Legend);
 
 export default function MoodActivityChart({ healthData = [], loading }) {
-  const chartData = useMemo(() => {
-    // Pair mood entries with exercise entries from the same day
+  const points = useMemo(() => {
     const dayBuckets = {};
 
-    if (healthData.length > 0) {
-      healthData.forEach((entry) => {
-        const day = new Date(entry.logged_at || entry.created_at).toDateString();
-        if (!dayBuckets[day]) dayBuckets[day] = { moods: [], exercises: [] };
-        if (entry.type === 'mood') dayBuckets[day].moods.push(Number(entry.value) || 0);
-        if (entry.type === 'exercise') dayBuckets[day].exercises.push(Number(entry.duration || entry.value) || 0);
-        if (entry.type === 'steps') dayBuckets[day].exercises.push(Math.round((Number(entry.value) || 0) / 100)); // Convert steps to rough activity minutes
-      });
-    } else {
-      // Demo data: 14 data points showing positive correlation
-      const demoPoints = [
-        { x: 0, y: 4 }, { x: 10, y: 5 }, { x: 15, y: 5 },
-        { x: 20, y: 6 }, { x: 25, y: 6 }, { x: 30, y: 7 },
-        { x: 35, y: 7 }, { x: 40, y: 7 }, { x: 45, y: 8 },
-        { x: 50, y: 8 }, { x: 60, y: 8 }, { x: 70, y: 9 },
-        { x: 80, y: 9 }, { x: 90, y: 9 },
-      ];
-      return {
-        datasets: [{
-          label: 'Mood vs. Activity',
-          data: demoPoints,
-          backgroundColor: demoPoints.map((p) => {
-            if (p.y >= 8) return 'rgba(16, 185, 129, 0.7)';
-            if (p.y >= 6) return 'rgba(99, 102, 241, 0.7)';
-            if (p.y >= 4) return 'rgba(245, 158, 11, 0.7)';
-            return 'rgba(244, 63, 94, 0.7)';
-          }),
-          borderColor: 'transparent',
-          pointRadius: 8,
-          pointHoverRadius: 11,
-        }],
-      };
-    }
+    healthData.forEach((entry) => {
+      const day = new Date(entry.logged_at || entry.created_at).toDateString();
+      if (!dayBuckets[day]) dayBuckets[day] = { moods: [], exercises: [] };
+      if (entry.type === 'mood') dayBuckets[day].moods.push(Number(entry.value) || 0);
+      if (entry.type === 'exercise') dayBuckets[day].exercises.push(Number(entry.duration || entry.value) || 0);
+      if (entry.type === 'steps') dayBuckets[day].exercises.push(Math.round((Number(entry.value) || 0) / 100));
+    });
 
-    const points = Object.values(dayBuckets)
-      .filter((d) => d.moods.length > 0 && d.exercises.length > 0)
-      .map((d) => ({
-        x: d.exercises.reduce((a, b) => a + b, 0) / d.exercises.length,
-        y: d.moods.reduce((a, b) => a + b, 0) / d.moods.length,
+    return Object.values(dayBuckets)
+      .filter((bucket) => bucket.moods.length > 0 && bucket.exercises.length > 0)
+      .map((bucket) => ({
+        x: bucket.exercises.reduce((sum, value) => sum + value, 0) / bucket.exercises.length,
+        y: bucket.moods.reduce((sum, value) => sum + value, 0) / bucket.moods.length,
       }));
-
-    return {
-      datasets: [{
-        label: 'Mood vs. Activity',
-        data: points,
-        backgroundColor: points.map((p) => {
-          if (p.y >= 8) return 'rgba(16, 185, 129, 0.7)';
-          if (p.y >= 6) return 'rgba(99, 102, 241, 0.7)';
-          if (p.y >= 4) return 'rgba(245, 158, 11, 0.7)';
-          return 'rgba(244, 63, 94, 0.7)';
-        }),
-        borderColor: 'transparent',
-        pointRadius: 8,
-        pointHoverRadius: 11,
-      }],
-    };
   }, [healthData]);
+
+  const chartData = {
+    datasets: [{
+      label: 'Mood vs. Activity',
+      data: points,
+      backgroundColor: points.map((point) => {
+        if (point.y >= 8) return 'rgba(16, 185, 129, 0.7)';
+        if (point.y >= 6) return 'rgba(99, 102, 241, 0.7)';
+        if (point.y >= 4) return 'rgba(245, 158, 11, 0.7)';
+        return 'rgba(244, 63, 94, 0.7)';
+      }),
+      borderColor: 'transparent',
+      pointRadius: 8,
+      pointHoverRadius: 11,
+    }],
+  };
 
   const options = {
     responsive: true,
@@ -103,6 +76,17 @@ export default function MoodActivityChart({ healthData = [], loading }) {
   };
 
   if (loading) return <div className="h-64 skeleton rounded-xl" />;
+
+  if (!points.length) {
+    return (
+      <ChartEmptyState
+        title="Not enough mood and activity data"
+        description="Log mood and exercise or steps on the same day to unlock this chart."
+        actionTo="/health"
+        actionLabel="Add health data"
+      />
+    );
+  }
 
   return (
     <div>
