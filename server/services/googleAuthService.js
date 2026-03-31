@@ -17,6 +17,20 @@ const getGoogleClient = () => {
   return googleClient;
 };
 
+const normalizeGoogleVerifyError = (error) => {
+  const message = error?.message || '';
+
+  if (/wrong recipient/i.test(message)) {
+    return new Error('This Google credential was issued for a different app.');
+  }
+
+  if (/(fetch|public keys|certificate|network|socket|econn|enotfound|etimedout)/i.test(message)) {
+    return new Error('Unable to verify Google sign-in right now.');
+  }
+
+  return new Error('Invalid Google credential.');
+};
+
 const verifyGoogleCredential = async (credential) => {
   const audiences = parseGoogleClientIds();
 
@@ -24,10 +38,16 @@ const verifyGoogleCredential = async (credential) => {
     throw new Error('Google authentication is not configured.');
   }
 
-  const ticket = await getGoogleClient().verifyIdToken({
-    idToken: credential,
-    audience: audiences.length === 1 ? audiences[0] : audiences,
-  });
+  let ticket;
+
+  try {
+    ticket = await getGoogleClient().verifyIdToken({
+      idToken: credential,
+      audience: audiences.length === 1 ? audiences[0] : audiences,
+    });
+  } catch (error) {
+    throw normalizeGoogleVerifyError(error);
+  }
 
   const payload = ticket.getPayload();
 
@@ -50,4 +70,5 @@ const verifyGoogleCredential = async (credential) => {
 module.exports = {
   verifyGoogleCredential,
   _parseGoogleClientIds: parseGoogleClientIds,
+  _normalizeGoogleVerifyError: normalizeGoogleVerifyError,
 };

@@ -314,14 +314,18 @@ const loginWithGoogle = async (req, res, next) => {
   } catch (err) {
     if (
       err.message === 'Google authentication is not configured.'
-      || err.message === 'Google account email is not verified.'
-      || err.message === 'Google did not return a valid identity.'
+      || err.message === 'Unable to verify Google sign-in right now.'
     ) {
-      return error(res, err.message, 400, 'GOOGLE_AUTH_FAILED');
+      return error(res, err.message, 503, 'GOOGLE_AUTH_UNAVAILABLE');
     }
 
-    if (err.message?.includes('Wrong recipient')) {
-      return error(res, 'This Google credential was issued for a different app.', 401, 'GOOGLE_AUTH_FAILED');
+    if (
+      err.message === 'Google account email is not verified.'
+      || err.message === 'Google did not return a valid identity.'
+      || err.message === 'Invalid Google credential.'
+      || err.message === 'This Google credential was issued for a different app.'
+    ) {
+      return error(res, err.message, 401, 'GOOGLE_AUTH_FAILED');
     }
 
     next(err);

@@ -1,4 +1,7 @@
-const { _parseGoogleClientIds } = require('../server/services/googleAuthService');
+const {
+  _parseGoogleClientIds,
+  _normalizeGoogleVerifyError,
+} = require('../server/services/googleAuthService');
 
 describe('googleAuthService', () => {
   const originalClientIds = process.env.GOOGLE_AUTH_CLIENT_IDS;
@@ -25,5 +28,29 @@ describe('googleAuthService', () => {
     delete process.env.GOOGLE_AUTH_CLIENT_IDS;
 
     expect(_parseGoogleClientIds()).toEqual([]);
+  });
+
+  test('normalizes wrong-recipient errors to a user-facing message', () => {
+    const normalized = _normalizeGoogleVerifyError(
+      new Error('Wrong recipient, payload audience != requiredAudience')
+    );
+
+    expect(normalized.message).toBe('This Google credential was issued for a different app.');
+  });
+
+  test('normalizes malformed token errors to a user-facing message', () => {
+    const normalized = _normalizeGoogleVerifyError(
+      new Error('Wrong number of segments in token: invalid-token')
+    );
+
+    expect(normalized.message).toBe('Invalid Google credential.');
+  });
+
+  test('normalizes transient verification failures to a retryable message', () => {
+    const normalized = _normalizeGoogleVerifyError(
+      new Error('Failed to fetch public keys from Google certificate endpoint')
+    );
+
+    expect(normalized.message).toBe('Unable to verify Google sign-in right now.');
   });
 });
