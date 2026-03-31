@@ -1,6 +1,7 @@
 // src/contexts/AuthContext.jsx
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authAPI } from '../services/api';
+import { getGoogleClientId } from '../config/runtime';
 
 const AuthContext = createContext(null);
 
@@ -13,7 +14,7 @@ export const useAuth = () => {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const googleAuthEnabled = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
+  const googleAuthEnabled = Boolean(getGoogleClientId());
 
   const persistSession = useCallback((payload) => {
     localStorage.setItem('accessToken', payload.accessToken);

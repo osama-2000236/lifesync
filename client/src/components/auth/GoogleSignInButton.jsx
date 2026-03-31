@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { getGoogleClientId } from '../../config/runtime';
 
 const GOOGLE_SCRIPT_ID = 'google-identity-services';
 
@@ -37,7 +38,7 @@ export default function GoogleSignInButton({
 }) {
   const buttonRef = useRef(null);
   const [scriptError, setScriptError] = useState('');
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const clientId = getGoogleClientId();
 
   useEffect(() => {
     let cancelled = false;
