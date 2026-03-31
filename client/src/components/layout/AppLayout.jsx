@@ -15,7 +15,7 @@ const navItems = [
 ];
 
 const publicPageItems = [
-  { to: '/landing', label: 'Landing', icon: Globe },
+  { to: '/landing', label: 'Home', icon: Globe },
   { to: '/privacy', label: 'Privacy', icon: Shield },
   { to: '/terms', label: 'Terms', icon: FileText },
 ];
@@ -54,13 +54,15 @@ export default function AppLayout() {
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         <div className="flex items-center gap-3 px-6 py-5 border-b border-navy-50">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-md">
-            <Activity className="w-5 h-5 text-white" strokeWidth={2.5} />
-          </div>
-          <div>
-            <h1 className="font-display text-lg font-bold text-navy-900 tracking-tight">LifeSync</h1>
-            <p className="text-[11px] text-navy-400 -mt-0.5 font-medium">Smart Life Management</p>
-          </div>
+          <Link to="/dashboard" className="flex items-center gap-3 min-w-0 group">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-md group-hover:shadow-lg transition-shadow">
+              <Activity className="w-5 h-5 text-white" strokeWidth={2.5} />
+            </div>
+            <div>
+              <h1 className="font-display text-lg font-bold text-navy-900 tracking-tight group-hover:text-emerald-700 transition-colors">LifeSync</h1>
+              <p className="text-[11px] text-navy-400 -mt-0.5 font-medium">Smart Life Management</p>
+            </div>
+          </Link>
           <button onClick={() => setSidebarOpen(false)} className="ml-auto lg:hidden text-navy-400">
             <X className="w-5 h-5" />
           </button>
@@ -132,10 +134,10 @@ export default function AppLayout() {
           <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-navy-50 text-navy-600">
             <Menu className="w-5 h-5" />
           </button>
-          <div className="flex items-center gap-2">
+          <Link to="/dashboard" className="flex items-center gap-2">
             <Activity className="w-5 h-5 text-emerald-500" />
             <span className="font-display font-bold text-navy-800">LifeSync</span>
-          </div>
+          </Link>
         </header>
 
         <div className="flex-1 overflow-y-auto">

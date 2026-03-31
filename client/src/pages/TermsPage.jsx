@@ -1,7 +1,4 @@
-import { Link } from 'react-router-dom';
 import {
-  Activity,
-  ArrowLeft,
   FileText,
   AlertCircle,
   CheckCircle,
@@ -9,53 +6,15 @@ import {
   Scale,
   Mail,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import FullScreenLoader from '../components/common/FullScreenLoader';
+import { PublicPageNavBar, PublicPageFooter } from '../components/public/PublicPageChrome';
 
 const LAST_UPDATED = 'March 2026';
 const CONTACT_EMAIL = 'lifesync.birzeit@gmail.com';
 const APP_NAME = 'LifeSync';
 const ORG_NAME = 'Birzeit University — LifeSync Project Team';
-
-function NavBar() {
-  return (
-    <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur-lg border-b border-navy-100">
-      <div className="max-w-4xl mx-auto px-6 h-14 flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center">
-            <Activity className="w-4 h-4 text-white" strokeWidth={2.5} />
-          </div>
-          <span className="font-display font-bold text-navy-900">{APP_NAME}</span>
-        </Link>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 rounded-xl border border-navy-100 bg-white/70 px-1 py-1">
-            <Link
-              to="/"
-              className="text-sm font-medium text-navy-500 hover:text-navy-800 px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-colors whitespace-nowrap"
-            >
-              Home
-            </Link>
-            <Link
-              to="/privacy"
-              className="text-sm font-medium text-navy-500 hover:text-navy-800 px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-colors whitespace-nowrap"
-            >
-              Privacy
-            </Link>
-            <Link
-              to="/terms"
-              className="text-sm font-medium text-emerald-700 px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-50 whitespace-nowrap"
-            >
-              Terms
-            </Link>
-          </div>
-          <Link to="/" className="hidden sm:flex items-center gap-1.5 text-sm text-navy-500 hover:text-navy-800 transition-colors">
-            <ArrowLeft className="w-4 h-4" />
-            {' '}
-            Back to home
-          </Link>
-        </div>
-      </div>
-    </nav>
-  );
-}
 
 function Section({ icon: Icon, title, children, id }) {
   return (
@@ -76,9 +35,15 @@ function SectionTitle({ children }) {
 }
 
 export default function TermsPage() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <FullScreenLoader />;
+  }
+
   return (
     <div className="min-h-screen bg-surface">
-      <NavBar />
+      <PublicPageNavBar activePage="terms" user={user} />
 
       <div className="bg-gradient-to-br from-navy-900 to-navy-800 py-16 px-6 text-center">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-navy-700/60 border border-navy-600 text-navy-300 text-sm font-medium mb-4">
@@ -218,22 +183,7 @@ export default function TermsPage() {
         </div>
       </div>
 
-      <footer className="bg-navy-950 text-navy-400 py-8 px-6 text-center text-sm">
-        <p>
-          &copy;
-          {' '}
-          {new Date().getFullYear()}
-          {' '}
-          {ORG_NAME}
-          {' '}
-          · All rights reserved
-        </p>
-        <div className="flex justify-center gap-6 mt-3">
-          <Link to="/" className="hover:text-white transition-colors">Home</Link>
-          <Link to="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
-          <Link to="/login" className="hover:text-white transition-colors">Sign In</Link>
-        </div>
-      </footer>
+      <PublicPageFooter user={user} />
     </div>
   );
 }

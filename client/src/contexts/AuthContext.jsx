@@ -4,6 +4,7 @@ import { authAPI } from '../services/api';
 import { getGoogleClientId } from '../config/runtime';
 
 const AuthContext = createContext(null);
+const ONBOARDING_EXEMPT_PATHS = new Set(['/landing', '/privacy', '/terms']);
 
 export const useAuth = () => {
   const ctx = useContext(AuthContext);
@@ -52,6 +53,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (loading || !user || user.role === 'admin') return;
+    if (ONBOARDING_EXEMPT_PATHS.has(location.pathname)) return;
 
     const onboardingDone = localStorage.getItem(getOnboardingKey(user.id));
     if (!onboardingDone && location.pathname !== '/onboarding') {

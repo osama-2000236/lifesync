@@ -10,6 +10,7 @@ import TermsPage from './pages/TermsPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import NotFoundPage from './pages/NotFoundPage';
 import AppLayout from './components/layout/AppLayout';
+import FullScreenLoader from './components/common/FullScreenLoader';
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const ChatPage = lazy(() => import('./pages/ChatPage'));
@@ -19,21 +20,6 @@ const AdminPage = lazy(() => import('./pages/AdminPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage'));
 const IntegrationsPage = lazy(() => import('./pages/IntegrationsPage'));
-
-function LoadingScreen() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-surface">
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center animate-pulse">
-          <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-        </div>
-        <p className="text-navy-400 text-sm font-medium">Loading LifeSync...</p>
-      </div>
-    </div>
-  );
-}
 
 function PageLoader() {
   return (
@@ -48,14 +34,14 @@ function PageLoader() {
 
 function ProtectedRoute() {
   const { user, loading } = useAuth();
-  if (loading) return <LoadingScreen />;
+  if (loading) return <FullScreenLoader />;
   if (!user) return <Navigate to="/login" replace />;
   return <AppLayout />;
 }
 
 function AdminRoute() {
   const { user, loading, isAdmin } = useAuth();
-  if (loading) return <LoadingScreen />;
+  if (loading) return <FullScreenLoader />;
   if (!user) return <Navigate to="/login" replace />;
   if (!isAdmin) return <Navigate to="/dashboard" replace />;
   return <Outlet />;
@@ -63,14 +49,14 @@ function AdminRoute() {
 
 function PublicRoute() {
   const { user, loading } = useAuth();
-  if (loading) return <LoadingScreen />;
+  if (loading) return <FullScreenLoader />;
   if (user) return <Navigate to="/dashboard" replace />;
   return <Outlet />;
 }
 
 function RootRoute() {
   const { user, loading } = useAuth();
-  if (loading) return <LoadingScreen />;
+  if (loading) return <FullScreenLoader />;
   if (user) return <Navigate to="/dashboard" replace />;
   return <LandingPage />;
 }

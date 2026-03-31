@@ -4,7 +4,7 @@ LifeSync is a full-stack health and finance tracking app with:
 
 - Express + Sequelize + MySQL backend
 - React + Vite frontend
-- DeepSeek-powered NLP chat for logging entries
+- Gemini-powered NLP chat for logging entries
 - Optional Firebase sync for chat history
 - OTP-based registration flow via email
 - Public landing, privacy, and terms pages for Google-ready deployment
@@ -30,8 +30,8 @@ $env:NODE_ENV='test'
 $env:JWT_SECRET='test_jwt_secret_for_ci_pipeline_32ch'
 $env:JWT_REFRESH_SECRET='test_refresh_secret_for_ci_pipe'
 $env:ENCRYPTION_KEY='test_encryption_key_for_ci_32ch!'
-$env:AI_PROVIDER='deepseek'
-$env:DEEPSEEK_API_KEY='ds-test'
+$env:AI_PROVIDER='gemini'
+$env:GEMINI_API_KEY='gem-test'
 npm test -- --forceExit --detectOpenHandles
 ```
 
@@ -52,7 +52,7 @@ To run the full app locally you need:
 - MySQL 8+
 - an `.env` file for the backend
 - an `.env` file for the frontend
-- a valid DeepSeek API key for real NLP chat behavior
+- a valid Gemini API key for real NLP chat behavior
 - a real SMTP provider for production OTP emails
 - Firebase credentials if you want real-time chat sync
 
@@ -85,9 +85,9 @@ DB_PASSWORD=your_mysql_password
 JWT_SECRET=replace_with_a_real_32_plus_char_secret
 JWT_REFRESH_SECRET=replace_with_a_second_real_secret
 ENCRYPTION_KEY=replace_with_a_real_32_plus_char_key
-AI_PROVIDER=deepseek
-DEEPSEEK_API_KEY=ds-...
-DEEPSEEK_MODEL=deepseek-chat
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-2.5-flash
 CORS_ORIGIN=http://localhost:5173
 APP_URL=http://localhost:5000
 ```
@@ -130,8 +130,7 @@ npm run build
 
 ## Environment Notes
 
-- `DEEPSEEK_API_KEY` is required for live chat parsing and model-backed summaries when `AI_PROVIDER=deepseek`.
-- If you keep `OPENAI_API_KEY`, the backend can still use OpenAI as a temporary fallback until you finish the migration.
+- `GEMINI_API_KEY` is required for live chat parsing and model-backed summaries when `AI_PROVIDER=gemini`.
 - Firebase is optional. If it is not configured, Firebase-backed chat sync is skipped.
 - SMTP is optional in development. In production, use a real provider.
 - For Gmail SMTP, set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_SECURE=false`, and set `SMTP_FROM_EMAIL` to the same Gmail address as `SMTP_USER`.

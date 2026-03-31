@@ -1,85 +1,111 @@
-const OpenAI = require('openai');
+const axios = require('axios');
 require('dotenv').config();
 
-const SUPPORTED_PROVIDERS = new Set(['deepseek', 'openai']);
-let cachedClient = null;
+const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+const SUPPORTED_PROVIDERS = new Set(['gemini']);
 
 const normalizeProvider = (value) => value?.trim().toLowerCase() || '';
 
 const resolveAIProvider = () => {
   const configuredProvider = normalizeProvider(process.env.AI_PROVIDER);
-  if (configuredProvider) {
-    if (!SUPPORTED_PROVIDERS.has(configuredProvider)) {
-      throw new Error(`Unsupported AI provider: ${process.env.AI_PROVIDER}`);
-    }
-    return configuredProvider;
+  if (!configuredProvider) {
+    return 'gemini';
   }
 
-  if (process.env.DEEPSEEK_API_KEY) return 'deepseek';
-  if (process.env.OPENAI_API_KEY) return 'openai';
-  return 'deepseek';
-};
-
-const getProviderSettings = () => {
-  const provider = resolveAIProvider();
-
-  if (provider === 'deepseek') {
-    const apiKey = process.env.DEEPSEEK_API_KEY || '';
-    return {
-      provider,
-      apiKey,
-      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-      clientOptions: {
-        apiKey,
-        baseURL: 'https://api.deepseek.com',
-      },
-    };
+  if (!SUPPORTED_PROVIDERS.has(configuredProvider)) {
+    throw new Error(`Unsupported AI provider: ${process.env.AI_PROVIDER}`);
   }
 
-  return {
-    provider,
-    apiKey: process.env.OPENAI_API_KEY || '',
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-    clientOptions: {
-      apiKey: process.env.OPENAI_API_KEY || '',
-    },
-  };
+  return configuredProvider;
 };
 
-const getAIClient = () => {
+const getProviderSettings = () => ({
+  provider: resolveAIProvider(),
+  apiKey: process.env.GEMINI_API_KEY || '',
+  model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  endpoint: `${GEMINI_API_BASE_URL}/models/${process.env.GEMINI_MODEL || 'gemini-2.5-flash'}:generateContent`,
+});
+
+const extractResponseText = (payload) => {
+  const candidates = payload?.candidates || [];
+  const text = candidates
+    .flatMap((candidate) => candidate?.content?.parts || [])
+    .map((part) => part?.text)
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+
+  if (text) return text;
+
+  const blockedReason = payload?.promptFeedback?.blockReason;
+  if (blockedReason) {
+    throw new Error(`Gemini blocked the response: ${blockedReason}`);
+  }
+
+  const finishReason = candidates[0]?.finishReason;
+  throw new Error(`Empty response from Gemini${finishReason ? ` (${finishReason})` : ''}`);
+};
+
+const generateStructuredJson = async ({
+  systemInstruction,
+  userPrompt,
+  responseSchema,
+  temperature = 0.1,
+  maxOutputTokens = 1000,
+}) => {
   const settings = getProviderSettings();
 
   if (!settings.apiKey) {
-    const providerName = settings.provider === 'deepseek' ? 'DeepSeek' : 'OpenAI';
-    throw new Error(`${providerName} API key is not configured.`);
+    throw new Error('Gemini API key is not configured.');
   }
 
-  const signature = JSON.stringify({
-    provider: settings.provider,
-    apiKey: settings.apiKey,
-    model: settings.model,
-  });
+  const payload = {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: userPrompt }],
+      },
+    ],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseJsonSchema: responseSchema,
+      temperature,
+      maxOutputTokens,
+    },
+  };
 
-  if (!cachedClient || cachedClient.signature !== signature) {
-    cachedClient = {
-      signature,
-      client: new OpenAI(settings.clientOptions),
+  if (systemInstruction) {
+    payload.systemInstruction = {
+      parts: [{ text: systemInstruction }],
     };
   }
 
-  return cachedClient.client;
-};
+  const response = await axios.post(settings.endpoint, payload, {
+    timeout: 30000,
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': settings.apiKey,
+    },
+  });
 
-const getAIModel = () => getProviderSettings().model;
+  const rawText = extractResponseText(response.data);
 
-const resetAIClient = () => {
-  cachedClient = null;
+  try {
+    return {
+      provider: settings.provider,
+      model: settings.model,
+      rawText,
+      data: JSON.parse(rawText),
+      response: response.data,
+    };
+  } catch (error) {
+    throw new Error(`Gemini returned invalid JSON: ${rawText.slice(0, 200)}`);
+  }
 };
 
 module.exports = {
-  getAIClient,
-  getAIModel,
+  generateStructuredJson,
   _resolveAIProvider: resolveAIProvider,
   _getProviderSettings: getProviderSettings,
-  _resetAIClient: resetAIClient,
+  _extractResponseText: extractResponseText,
 };

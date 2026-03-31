@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom';
 import {
-  Activity,
   MessageCircle,
   Heart,
   Wallet,
@@ -13,6 +12,9 @@ import {
   ChevronDown,
   Sparkles,
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import FullScreenLoader from '../components/common/FullScreenLoader';
+import { PublicPageNavBar, PublicPageFooter } from '../components/public/PublicPageChrome';
 
 const features = [
   {
@@ -66,59 +68,16 @@ const stats = [
   { value: '100% private', label: 'your data' },
 ];
 
-function NavBar() {
-  return (
-    <nav className="fixed top-0 inset-x-0 z-50 bg-white/80 backdrop-blur-xl border-b border-navy-100/60">
-      <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-sm">
-            <Activity className="w-4 h-4 text-white" strokeWidth={2.5} />
-          </div>
-          <span className="font-display text-lg font-bold text-navy-900">LifeSync</span>
-        </Link>
+function HeroSection({ user }) {
+  const primaryAction = user
+    ? { to: '/dashboard', label: 'Open dashboard' }
+    : { to: '/register', label: 'Get started free' };
+  const secondaryAction = user
+    ? { to: '/chat', label: 'Open assistant' }
+    : { to: '/login', label: 'Sign in' };
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 rounded-xl border border-navy-100 bg-white/70 px-1 py-1">
-            <Link
-              to="/"
-              className="text-sm font-medium text-emerald-700 px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-50 whitespace-nowrap"
-            >
-              Home
-            </Link>
-            <Link
-              to="/privacy"
-              className="text-sm font-medium text-navy-500 hover:text-navy-900 px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-all whitespace-nowrap"
-            >
-              Privacy
-            </Link>
-            <Link
-              to="/terms"
-              className="text-sm font-medium text-navy-500 hover:text-navy-900 px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-navy-50 transition-all whitespace-nowrap"
-            >
-              Terms
-            </Link>
-          </div>
-          <Link
-            to="/login"
-            className="hidden sm:inline-flex text-sm font-medium text-navy-600 hover:text-navy-900 px-4 py-2 rounded-lg hover:bg-navy-50 transition-all whitespace-nowrap"
-          >
-            Sign in
-          </Link>
-          <Link
-            to="/register"
-            className="hidden sm:inline-flex text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-emerald-600 px-5 py-2 rounded-xl shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all whitespace-nowrap"
-          >
-            Get started free
-          </Link>
-        </div>
-      </div>
-    </nav>
-  );
-}
-
-function HeroSection() {
   return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden pt-16">
+    <section className="relative min-h-[calc(100vh-4rem)] flex flex-col items-center justify-center overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-br from-navy-950 via-navy-900 to-navy-800">
         <div
           className="absolute inset-0 opacity-20"
@@ -170,17 +129,17 @@ function HeroSection() {
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link
-            to="/register"
+            to={primaryAction.to}
             className="group flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-base shadow-xl shadow-emerald-500/25 hover:from-emerald-600 hover:to-emerald-700 hover:shadow-emerald-500/35 transition-all"
           >
-            Get started free
+            {primaryAction.label}
             <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
           </Link>
           <Link
-            to="/login"
+            to={secondaryAction.to}
             className="flex items-center gap-2 px-8 py-4 rounded-2xl border border-navy-600 text-navy-300 font-medium text-base hover:border-navy-400 hover:text-white hover:bg-navy-800/50 transition-all"
           >
-            Sign in
+            {secondaryAction.label}
           </Link>
         </div>
 
@@ -288,7 +247,11 @@ function HowItWorksSection() {
   );
 }
 
-function CTASection() {
+function CTASection({ user }) {
+  const primaryAction = user
+    ? { to: '/dashboard', label: 'Open dashboard' }
+    : { to: '/register', label: 'Create free account' };
+
   return (
     <section className="py-24 px-6 bg-gradient-to-br from-navy-950 via-navy-900 to-navy-800 relative overflow-hidden">
       <div
@@ -308,10 +271,10 @@ function CTASection() {
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link
-            to="/register"
+            to={primaryAction.to}
             className="group flex items-center gap-2 px-8 py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-base shadow-xl shadow-emerald-500/25 hover:from-emerald-600 hover:to-emerald-700 transition-all"
           >
-            Create free account
+            {primaryAction.label}
             <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
           </Link>
         </div>
@@ -320,37 +283,21 @@ function CTASection() {
   );
 }
 
-function Footer() {
-  return (
-    <footer className="bg-navy-950 text-navy-400 px-6 py-10">
-      <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-            <Activity className="w-4 h-4 text-emerald-400" strokeWidth={2.5} />
-          </div>
-          <span className="font-display font-bold text-white text-sm">LifeSync</span>
-          <span className="text-navy-600 text-xs ml-2">· Birzeit University Graduation Project</span>
-        </div>
-
-        <div className="flex items-center gap-6 text-sm">
-          <Link to="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
-          <Link to="/terms" className="hover:text-white transition-colors">Terms of Service</Link>
-          <Link to="/login" className="hover:text-white transition-colors">Sign In</Link>
-        </div>
-      </div>
-    </footer>
-  );
-}
-
 export default function LandingPage() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <FullScreenLoader />;
+  }
+
   return (
     <div className="min-h-screen">
-      <NavBar />
-      <HeroSection />
+      <PublicPageNavBar activePage="landing" user={user} />
+      <HeroSection user={user} />
       <FeaturesSection />
       <HowItWorksSection />
-      <CTASection />
-      <Footer />
+      <CTASection user={user} />
+      <PublicPageFooter user={user} />
     </div>
   );
 }

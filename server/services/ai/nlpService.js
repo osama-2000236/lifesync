@@ -9,7 +9,7 @@
 // ============================================
 
 require('dotenv').config();
-const { getAIClient, getAIModel } = require('./providerClient');
+const { generateStructuredJson } = require('./providerClient');
 
 // ============================================
 // SYSTEM PROMPT — Core NLP Instructions
@@ -97,8 +97,8 @@ When needs_clarification = true:
 - Do NOT create entities (empty array)
 
 When needs_clarification = false:
-- Set clarification_question to null
-- Set clarification_options to null
+- Set clarification_question to an empty string
+- Set clarification_options to an empty array
 - Set confidence above 0.7
 
 ─── SPECIAL RULES ───
@@ -124,6 +124,109 @@ When needs_clarification = false:
 8. CLARIFICATION RESPONSES: When context is provided, match the answer to extract entities.
 
 ONLY return valid JSON.`;
+
+const GENERIC_ENTITY_SCHEMA = {
+  type: 'object',
+  properties: {
+    domain: { type: 'string' },
+    activity: { type: 'string' },
+    type: { type: 'string' },
+    value: { type: 'number' },
+    value_text: { type: 'string' },
+    unit: { type: 'string' },
+    duration: { type: 'integer' },
+    category: { type: 'string' },
+    amount: { type: 'number' },
+    currency: { type: 'string' },
+    description: { type: 'string' },
+  },
+  required: ['domain', 'type'],
+  additionalProperties: false,
+};
+
+const NLP_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    intent: { type: 'string' },
+    domain: { type: 'string' },
+    entities: {
+      type: 'array',
+      items: GENERIC_ENTITY_SCHEMA,
+    },
+    response: { type: 'string' },
+    is_cross_domain: { type: 'boolean' },
+    needs_clarification: { type: 'boolean' },
+    clarification_question: { type: 'string' },
+    clarification_options: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+    confidence: { type: 'number' },
+  },
+  required: [
+    'intent',
+    'domain',
+    'entities',
+    'response',
+    'is_cross_domain',
+    'needs_clarification',
+    'clarification_question',
+    'clarification_options',
+    'confidence',
+  ],
+  additionalProperties: false,
+};
+
+const WEEKLY_INSIGHTS_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: { type: 'string' },
+    patterns: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          observation: { type: 'string' },
+          domain: { type: 'string' },
+          trend: { type: 'string' },
+          severity: { type: 'string' },
+        },
+        required: ['observation', 'domain', 'trend', 'severity'],
+        additionalProperties: false,
+      },
+    },
+    recommendations: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+          priority: { type: 'string' },
+          domain: { type: 'string' },
+          reason: { type: 'string' },
+        },
+        required: ['text', 'priority', 'domain', 'reason'],
+        additionalProperties: false,
+      },
+    },
+    cross_domain_insights: { type: 'string' },
+    mood_trend: { type: 'string' },
+    spending_trend: { type: 'string' },
+    health_score: { type: 'number' },
+    financial_health_score: { type: 'number' },
+  },
+  required: [
+    'summary',
+    'patterns',
+    'recommendations',
+    'cross_domain_insights',
+    'mood_trend',
+    'spending_trend',
+    'health_score',
+    'financial_health_score',
+  ],
+  additionalProperties: false,
+};
 
 // ============================================
 // CORE NLP FUNCTIONS
@@ -155,41 +258,24 @@ const parseMessage = async (message, pendingClarification = null) => {
   const startTime = Date.now();
 
   try {
-    const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
+    const userPrompt = pendingClarification
+      ? buildClarificationContext(pendingClarification, message)
+      : message;
 
-    if (pendingClarification) {
-      messages.push({
-        role: 'user',
-        content: buildClarificationContext(pendingClarification, message),
-      });
-    } else {
-      messages.push({ role: 'user', content: message });
-    }
-
-    const completion = await getAIClient().chat.completions.create({
-      model: getAIModel(),
-      messages,
+    const completion = await generateStructuredJson({
+      systemInstruction: SYSTEM_PROMPT,
+      userPrompt,
+      responseSchema: NLP_RESPONSE_SCHEMA,
       temperature: 0.05,
-      max_tokens: 1000,
-      response_format: { type: 'json_object' },
+      maxOutputTokens: 1000,
     });
 
-    const rawResponse = completion.choices[0]?.message?.content;
+    const rawResponse = completion.rawText;
     const processingTime = Date.now() - startTime;
 
     if (!rawResponse) throw new Error('Empty response from AI provider');
 
-    let parsed;
-    try {
-      parsed = JSON.parse(rawResponse);
-    } catch (parseErr) {
-      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        parsed = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error(`Failed to parse NLP response: ${rawResponse.substring(0, 200)}`);
-      }
-    }
+    const parsed = completion.data;
 
     return normalizeNLPResponse(parsed, message, processingTime);
   } catch (error) {
@@ -240,7 +326,9 @@ const normalizeNLPResponse = (parsed, originalMessage, processingTime) => {
     : [];
 
   let clarificationQuestion = parsed.clarification_question || null;
-  let clarificationOptions = parsed.clarification_options || null;
+  let clarificationOptions = Array.isArray(parsed.clarification_options) && parsed.clarification_options.length > 0
+    ? parsed.clarification_options
+    : null;
 
   if (needsClarification && !clarificationQuestion) {
     clarificationQuestion = "I'm not sure I understood that fully. Could you add more detail?";
@@ -337,28 +425,22 @@ Respond ONLY with valid JSON:
   "recommendations": [
     { "text": "<actionable suggestion>", "priority": "high|medium|low", "domain": "health|finance|both", "reason": "<why>" }
   ],
-  "cross_domain_insights": "<health-finance correlations>",
+  "cross_domain_insights": "<health-finance correlations, or empty string if none>",
   "mood_trend": "improving|stable|declining|insufficient_data",
   "spending_trend": "increasing|stable|decreasing|insufficient_data",
-  "health_score": <1-100>,
-  "financial_health_score": <1-100>
+  "health_score": <1-100, use 0 if insufficient data>,
+  "financial_health_score": <1-100, use 0 if insufficient data>
 }`;
 
-    const completion = await getAIClient().chat.completions.create({
-      model: getAIModel(),
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a wellness and finance advisor for LifeSync. Be empathetic, reference specific data, find cross-domain correlations. JSON only.',
-        },
-        { role: 'user', content: prompt },
-      ],
+    const completion = await generateStructuredJson({
+      systemInstruction: 'You are a wellness and finance advisor for LifeSync. Be empathetic, reference specific data, find cross-domain correlations. JSON only.',
+      userPrompt: prompt,
+      responseSchema: WEEKLY_INSIGHTS_SCHEMA,
       temperature: 0.4,
-      max_tokens: 1200,
-      response_format: { type: 'json_object' },
+      maxOutputTokens: 1200,
     });
 
-    return JSON.parse(completion.choices[0]?.message?.content);
+    return completion.data;
   } catch (error) {
     console.error('Insight Generation Error:', error.message);
     return {
