@@ -9,6 +9,7 @@
 // ============================================
 
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = rateLimit;
 
 /**
  * Auth rate limiter — prevents brute-force login attacks
@@ -27,7 +28,7 @@ const authLimiter = rateLimit({
   keyGenerator: (req) => {
     // Rate limit by IP + email (if present) to prevent distributed attacks
     const email = req.body?.email || '';
-    return `${req.ip}:${email.toLowerCase().trim()}`;
+    return `${ipKeyGenerator(req.ip)}:${email.toLowerCase().trim()}`;
   },
   skip: (req) => process.env.NODE_ENV === 'test',
 });
@@ -46,7 +47,7 @@ const otpLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `otp:${req.body?.email?.toLowerCase()?.trim() || req.ip}`,
+  keyGenerator: (req) => `otp:${req.body?.email?.toLowerCase()?.trim() || ipKeyGenerator(req.ip)}`,
   skip: (req) => process.env.NODE_ENV === 'test',
 });
 
@@ -66,7 +67,7 @@ const chatLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => {
     // Use JWT user ID if available, fall back to IP
-    return req.user?.id ? `chat:${req.user.id}` : `chat:${req.ip}`;
+    return req.user?.id ? `chat:${req.user.id}` : `chat:${ipKeyGenerator(req.ip)}`;
   },
   skip: (req) => process.env.NODE_ENV === 'test',
 });
@@ -85,7 +86,7 @@ const insightLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `insight:${req.user?.id || req.ip}`,
+  keyGenerator: (req) => `insight:${req.user?.id || ipKeyGenerator(req.ip)}`,
   skip: (req) => process.env.NODE_ENV === 'test',
 });
 

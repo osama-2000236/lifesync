@@ -8,9 +8,12 @@
 // ============================================
 
 const { body } = require('express-validator');
+const { Op } = require('sequelize');
 const User = require('../models/User');
 const { generateTokenPair, verifyRefreshToken } = require('../utils/tokenUtils');
 const { success, created, error } = require('../utils/responseHelper');
+const { verifyGoogleCredential } = require('../services/googleAuthService');
+const { generateUniqueUsername } = require('../utils/usernameUtils');
 const {
   createOTP, verifyOTP, isEmailVerified, consumeOTP, sendOTPEmail,
 } = require('../services/otpService');
@@ -68,6 +71,14 @@ const loginValidation = [
   body('password')
     .notEmpty()
     .withMessage('Password is required.'),
+];
+
+const googleLoginValidation = [
+  body('credential')
+    .isString()
+    .trim()
+    .notEmpty()
+    .withMessage('Google credential is required.'),
 ];
 
 // ============================================
@@ -239,6 +250,84 @@ const login = async (req, res, next) => {
   }
 };
 
+/**
+ * POST /api/auth/google
+ * Authenticate or register a user using a Google ID token.
+ */
+const loginWithGoogle = async (req, res, next) => {
+  try {
+    const { credential } = req.body;
+    const googleProfile = await verifyGoogleCredential(credential);
+    const googleIdentity = `google:${googleProfile.subject}`;
+
+    let user = await User.findOne({
+      where: {
+        [Op.or]: [
+          { firebase_uid: googleIdentity },
+          { email: googleProfile.email },
+        ],
+      },
+    });
+
+    if (!user) {
+      const username = await generateUniqueUsername(User, googleProfile);
+      user = await User.create({
+        username,
+        email: googleProfile.email,
+        name: googleProfile.name,
+        avatar_url: googleProfile.avatarUrl,
+        role: 'user',
+        verified_email: true,
+        firebase_uid: googleIdentity,
+        is_active: true,
+      });
+    } else {
+      if (!user.is_active) {
+        return error(res, 'This account has been deactivated.', 403, 'ACCOUNT_DEACTIVATED');
+      }
+
+      if (user.firebase_uid && user.firebase_uid !== googleIdentity) {
+        return error(
+          res,
+          'This email is already linked to a different social sign-in provider.',
+          409,
+          'SOCIAL_ACCOUNT_CONFLICT'
+        );
+      }
+
+      await user.update({
+        firebase_uid: user.firebase_uid || googleIdentity,
+        verified_email: true,
+        name: user.name || googleProfile.name,
+        avatar_url: user.avatar_url || googleProfile.avatarUrl,
+      });
+    }
+
+    await user.update({ last_login_at: new Date() });
+
+    const tokens = generateTokenPair(user);
+
+    return success(res, {
+      user: user.toSafeJSON(),
+      ...tokens,
+    }, 'Google login successful.');
+  } catch (err) {
+    if (
+      err.message === 'Google authentication is not configured.'
+      || err.message === 'Google account email is not verified.'
+      || err.message === 'Google did not return a valid identity.'
+    ) {
+      return error(res, err.message, 400, 'GOOGLE_AUTH_FAILED');
+    }
+
+    if (err.message?.includes('Wrong recipient')) {
+      return error(res, 'This Google credential was issued for a different app.', 401, 'GOOGLE_AUTH_FAILED');
+    }
+
+    next(err);
+  }
+};
+
 // ============================================
 // TOKEN REFRESH
 // ============================================
@@ -316,6 +405,8 @@ module.exports = {
   // Login
   login,
   loginValidation,
+  loginWithGoogle,
+  googleLoginValidation,
   // Token refresh
   refreshToken,
   // Profile

@@ -1,7 +1,7 @@
 // src/services/api.js
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -54,6 +54,7 @@ export const authAPI = {
   verifyOTP: (email, code) => api.post('/auth/register/verify-otp', { email, code }),
   completeRegistration: (payload) => api.post('/auth/register/complete', payload),
   login: (email, password) => api.post('/auth/login', { email, password }),
+  googleLogin: (credential) => api.post('/auth/google', { credential }),
   refresh: (refreshToken) => api.post('/auth/refresh', { refreshToken }),
   getProfile: () => api.get('/auth/me'),
   updateProfile: (data) => api.put('/auth/me', data),

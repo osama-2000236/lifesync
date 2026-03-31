@@ -16,6 +16,7 @@ const {
   completeRegistration, completeRegistrationValidation,
   // Login + Refresh + Profile
   login, loginValidation,
+  loginWithGoogle, googleLoginValidation,
   refreshToken,
   getProfile, updateProfile,
 } = require('../controllers/authController');
@@ -27,6 +28,7 @@ router.post('/register/complete', completeRegistrationValidation, validate, comp
 
 // ─── Login & Tokens ───
 router.post('/login', loginValidation, validate, login);
+router.post('/google', googleLoginValidation, validate, loginWithGoogle);
 router.post('/refresh', refreshToken);
 
 // ─── Profile (Protected) ───

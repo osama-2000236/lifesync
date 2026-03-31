@@ -3,15 +3,18 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Activity, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
+import GoogleSignInButton from '../components/auth/GoogleSignInButton';
+import { getApiErrorMessage } from '../utils/apiErrors';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, loginWithGoogle, googleAuthEnabled } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -22,9 +25,28 @@ export default function LoginPage() {
       await login(email, password);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed. Please try again.');
+      setError(getApiErrorMessage(err, 'Login failed. Please try again.'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGoogleSuccess = async ({ credential }) => {
+    if (!credential) {
+      setError('Google did not return a credential. Please try again.');
+      return;
+    }
+
+    setError('');
+    setGoogleLoading(true);
+
+    try {
+      await loginWithGoogle(credential);
+      navigate('/dashboard');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Google sign-in failed. Please try again.'));
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -75,6 +97,23 @@ export default function LoginPage() {
           <h1 className="font-display text-2xl font-bold text-navy-900 mb-1">Welcome back</h1>
           <p className="text-navy-500 mb-8">Sign in to continue to your dashboard.</p>
 
+          {googleAuthEnabled && (
+            <div className="mb-6">
+              <GoogleSignInButton
+                onSuccess={handleGoogleSuccess}
+                onError={() => setError('Google sign-in is unavailable right now. Please try email login.')}
+              />
+              {googleLoading && (
+                <p className="mt-3 text-center text-sm text-navy-500">Completing Google sign-in...</p>
+              )}
+              <div className="mt-6 flex items-center gap-3 text-xs uppercase tracking-[0.22em] text-navy-300">
+                <div className="h-px flex-1 bg-navy-200" />
+                <span>Email sign in</span>
+                <div className="h-px flex-1 bg-navy-200" />
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="mb-6 p-4 rounded-xl bg-coral-500/10 border border-coral-500/20 text-coral-500 text-sm">
               {error}
@@ -117,7 +156,7 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || googleLoading}
               className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (

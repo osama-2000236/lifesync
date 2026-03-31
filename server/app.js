@@ -30,6 +30,7 @@ const { authLimiter, chatLimiter, insightLimiter, generalLimiter } = require('./
 // Initialize Express
 // ============================================
 const app = express();
+app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false);
 
 // ============================================
 // Global Middleware

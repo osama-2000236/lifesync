@@ -4,16 +4,19 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { authAPI } from '../services/api';
 import { Activity, ArrowRight, ArrowLeft, Loader2, Mail, KeyRound, User, Lock, Check } from 'lucide-react';
+import GoogleSignInButton from '../components/auth/GoogleSignInButton';
+import { getApiErrorMessage } from '../utils/apiErrors';
 
 const STEPS = ['email', 'otp', 'credentials'];
 
 export default function RegisterPage() {
-  const { register } = useAuth();
+  const { register, loginWithGoogle, googleAuthEnabled } = useAuth();
   const navigate = useNavigate();
 
   const [step, setStep] = useState(0); // 0=email, 1=otp, 2=credentials
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   // Step 1
   const [email, setEmail] = useState('');
@@ -33,7 +36,7 @@ export default function RegisterPage() {
       await authAPI.sendOTP(email);
       setStep(1);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to send verification code.');
+      setError(getApiErrorMessage(err, 'Failed to send verification code.'));
     } finally {
       setLoading(false);
     }
@@ -49,7 +52,7 @@ export default function RegisterPage() {
       await authAPI.verifyOTP(email, code);
       setStep(2);
     } catch (err) {
-      setError(err.response?.data?.message || 'Invalid verification code.');
+      setError(getApiErrorMessage(err, 'Invalid verification code.'));
     } finally {
       setLoading(false);
     }
@@ -82,9 +85,28 @@ export default function RegisterPage() {
       await register({ email, username, password, name: name || undefined });
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.message || 'Registration failed.');
+      setError(getApiErrorMessage(err, 'Registration failed.'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGoogleSuccess = async ({ credential }) => {
+    if (!credential) {
+      setError('Google did not return a credential. Please try again.');
+      return;
+    }
+
+    setError('');
+    setGoogleLoading(true);
+
+    try {
+      await loginWithGoogle(credential);
+      navigate('/dashboard');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Google sign-up failed. Please try again.'));
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -123,6 +145,24 @@ export default function RegisterPage() {
 
         {/* Card */}
         <div className="bg-white rounded-2xl shadow-lg shadow-navy-900/5 p-8">
+          {googleAuthEnabled && step === 0 && (
+            <div className="mb-6">
+              <GoogleSignInButton
+                text="signup_with"
+                onSuccess={handleGoogleSuccess}
+                onError={() => setError('Google sign-up is unavailable right now. Please use email.')}
+              />
+              {googleLoading && (
+                <p className="mt-3 text-center text-sm text-navy-500">Creating your account with Google...</p>
+              )}
+              <div className="mt-6 flex items-center gap-3 text-xs uppercase tracking-[0.22em] text-navy-300">
+                <div className="h-px flex-1 bg-navy-200" />
+                <span>Or verify by email</span>
+                <div className="h-px flex-1 bg-navy-200" />
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="mb-6 p-4 rounded-xl bg-coral-500/10 border border-coral-500/20 text-coral-500 text-sm">
               {error}
@@ -144,7 +184,7 @@ export default function RegisterPage() {
                   placeholder="you@example.com"
                 />
               </div>
-              <button type="submit" disabled={loading}
+              <button type="submit" disabled={loading || googleLoading}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50">
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Send Code <ArrowRight className="w-4 h-4" /></>}
               </button>
@@ -173,7 +213,7 @@ export default function RegisterPage() {
                   className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-navy-200 text-navy-600 font-medium hover:bg-navy-50 transition-colors">
                   <ArrowLeft className="w-4 h-4" /> Back
                 </button>
-                <button type="submit" disabled={loading || otp.some(d => !d)}
+                <button type="submit" disabled={loading || googleLoading || otp.some(d => !d)}
                   className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 disabled:opacity-50">
                   {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Verify <ArrowRight className="w-4 h-4" /></>}
                 </button>
@@ -207,7 +247,7 @@ export default function RegisterPage() {
                   placeholder="Min 8 chars, uppercase, lowercase, number" />
                 <p className="mt-1.5 text-xs text-navy-400">Must contain uppercase, lowercase, and a number.</p>
               </div>
-              <button type="submit" disabled={loading}
+              <button type="submit" disabled={loading || googleLoading}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50">
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Create Account <ArrowRight className="w-4 h-4" /></>}
               </button>

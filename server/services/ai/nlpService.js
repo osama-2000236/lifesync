@@ -11,9 +11,21 @@
 const OpenAI = require('openai');
 require('dotenv').config();
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let openaiClient = null;
+
+const getOpenAIClient = () => {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OpenAI API key is not configured.');
+  }
+
+  if (!openaiClient) {
+    openaiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+
+  return openaiClient;
+};
 
 // ============================================
 // SYSTEM PROMPT — Core NLP Instructions
@@ -170,7 +182,7 @@ const parseMessage = async (message, pendingClarification = null) => {
       messages.push({ role: 'user', content: message });
     }
 
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAIClient().chat.completions.create({
       model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
       messages,
       temperature: 0.05,
@@ -348,7 +360,7 @@ Respond ONLY with valid JSON:
   "financial_health_score": <1-100>
 }`;
 
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAIClient().chat.completions.create({
       model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
       messages: [
         {
