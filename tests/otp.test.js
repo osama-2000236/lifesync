@@ -5,7 +5,7 @@
 // ============================================
 
 const {
-  createOTP, verifyOTP, isEmailVerified, consumeOTP, _otpStore,
+  createOTP, verifyOTP, isEmailVerified, consumeOTP, sendOTPEmail, _otpStore,
 } = require('../server/services/otpService');
 
 // Clear store before each test
@@ -157,6 +157,47 @@ describe('OTP Service', () => {
 
       expect(isEmailVerified('test@example.com')).toBe(false);
       expect(_otpStore.has('test@example.com')).toBe(false);
+    });
+  });
+
+  describe('sendOTPEmail', () => {
+    test('should fail immediately in production when SMTP is not configured', async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      const previousHost = process.env.SMTP_HOST;
+      const previousUser = process.env.SMTP_USER;
+      const previousPass = process.env.SMTP_PASS;
+
+      process.env.NODE_ENV = 'production';
+      delete process.env.SMTP_HOST;
+      delete process.env.SMTP_USER;
+      delete process.env.SMTP_PASS;
+
+      let result;
+      let elapsedMs;
+
+      try {
+        const startedAt = Date.now();
+        result = await sendOTPEmail('test@example.com', '123456');
+        elapsedMs = Date.now() - startedAt;
+      } finally {
+        if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = previousNodeEnv;
+
+        if (previousHost === undefined) delete process.env.SMTP_HOST;
+        else process.env.SMTP_HOST = previousHost;
+
+        if (previousUser === undefined) delete process.env.SMTP_USER;
+        else process.env.SMTP_USER = previousUser;
+
+        if (previousPass === undefined) delete process.env.SMTP_PASS;
+        else process.env.SMTP_PASS = previousPass;
+      }
+
+      expect(result).toEqual(expect.objectContaining({
+        success: false,
+        code: 'SMTP_NOT_CONFIGURED',
+      }));
+      expect(elapsedMs).toBeLessThan(1000);
     });
   });
 });

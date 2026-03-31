@@ -127,6 +127,16 @@ const changeEmailVerifyValidation = [
 
 const isGoogleManagedAccount = (user) => Boolean(user?.firebase_uid);
 
+const handleOtpDeliveryFailure = (res, email, emailResult) => {
+  consumeOTP(email);
+  return error(
+    res,
+    emailResult.message || 'Unable to send verification code right now.',
+    503,
+    emailResult.code || 'EMAIL_SEND_FAILED'
+  );
+};
+
 // ============================================
 // STEP 1: SEND OTP
 // ============================================
@@ -146,6 +156,9 @@ const sendRegistrationOTP = async (req, res, next) => {
     }
 
     const emailResult = await sendOTPEmail(email, otpResult.code);
+    if (!emailResult.success) {
+      return handleOtpDeliveryFailure(res, email, emailResult);
+    }
 
     return success(res, {
       email,
@@ -427,7 +440,10 @@ const forgotPasswordSendOTP = async (req, res, next) => {
       return error(res, otpResult.message, 429, 'OTP_COOLDOWN');
     }
 
-    await sendOTPEmail(email, otpResult.code);
+    const emailResult = await sendOTPEmail(email, otpResult.code);
+    if (!emailResult.success) {
+      return handleOtpDeliveryFailure(res, email, emailResult);
+    }
 
     return success(res, { email, expiresIn: otpResult.expiresIn }, 'Password reset code sent to your email.');
   } catch (err) {
@@ -534,6 +550,9 @@ const changeEmailSendOTP = async (req, res, next) => {
     }
 
     const emailResult = await sendOTPEmail(newEmail, otpResult.code);
+    if (!emailResult.success) {
+      return handleOtpDeliveryFailure(res, newEmail, emailResult);
+    }
 
     return success(res, {
       newEmail,

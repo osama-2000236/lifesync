@@ -80,6 +80,33 @@ describe('authController account flows', () => {
     }));
   });
 
+  test('forgotPasswordSendOTP returns 503 when email delivery is unavailable', async () => {
+    User.findOne.mockResolvedValue({ firebase_uid: null, hashed_password: 'hash' });
+    createOTP.mockReturnValue({ success: true, code: '123456', expiresIn: 600 });
+    sendOTPEmail.mockResolvedValue({
+      success: false,
+      code: 'SMTP_NOT_CONFIGURED',
+      message: 'Email delivery is not configured right now. Please contact support.',
+    });
+    const res = createRes();
+
+    await authController.forgotPasswordSendOTP(
+      { body: { email: 'user@example.com' } },
+      res,
+      jest.fn()
+    );
+
+    expect(createOTP).toHaveBeenCalledWith('user@example.com');
+    expect(sendOTPEmail).toHaveBeenCalledWith('user@example.com', '123456');
+    expect(consumeOTP).toHaveBeenCalledWith('user@example.com');
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: false,
+      code: 'SMTP_NOT_CONFIGURED',
+      error: 'Email delivery is not configured right now. Please contact support.',
+    }));
+  });
+
   test('changePassword blocks Google-managed accounts', async () => {
     const req = {
       body: { currentPassword: 'OldPass123', newPassword: 'NewPass123' },
@@ -147,6 +174,30 @@ describe('authController account flows', () => {
     expect(createOTP).toHaveBeenCalledWith('new@example.com');
     expect(sendOTPEmail).toHaveBeenCalledWith('new@example.com', '123456');
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  test('changeEmailSendOTP returns 503 when email delivery is unavailable', async () => {
+    User.findOne.mockResolvedValue(null);
+    createOTP.mockReturnValue({ success: true, code: '123456', expiresIn: 600 });
+    sendOTPEmail.mockResolvedValue({
+      success: false,
+      code: 'SMTP_NOT_CONFIGURED',
+      message: 'Email delivery is not configured right now. Please contact support.',
+    });
+    const req = {
+      body: { newEmail: 'new@example.com' },
+      user: { email: 'current@example.com', firebase_uid: null },
+    };
+    const res = createRes();
+
+    await authController.changeEmailSendOTP(req, res, jest.fn());
+
+    expect(consumeOTP).toHaveBeenCalledWith('new@example.com');
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: false,
+      code: 'SMTP_NOT_CONFIGURED',
+    }));
   });
 
   test('changeEmailVerifyOTP updates the authenticated user email', async () => {

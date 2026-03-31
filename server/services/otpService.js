@@ -21,6 +21,11 @@ const OTP_LENGTH = 6;
 const OTP_EXPIRY_MINUTES = 10;
 const MAX_ATTEMPTS = 5;
 const COOLDOWN_SECONDS = 60; // Minimum seconds between OTP sends
+const SMTP_TIMEOUT_MS = parseInt(process.env.SMTP_TIMEOUT_MS || '10000', 10);
+
+const hasConfiguredSmtp = () => (
+  Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
+);
 
 /**
  * Generate a cryptographically random numeric OTP
@@ -169,7 +174,7 @@ const consumeOTP = (email) => {
  */
 const createTransporter = async () => {
   // Production: use real SMTP
-  if (process.env.SMTP_HOST && process.env.SMTP_HOST !== 'smtp.ethereal.email') {
+  if (hasConfiguredSmtp() && process.env.SMTP_HOST !== 'smtp.ethereal.email') {
     return nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT) || 587,
@@ -178,7 +183,15 @@ const createTransporter = async () => {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
+      connectionTimeout: SMTP_TIMEOUT_MS,
+      greetingTimeout: SMTP_TIMEOUT_MS,
+      socketTimeout: SMTP_TIMEOUT_MS,
+      dnsTimeout: SMTP_TIMEOUT_MS,
     });
+  }
+
+  if (process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') {
+    throw new Error('SMTP is not configured.');
   }
 
   // Development: use Ethereal (fake SMTP for testing)
@@ -193,6 +206,10 @@ const createTransporter = async () => {
         user: testAccount.user,
         pass: testAccount.pass,
       },
+      connectionTimeout: SMTP_TIMEOUT_MS,
+      greetingTimeout: SMTP_TIMEOUT_MS,
+      socketTimeout: SMTP_TIMEOUT_MS,
+      dnsTimeout: SMTP_TIMEOUT_MS,
     });
     console.log('📧 Using Ethereal test email account:', testAccount.user);
     return transporter;
@@ -262,7 +279,19 @@ const sendOTPEmail = async (email, code) => {
     };
   } catch (error) {
     console.error('Email send error:', error.message);
-    return { success: false, message: 'Failed to send email. Please try again.' };
+    if (error.message === 'SMTP is not configured.') {
+      return {
+        success: false,
+        code: 'SMTP_NOT_CONFIGURED',
+        message: 'Email delivery is not configured right now. Please contact support.',
+      };
+    }
+
+    return {
+      success: false,
+      code: 'EMAIL_SEND_FAILED',
+      message: 'Failed to send email. Please try again.',
+    };
   }
 };
 
