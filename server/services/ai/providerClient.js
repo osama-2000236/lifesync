@@ -2,35 +2,47 @@ const axios = require('axios');
 require('dotenv').config();
 
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
-const SUPPORTED_PROVIDERS = new Set(['gemini']);
+const HF_API_BASE_URL = 'https://api-inference.huggingface.co/v1';
+const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface']);
 
 const normalizeProvider = (value) => value?.trim().toLowerCase() || '';
 
 const resolveAIProvider = () => {
   const configuredProvider = normalizeProvider(process.env.AI_PROVIDER);
-  if (!configuredProvider) {
-    return 'gemini';
-  }
-
+  if (!configuredProvider) return 'gemini';
   if (!SUPPORTED_PROVIDERS.has(configuredProvider)) {
     throw new Error(`Unsupported AI provider: ${process.env.AI_PROVIDER}`);
   }
-
   return configuredProvider;
 };
 
-const getProviderSettings = () => ({
-  provider: resolveAIProvider(),
-  apiKey: process.env.GEMINI_API_KEY || '',
-  model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-  endpoint: `${GEMINI_API_BASE_URL}/models/${process.env.GEMINI_MODEL || 'gemini-2.5-flash'}:generateContent`,
-});
+const getProviderSettings = () => {
+  const provider = resolveAIProvider();
 
-const extractResponseText = (payload) => {
+  if (provider === 'huggingface') {
+    return {
+      provider,
+      apiKey: process.env.HF_API_KEY || '',
+      model: process.env.HF_MODEL || 'mistralai/Mistral-7B-Instruct-v0.3',
+      endpoint: `${HF_API_BASE_URL}/chat/completions`,
+    };
+  }
+
+  // Default: Gemini
+  return {
+    provider,
+    apiKey: process.env.GEMINI_API_KEY || '',
+    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    endpoint: `${GEMINI_API_BASE_URL}/models/${process.env.GEMINI_MODEL || 'gemini-2.5-flash'}:generateContent`,
+  };
+};
+
+// ─── Gemini response extractor ───
+const extractGeminiText = (payload) => {
   const candidates = payload?.candidates || [];
   const text = candidates
-    .flatMap((candidate) => candidate?.content?.parts || [])
-    .map((part) => part?.text)
+    .flatMap((c) => c?.content?.parts || [])
+    .map((p) => p?.text)
     .filter(Boolean)
     .join('\n')
     .trim();
@@ -38,34 +50,36 @@ const extractResponseText = (payload) => {
   if (text) return text;
 
   const blockedReason = payload?.promptFeedback?.blockReason;
-  if (blockedReason) {
-    throw new Error(`Gemini blocked the response: ${blockedReason}`);
-  }
+  if (blockedReason) throw new Error(`Gemini blocked the response: ${blockedReason}`);
 
   const finishReason = candidates[0]?.finishReason;
   throw new Error(`Empty response from Gemini${finishReason ? ` (${finishReason})` : ''}`);
 };
 
-const generateStructuredJson = async ({
-  systemInstruction,
-  userPrompt,
-  responseSchema,
-  temperature = 0.1,
-  maxOutputTokens = 1000,
-}) => {
+// ─── HuggingFace response extractor ───
+const extractHFText = (payload) => {
+  const text = payload?.choices?.[0]?.message?.content?.trim();
+  if (!text) throw new Error('Empty response from HuggingFace');
+  return text;
+};
+
+// ─── Strip markdown fences from model output ───
+const stripJsonFences = (text) => {
+  return text
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+};
+
+// ─── Call Gemini ───
+const callGemini = async ({ systemInstruction, userPrompt, responseSchema, temperature, maxOutputTokens }) => {
   const settings = getProviderSettings();
 
-  if (!settings.apiKey) {
-    throw new Error('Gemini API key is not configured.');
-  }
+  if (!settings.apiKey) throw new Error('Gemini API key is not configured.');
 
   const payload = {
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: userPrompt }],
-      },
-    ],
+    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
     generationConfig: {
       responseMimeType: 'application/json',
       responseJsonSchema: responseSchema,
@@ -75,9 +89,7 @@ const generateStructuredJson = async ({
   };
 
   if (systemInstruction) {
-    payload.systemInstruction = {
-      parts: [{ text: systemInstruction }],
-    };
+    payload.systemInstruction = { parts: [{ text: systemInstruction }] };
   }
 
   const response = await axios.post(settings.endpoint, payload, {
@@ -88,7 +100,7 @@ const generateStructuredJson = async ({
     },
   });
 
-  const rawText = extractResponseText(response.data);
+  const rawText = extractGeminiText(response.data);
 
   try {
     return {
@@ -98,14 +110,78 @@ const generateStructuredJson = async ({
       data: JSON.parse(rawText),
       response: response.data,
     };
-  } catch (error) {
+  } catch {
     throw new Error(`Gemini returned invalid JSON: ${rawText.slice(0, 200)}`);
   }
+};
+
+// ─── Call HuggingFace ───
+const callHuggingFace = async ({ systemInstruction, userPrompt, temperature, maxOutputTokens }) => {
+  const settings = getProviderSettings();
+
+  if (!settings.apiKey) throw new Error('HuggingFace API key is not configured.');
+
+  const messages = [];
+  if (systemInstruction) {
+    messages.push({ role: 'system', content: systemInstruction });
+  }
+  messages.push({ role: 'user', content: userPrompt });
+
+  const response = await axios.post(
+    settings.endpoint,
+    {
+      model: settings.model,
+      messages,
+      temperature: temperature ?? 0.1,
+      max_tokens: maxOutputTokens ?? 1000,
+      stream: false,
+    },
+    {
+      timeout: 60000,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${settings.apiKey}`,
+      },
+    }
+  );
+
+  const rawText = extractHFText(response.data);
+  const cleaned = stripJsonFences(rawText);
+
+  try {
+    return {
+      provider: settings.provider,
+      model: settings.model,
+      rawText: cleaned,
+      data: JSON.parse(cleaned),
+      response: response.data,
+    };
+  } catch {
+    throw new Error(`HuggingFace returned invalid JSON: ${cleaned.slice(0, 200)}`);
+  }
+};
+
+// ─── Main exported function — provider-agnostic ───
+const generateStructuredJson = async ({
+  systemInstruction,
+  userPrompt,
+  responseSchema,
+  temperature = 0.1,
+  maxOutputTokens = 1000,
+}) => {
+  const provider = resolveAIProvider();
+
+  if (provider === 'huggingface') {
+    // HF does not support JSON schema enforcement — rely on the system prompt
+    return callHuggingFace({ systemInstruction, userPrompt, temperature, maxOutputTokens });
+  }
+
+  return callGemini({ systemInstruction, userPrompt, responseSchema, temperature, maxOutputTokens });
 };
 
 module.exports = {
   generateStructuredJson,
   _resolveAIProvider: resolveAIProvider,
   _getProviderSettings: getProviderSettings,
-  _extractResponseText: extractResponseText,
+  _extractResponseText: extractGeminiText,
 };
