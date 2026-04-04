@@ -4,7 +4,7 @@ require('dotenv').config();
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const HF_API_BASE_URL = 'https://api-inference.huggingface.co/v1';
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
-const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface', 'groq']);
+const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface', 'groq', 'custom_hf']);
 
 const normalizeProvider = (value) => value?.trim().toLowerCase() || '';
 
@@ -35,6 +35,14 @@ const getProviderSettings = () => {
       apiKey: process.env.GROQ_API_KEY || '',
       model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
       endpoint: `${GROQ_API_BASE_URL}/chat/completions`,
+    };
+  }
+
+  if (provider === 'custom_hf') {
+    return {
+      provider,
+      apiKey: process.env.HF_API_KEY || '',
+      endpoint: process.env.CUSTOM_HF_ENDPOINT || '',
     };
   }
 
@@ -179,6 +187,49 @@ const callOpenAICompatible = async ({ systemInstruction, userPrompt, temperature
   }
 };
 
+// ─── Call LifeSync fine-tuned model via Gradio Space ───
+const callCustomHF = async ({ systemInstruction, userPrompt, temperature, maxOutputTokens }) => {
+  const settings = getProviderSettings();
+
+  if (!settings.apiKey) throw new Error('HF_API_KEY is not configured for custom_hf provider.');
+  if (!settings.endpoint) throw new Error('CUSTOM_HF_ENDPOINT is not configured.');
+
+  const response = await axios.post(
+    `${settings.endpoint}/run/predict`,
+    {
+      data: [
+        systemInstruction || '',
+        userPrompt,
+        temperature ?? 0.1,
+        maxOutputTokens ?? 512,
+      ],
+    },
+    {
+      timeout: 120000, // 2 min — covers ZeroGPU cold start
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${settings.apiKey}`,
+      },
+    }
+  );
+
+  const rawText = response.data?.data?.[0];
+  if (!rawText) throw new Error('Empty response from LifeSync HF Space');
+  const cleaned = stripJsonFences(rawText);
+
+  try {
+    return {
+      provider: settings.provider,
+      model: 'os-1202883/lifesync-nlp',
+      rawText: cleaned,
+      data: JSON.parse(cleaned),
+      response: response.data,
+    };
+  } catch {
+    throw new Error(`LifeSync HF Space returned invalid JSON: ${cleaned.slice(0, 200)}`);
+  }
+};
+
 // ─── Main exported function — provider-agnostic ───
 const generateStructuredJson = async ({
   systemInstruction,
@@ -188,6 +239,10 @@ const generateStructuredJson = async ({
   maxOutputTokens = 1000,
 }) => {
   const provider = resolveAIProvider();
+
+  if (provider === 'custom_hf') {
+    return callCustomHF({ systemInstruction, userPrompt, temperature, maxOutputTokens });
+  }
 
   if (provider === 'huggingface' || provider === 'groq') {
     return callOpenAICompatible({ systemInstruction, userPrompt, temperature, maxOutputTokens });

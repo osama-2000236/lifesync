@@ -15,6 +15,8 @@ describe('providerClient', () => {
     AI_PROVIDER: process.env.AI_PROVIDER,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_MODEL: process.env.GEMINI_MODEL,
+    HF_API_KEY: process.env.HF_API_KEY,
+    CUSTOM_HF_ENDPOINT: process.env.CUSTOM_HF_ENDPOINT,
   };
 
   afterEach(() => {
@@ -124,5 +126,53 @@ describe('providerClient', () => {
       userPrompt: 'hello',
       responseSchema: { type: 'object', properties: {} },
     })).rejects.toThrow('Gemini API key is not configured.');
+  });
+
+  test('resolves custom_hf provider settings', () => {
+    process.env.AI_PROVIDER = 'custom_hf';
+    process.env.HF_API_KEY = 'hf-test-key';
+    process.env.CUSTOM_HF_ENDPOINT = 'https://os-1202883-lifesync-api.hf.space';
+
+    expect(_resolveAIProvider()).toBe('custom_hf');
+    const settings = _getProviderSettings();
+    expect(settings.provider).toBe('custom_hf');
+    expect(settings.apiKey).toBe('hf-test-key');
+    expect(settings.endpoint).toBe('https://os-1202883-lifesync-api.hf.space');
+  });
+
+  test('generateStructuredJson calls custom_hf Space and parses JSON', async () => {
+    process.env.AI_PROVIDER = 'custom_hf';
+    process.env.HF_API_KEY = 'hf-test-key';
+    process.env.CUSTOM_HF_ENDPOINT = 'https://os-1202883-lifesync-api.hf.space';
+
+    axios.post.mockResolvedValue({
+      data: {
+        data: ['{"intent":"log_finance","domain":"finance","entities":[],"confidence":0.95}'],
+      },
+    });
+
+    const result = await generateStructuredJson({
+      systemInstruction: 'You are LifeSync NLP.',
+      userPrompt: 'I spent $20 on coffee',
+      temperature: 0.1,
+      maxOutputTokens: 512,
+    });
+
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    const [calledUrl] = axios.post.mock.calls[0];
+    expect(calledUrl).toBe('https://os-1202883-lifesync-api.hf.space/run/predict');
+    expect(result.data.intent).toBe('log_finance');
+    expect(result.provider).toBe('custom_hf');
+    expect(result.model).toBe('os-1202883/lifesync-nlp');
+  });
+
+  test('generateStructuredJson throws when custom_hf endpoint is missing', async () => {
+    process.env.AI_PROVIDER = 'custom_hf';
+    process.env.HF_API_KEY = 'hf-test-key';
+    delete process.env.CUSTOM_HF_ENDPOINT;
+
+    await expect(
+      generateStructuredJson({ systemInstruction: 'x', userPrompt: 'y' })
+    ).rejects.toThrow('CUSTOM_HF_ENDPOINT is not configured.');
   });
 });
