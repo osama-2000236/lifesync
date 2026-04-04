@@ -3,7 +3,8 @@ require('dotenv').config();
 
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const HF_API_BASE_URL = 'https://api-inference.huggingface.co/v1';
-const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface']);
+const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
+const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface', 'groq']);
 
 const normalizeProvider = (value) => value?.trim().toLowerCase() || '';
 
@@ -25,6 +26,15 @@ const getProviderSettings = () => {
       apiKey: process.env.HF_API_KEY || '',
       model: process.env.HF_MODEL || 'mistralai/Mistral-7B-Instruct-v0.3',
       endpoint: `${HF_API_BASE_URL}/chat/completions`,
+    };
+  }
+
+  if (provider === 'groq') {
+    return {
+      provider,
+      apiKey: process.env.GROQ_API_KEY || '',
+      model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+      endpoint: `${GROQ_API_BASE_URL}/chat/completions`,
     };
   }
 
@@ -56,10 +66,10 @@ const extractGeminiText = (payload) => {
   throw new Error(`Empty response from Gemini${finishReason ? ` (${finishReason})` : ''}`);
 };
 
-// ─── HuggingFace response extractor ───
-const extractHFText = (payload) => {
+// ─── OpenAI-compatible response extractor (HuggingFace + Groq) ───
+const extractOpenAIText = (payload, providerName) => {
   const text = payload?.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error('Empty response from HuggingFace');
+  if (!text) throw new Error(`Empty response from ${providerName}`);
   return text;
 };
 
@@ -122,11 +132,12 @@ const callGemini = async ({ systemInstruction, userPrompt, responseSchema, tempe
   }
 };
 
-// ─── Call HuggingFace ───
-const callHuggingFace = async ({ systemInstruction, userPrompt, temperature, maxOutputTokens }) => {
+// ─── Call OpenAI-compatible endpoint (HuggingFace or Groq) ───
+const callOpenAICompatible = async ({ systemInstruction, userPrompt, temperature, maxOutputTokens }) => {
   const settings = getProviderSettings();
+  const providerLabel = settings.provider === 'groq' ? 'Groq' : 'HuggingFace';
 
-  if (!settings.apiKey) throw new Error('HuggingFace API key is not configured.');
+  if (!settings.apiKey) throw new Error(`${providerLabel} API key is not configured.`);
 
   const messages = [];
   if (systemInstruction) {
@@ -152,7 +163,7 @@ const callHuggingFace = async ({ systemInstruction, userPrompt, temperature, max
     }
   );
 
-  const rawText = extractHFText(response.data);
+  const rawText = extractOpenAIText(response.data, providerLabel);
   const cleaned = stripJsonFences(rawText);
 
   try {
@@ -164,7 +175,7 @@ const callHuggingFace = async ({ systemInstruction, userPrompt, temperature, max
       response: response.data,
     };
   } catch {
-    throw new Error(`HuggingFace returned invalid JSON: ${cleaned.slice(0, 200)}`);
+    throw new Error(`${providerLabel} returned invalid JSON: ${cleaned.slice(0, 200)}`);
   }
 };
 
@@ -178,9 +189,8 @@ const generateStructuredJson = async ({
 }) => {
   const provider = resolveAIProvider();
 
-  if (provider === 'huggingface') {
-    // HF does not support JSON schema enforcement — rely on the system prompt
-    return callHuggingFace({ systemInstruction, userPrompt, temperature, maxOutputTokens });
+  if (provider === 'huggingface' || provider === 'groq') {
+    return callOpenAICompatible({ systemInstruction, userPrompt, temperature, maxOutputTokens });
   }
 
   return callGemini({ systemInstruction, userPrompt, responseSchema, temperature, maxOutputTokens });
