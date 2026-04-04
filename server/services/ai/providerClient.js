@@ -63,8 +63,15 @@ const extractHFText = (payload) => {
   return text;
 };
 
-// ─── Strip markdown fences from model output ───
+// ─── Extract JSON object from model output (handles preamble/postamble text) ───
 const stripJsonFences = (text) => {
+  // Find the first { and last } to extract the JSON object directly
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    return text.slice(start, end + 1).trim();
+  }
+  // Fallback: strip markdown fences only
   return text
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
