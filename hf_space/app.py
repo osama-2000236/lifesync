@@ -1,9 +1,10 @@
 """
-LifeSync NLP API — HuggingFace Space
-=====================================
-Hardware : ZeroGPU  (apply in Space Settings → Hardware)
+LifeSync NLP API — HuggingFace Space (CPU Basic)
+==================================================
+Hardware : CPU Basic (free — 2 vCPU, 16GB RAM)
 Secret   : HF_TOKEN (Space Settings → Secrets)
 
+Loads the GGUF-quantized model (~4GB) and runs inference on CPU.
 Exposes a Gradio API endpoint that LifeSync's providerClient.js calls as:
   POST /run/predict
   {"data": [system_msg, user_msg, temperature, max_tokens]}
@@ -11,62 +12,44 @@ Exposes a Gradio API endpoint that LifeSync's providerClient.js calls as:
 """
 
 import os
-import json
-import torch
-import spaces
 import gradio as gr
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
-from peft import PeftModel
+from huggingface_hub import hf_hub_download
+from llama_cpp import Llama
 
-HF_TOKEN      = os.environ.get("HF_TOKEN")
-BASE_MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.2"
-ADAPTER_ID    = "os-1202883/lifesync-nlp"
+HF_TOKEN = os.environ.get("HF_TOKEN")
 
-# Tokenizer is small — load once at startup on CPU
-tokenizer = AutoTokenizer.from_pretrained(ADAPTER_ID, token=HF_TOKEN)
+# Download GGUF model once (cached after first run)
+print("Downloading GGUF model...")
+model_path = hf_hub_download(
+    repo_id="os-1202883/LifeSync",
+    filename="lifesync.gguf",
+    token=HF_TOKEN,
+)
+print(f"Model downloaded to: {model_path}")
 
-_model = None  # cached in GPU memory while Space is warm
+# Load model on CPU
+print("Loading model...")
+llm = Llama(
+    model_path=model_path,
+    n_ctx=2048,
+    n_threads=2,  # CPU Basic has 2 vCPU
+    verbose=False,
+)
+print("Model loaded and ready.")
 
 
-@spaces.GPU
 def infer(system_msg: str, user_msg: str, temperature: float, max_tokens: float) -> str:
-    global _model
-
-    if _model is None:
-        bnb = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_use_double_quant=True,
-        )
-        base = AutoModelForCausalLM.from_pretrained(
-            BASE_MODEL_ID,
-            quantization_config=bnb,
-            device_map="auto",
-            token=HF_TOKEN,
-        )
-        _model = PeftModel.from_pretrained(base, ADAPTER_ID, token=HF_TOKEN)
-        _model.eval()
-
     messages = []
     if system_msg:
         messages.append({"role": "system", "content": system_msg})
     messages.append({"role": "user", "content": user_msg})
 
-    inputs = tokenizer.apply_chat_template(
-        messages, return_tensors="pt", add_generation_prompt=True
-    ).to("cuda")
-
-    with torch.no_grad():
-        outputs = _model.generate(
-            inputs,
-            max_new_tokens=int(max_tokens),
-            temperature=float(temperature),
-            do_sample=True,
-            pad_token_id=tokenizer.eos_token_id,
-        )
-
-    return tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+    response = llm.create_chat_completion(
+        messages=messages,
+        temperature=float(temperature) if temperature else 0.1,
+        max_tokens=int(max_tokens) if max_tokens else 512,
+    )
+    return response["choices"][0]["message"]["content"]
 
 
 demo = gr.Interface(
@@ -82,4 +65,4 @@ demo = gr.Interface(
     title="LifeSync NLP API",
     description="Internal model endpoint for the LifeSync app.",
 )
-demo.launch()
+demo.launch(server_name="0.0.0.0", server_port=7860)

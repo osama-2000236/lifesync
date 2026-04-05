@@ -163,7 +163,7 @@ describe('providerClient', () => {
     expect(calledUrl).toBe('https://os-1202883-lifesync-api.hf.space/run/predict');
     expect(result.data.intent).toBe('log_finance');
     expect(result.provider).toBe('custom_hf');
-    expect(result.model).toBe('os-1202883/lifesync-nlp');
+    expect(result.model).toBe('os-1202883/LifeSync');
   });
 
   test('generateStructuredJson throws when custom_hf endpoint is missing', async () => {

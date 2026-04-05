@@ -1,4 +1,6 @@
 // jest.config.js
+process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'test-encryption-key-for-jest-32ch';
+
 module.exports = {
   testEnvironment: 'node',
   verbose: true,

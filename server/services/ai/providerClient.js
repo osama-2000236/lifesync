@@ -220,7 +220,7 @@ const callCustomHF = async ({ systemInstruction, userPrompt, temperature, maxOut
   try {
     return {
       provider: settings.provider,
-      model: 'os-1202883/lifesync-nlp',
+      model: 'os-1202883/LifeSync',
       rawText: cleaned,
       data: JSON.parse(cleaned),
       response: response.data,
