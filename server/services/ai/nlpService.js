@@ -268,6 +268,7 @@ const parseMessage = async (message, pendingClarification = null) => {
       responseSchema: NLP_RESPONSE_SCHEMA,
       temperature: 0.05,
       maxOutputTokens: 1000,
+      feature: 'chat',
     });
 
     const rawResponse = completion.rawText;
@@ -438,6 +439,7 @@ Respond ONLY with valid JSON:
       responseSchema: WEEKLY_INSIGHTS_SCHEMA,
       temperature: 0.4,
       maxOutputTokens: 1200,
+      feature: 'insights',
     });
 
     return completion.data;

@@ -26,23 +26,17 @@ export default function InsightCards({ insights, loading }) {
     );
   }
 
-  // Use demo insights if none provided
-  const data = insights || {
-    summary: 'You tend to spend more on days when you sleep less than 6 hours. Your step count has improved 15% this week!',
-    patterns: [
-      { observation: 'Low sleep correlates with higher food spending', domain: 'both', trend: 'declining', severity: 'concerning' },
-      { observation: 'Step count has increased steadily', domain: 'health', trend: 'improving', severity: 'positive' },
-    ],
-    recommendations: [
-      { text: 'Try to get 7+ hours of sleep to reduce impulse spending', priority: 'high', domain: 'both', reason: 'Sleep-spending correlation detected' },
-      { text: 'Consider meal prepping on weekends to cut food costs', priority: 'medium', domain: 'finance', reason: 'Food spending is 35% of total' },
-    ],
-    cross_domain_insights: 'Your coffee spending increased 20% this week, and your sleep decreased by 1 hour on average. These may be related.',
-    mood_trend: 'improving',
-    spending_trend: 'stable',
-    health_score: 72,
-    financial_health_score: 65,
-  };
+  // Show empty state when no real insights exist
+  if (!insights) {
+    return (
+      <div className="p-5 rounded-2xl bg-navy-50 border border-navy-100 text-center py-10">
+        <p className="text-navy-400 text-sm">
+          No insights yet — log some health or finance data to get started.
+        </p>
+      </div>
+    );
+  }
+  const data = insights;
 
   return (
     <div className="space-y-4">

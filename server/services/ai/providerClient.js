@@ -17,8 +17,14 @@ const resolveAIProvider = () => {
   return configuredProvider;
 };
 
-const getProviderSettings = () => {
-  const provider = resolveAIProvider();
+/** Feature-scoped provider resolution. */
+const getProvider = (feature) => {
+  const key = feature === 'chat' ? 'CHAT_AI_PROVIDER' : 'INSIGHTS_AI_PROVIDER';
+  return normalizeProvider(process.env[key]) || normalizeProvider(process.env.AI_PROVIDER) || 'gemini';
+};
+
+const getProviderSettings = (providerOverride) => {
+  const provider = providerOverride || resolveAIProvider();
 
   if (provider === 'huggingface') {
     return {
@@ -98,8 +104,8 @@ const stripJsonFences = (text) => {
 };
 
 // ─── Call Gemini ───
-const callGemini = async ({ systemInstruction, userPrompt, responseSchema, temperature, maxOutputTokens }) => {
-  const settings = getProviderSettings();
+const callGemini = async ({ systemInstruction, userPrompt, responseSchema, temperature, maxOutputTokens, providerOverride }) => {
+  const settings = getProviderSettings(providerOverride);
 
   if (!settings.apiKey) throw new Error('Gemini API key is not configured.');
 
@@ -141,8 +147,8 @@ const callGemini = async ({ systemInstruction, userPrompt, responseSchema, tempe
 };
 
 // ─── Call OpenAI-compatible endpoint (HuggingFace or Groq) ───
-const callOpenAICompatible = async ({ systemInstruction, userPrompt, temperature, maxOutputTokens }) => {
-  const settings = getProviderSettings();
+const callOpenAICompatible = async ({ systemInstruction, userPrompt, temperature, maxOutputTokens, providerOverride }) => {
+  const settings = getProviderSettings(providerOverride);
   const providerLabel = settings.provider === 'groq' ? 'Groq' : 'HuggingFace';
 
   if (!settings.apiKey) throw new Error(`${providerLabel} API key is not configured.`);
@@ -187,47 +193,202 @@ const callOpenAICompatible = async ({ systemInstruction, userPrompt, temperature
   }
 };
 
-// ─── Call LifeSync fine-tuned model via Gradio Space ───
-const callCustomHF = async ({ systemInstruction, userPrompt, temperature, maxOutputTokens }) => {
-  const settings = getProviderSettings();
-
-  if (!settings.apiKey) throw new Error('HF_API_KEY is not configured for custom_hf provider.');
-  if (!settings.endpoint) throw new Error('CUSTOM_HF_ENDPOINT is not configured.');
-
-  const response = await axios.post(
-    `${settings.endpoint}/run/predict`,
-    {
-      data: [
-        systemInstruction || '',
-        userPrompt,
-        temperature ?? 0.1,
-        maxOutputTokens ?? 512,
-      ],
-    },
-    {
-      timeout: 120000, // 2 min — covers ZeroGPU cold start
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${settings.apiKey}`,
-      },
+// ─── Parse tagged model output into NLP response shape ───
+// Model outputs: [Category] Food [Amount] $50 [Activity] purchased ...
+const parseModelTagOutput = (rawText) => {
+  const tags = {};
+  const regex = /\[(\w+(?:[- ]\w+)?)\]\s*([^\[\n]*)/g;
+  let m;
+  while ((m = regex.exec(rawText)) !== null) {
+    const key = m[1].trim().toLowerCase().replace(/[- ]/g, '_');
+    const val = m[2].trim();
+    if (val && val !== 'N/A' && val !== 'None' && !tags[key]) {
+      tags[key] = val; // first occurrence wins
     }
-  );
-
-  const rawText = response.data?.data?.[0];
-  if (!rawText) throw new Error('Empty response from LifeSync HF Space');
-  const cleaned = stripJsonFences(rawText);
-
-  try {
-    return {
-      provider: settings.provider,
-      model: 'os-1202883/LifeSync',
-      rawText: cleaned,
-      data: JSON.parse(cleaned),
-      response: response.data,
-    };
-  } catch {
-    throw new Error(`LifeSync HF Space returned invalid JSON: ${cleaned.slice(0, 200)}`);
   }
+
+  const amountStr = tags.amount ? tags.amount.replace(/[^0-9.]/g, '') : null;
+  const amount = amountStr ? parseFloat(amountStr) : null;
+  const category = tags.category || 'Other';
+  const responseText = tags.response || tags.follow_up || 'Got it!';
+  const confidenceRaw = tags.confidence ? parseFloat(tags.confidence) : null;
+  const confidence = confidenceRaw ? confidenceRaw / 100 : 0.8;
+  const intensity = tags.intensity ? parseInt(tags.intensity) : null;
+
+  const entities = [];
+  let domain = 'general';
+  let intent = 'query_general';
+
+  if (amount !== null && !isNaN(amount) && amount > 0) {
+    domain = 'finance';
+    intent = 'log_finance';
+    entities.push({
+      domain: 'finance',
+      type: tags.feeling?.toLowerCase().includes('income') ? 'income' : 'expense',
+      amount,
+      currency: 'USD',
+      category,
+      activity: tags.description || tags.activity || 'transaction',
+      description: tags.description || tags.activity || null,
+    });
+  }
+
+  // Health: mood/exercise detected via tags
+  if (intensity && tags.mood && tags.mood.toLowerCase() !== 'neutral') {
+    const healthEntity = {
+      domain: 'health',
+      type: 'mood',
+      value: intensity,
+      unit: 'rating',
+      category: 'Mood',
+      activity: tags.mood,
+    };
+    if (domain === 'finance') {
+      domain = 'both';
+      intent = 'log_both';
+    } else {
+      domain = 'health';
+      intent = 'log_health';
+    }
+    entities.push(healthEntity);
+  }
+
+  return {
+    intent,
+    domain,
+    entities,
+    response: responseText,
+    is_cross_domain: domain === 'both',
+    needs_clarification: false,
+    clarification_question: '',
+    clarification_options: [],
+    confidence,
+  };
+};
+
+/**
+ * Calls the LifeSync HF Space via Gradio queue+SSE.
+ * Verified against live Space 2026-04-06.
+ * POST body : {"data": [system_msg, user_msg, temperature, max_tokens]}
+ * SSE flow  : heartbeat* → complete → data:["<raw string>"]
+ */
+const callCustomHF = async (systemMsg, userMsg) => {
+  const BASE = (process.env.CUSTOM_HF_ENDPOINT ||
+    'https://os-1202883-lifesync-api.hf.space').replace(/\/$/, '');
+  const QUEUE = `${BASE}/gradio_api/call/infer`;
+  const TEMP = parseFloat(process.env.CUSTOM_HF_TEMPERATURE) || 0.1;
+  const MAXT = parseInt(process.env.CUSTOM_HF_MAX_TOKENS) || 512;
+
+  const headers = { 'Content-Type': 'application/json' };
+  const hfKey = process.env.HF_API_KEY;
+  if (hfKey && hfKey.trim()) headers['Authorization'] = `Bearer ${hfKey.trim()}`;
+
+  // Step 1 — queue
+  const qRes = await fetch(QUEUE, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ data: [systemMsg, userMsg, TEMP, MAXT] }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!qRes.ok) {
+    const t = await qRes.text().catch(() => '');
+    throw new Error(`HF queue failed ${qRes.status}: ${t.slice(0, 200)}`);
+  }
+  const { event_id: eventId } = await qRes.json();
+  if (!eventId) throw new Error('HF Space returned no event_id');
+
+  // Step 2 — SSE stream
+  const sseRes = await fetch(`${BASE}/gradio_api/call/infer/${eventId}`, {
+    headers: { Accept: 'text/event-stream', ...headers },
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!sseRes.ok) throw new Error(`HF SSE failed ${sseRes.status}`);
+
+  const reader = sseRes.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let lastEvent = '';
+  let rawText = null;
+
+  // eslint-disable-next-line no-constant-condition
+  outer: while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (line.startsWith('event:')) lastEvent = line.slice(6).trim();
+      else if (line.startsWith('data:')) {
+        const ds = line.slice(5).trim();
+        if (lastEvent === 'complete' && ds && ds !== 'null') {
+          rawText = JSON.parse(ds)[0].trim(); // outer[0] → raw model string
+          break outer;
+        }
+      }
+    }
+  }
+  reader.cancel().catch(() => {});
+  if (rawText === null) throw new Error('HF Space timeout after 120 s');
+
+  // Step 3 — parse: try JSON first, then tag format, then fallback
+  try {
+    const cleaned = stripJsonFences(rawText);
+    return JSON.parse(cleaned);
+  } catch {
+    // Model uses tagged format: [Category] Food [Amount] $50 ...
+    if (rawText.includes('[') && rawText.includes(']')) {
+      return parseModelTagOutput(rawText);
+    }
+    return {
+      intent: 'query_general',
+      domain: 'general',
+      entities: [],
+      response: rawText.slice(0, 500),
+      is_cross_domain: false,
+      needs_clarification: false,
+      clarification_question: '',
+      clarification_options: [],
+      confidence: 0.3,
+    };
+  }
+};
+
+/**
+ * Normalize model's loose `entities` into the shape the frontend
+ * renderer requires (confirmed from production bundle 2026-04-06):
+ *   health  → [{ type: string, value: string }]
+ *   finance → [{ type: string, amount: number }]
+ *   linked  → []
+ */
+const normalizeEntities = (parsed) => {
+  const raw = Array.isArray(parsed.entities) ? parsed.entities : [];
+  const domain = (parsed.domain || '').toLowerCase();
+
+  if (domain === 'health') {
+    return {
+      health: raw.map((e) => typeof e === 'string'
+        ? { type: 'activity', value: e }
+        : { type: e.type || 'activity', value: e.value || String(e) }),
+      finance: [],
+      linked: [],
+    };
+  }
+  if (domain === 'finance') {
+    return {
+      health: [],
+      finance: raw.map((e) => (typeof e === 'object' && e)
+        ? e
+        : { type: 'expense', amount: 0, description: String(e) }),
+      linked: [],
+    };
+  }
+  // cross-domain / unknown
+  return {
+    health: raw.filter((e) => typeof e === 'string').map((e) => ({ type: 'activity', value: e })),
+    finance: raw.filter((e) => typeof e === 'object' && e !== null),
+    linked: [],
+  };
 };
 
 // ─── Main exported function — provider-agnostic ───
@@ -237,23 +398,34 @@ const generateStructuredJson = async ({
   responseSchema,
   temperature = 0.1,
   maxOutputTokens = 1000,
+  feature = 'chat',
 }) => {
-  const provider = resolveAIProvider();
+  const provider = getProvider(feature);
 
   if (provider === 'custom_hf') {
-    return callCustomHF({ systemInstruction, userPrompt, temperature, maxOutputTokens });
+    const parsed = await callCustomHF(systemInstruction || '', userPrompt);
+    return {
+      provider: 'custom_hf',
+      model: 'os-1202883/LifeSync',
+      rawText: JSON.stringify(parsed),
+      data: parsed,
+      response: parsed,
+    };
   }
 
   if (provider === 'huggingface' || provider === 'groq') {
-    return callOpenAICompatible({ systemInstruction, userPrompt, temperature, maxOutputTokens });
+    return callOpenAICompatible({ systemInstruction, userPrompt, temperature, maxOutputTokens, providerOverride: provider });
   }
 
-  return callGemini({ systemInstruction, userPrompt, responseSchema, temperature, maxOutputTokens });
+  return callGemini({ systemInstruction, userPrompt, responseSchema, temperature, maxOutputTokens, providerOverride: provider });
 };
 
 module.exports = {
   generateStructuredJson,
+  normalizeEntities,
   _resolveAIProvider: resolveAIProvider,
+  _getProvider: getProvider,
   _getProviderSettings: getProviderSettings,
   _extractResponseText: extractGeminiText,
+  _parseModelTagOutput: parseModelTagOutput,
 };
