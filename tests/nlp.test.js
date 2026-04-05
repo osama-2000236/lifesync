@@ -606,3 +606,93 @@ describe('Domain Classification', () => {
     });
   });
 });
+
+// ============================================
+// 6. FINE-TUNED MODEL OUTPUT NORMALIZATION
+// ============================================
+
+describe('Fine-tuned Model Output Normalization', () => {
+  describe('Intent Mapping', () => {
+    test('maps log_steps to log_health', () => {
+      const result = normalizeNLPResponse(
+        { intent: 'log_steps', domain: 'steps', entities: [], response: 'Logged!', confidence: 0.9,
+          is_cross_domain: false, needs_clarification: false, clarification_question: '', clarification_options: [] },
+        'I walked 8000 steps', 100
+      );
+      expect(result.intent).toBe('log_health');
+      expect(result.domain).toBe('health');
+    });
+
+    test('maps log_both_activities to log_both', () => {
+      const result = normalizeNLPResponse(
+        { intent: 'log_both_activities', domain: 'health', entities: [], response: 'Done!', confidence: 0.9,
+          is_cross_domain: true, needs_clarification: false, clarification_question: '', clarification_options: [] },
+        'I slept 7 hours and spent $25', 100
+      );
+      expect(result.intent).toBe('log_both');
+    });
+
+    test('maps log_expense to log_finance', () => {
+      const result = normalizeNLPResponse(
+        { intent: 'log_expense', domain: 'expense', entities: [], response: 'Done!', confidence: 0.9,
+          is_cross_domain: false, needs_clarification: false, clarification_question: '', clarification_options: [] },
+        'Spent $20', 100
+      );
+      expect(result.intent).toBe('log_finance');
+      expect(result.domain).toBe('finance');
+    });
+  });
+
+  describe('Entity Domain Mapping', () => {
+    test('maps entity domain "sleep" to "health"', () => {
+      const entity = { domain: 'sleep', type: 'sleep', value: 7, unit: 'hours', category: 'Sleep', activity: 'sleeping', duration: 420 };
+      const result = validateEntity(entity);
+      expect(result).not.toBeNull();
+      expect(result.domain).toBe('health');
+      expect(result.type).toBe('sleep');
+      expect(result.value).toBe(7);
+    });
+
+    test('maps entity domain "steps" to "health"', () => {
+      const entity = { domain: 'steps', type: 'steps', value: 8000 };
+      const result = validateEntity(entity);
+      expect(result).not.toBeNull();
+      expect(result.domain).toBe('health');
+      expect(result.type).toBe('steps');
+    });
+
+    test('maps entity domain "expense" to "finance"', () => {
+      const entity = { domain: 'expense', type: 'expense', amount: 25 };
+      const result = validateEntity(entity);
+      expect(result).not.toBeNull();
+      expect(result.domain).toBe('finance');
+      expect(result.type).toBe('expense');
+    });
+  });
+
+  describe('Primitive Entity Reconstruction', () => {
+    test('reconstructs health entity from primitive [8000] with log_steps intent', () => {
+      const result = normalizeNLPResponse(
+        { intent: 'log_steps', domain: 'steps', entities: [8000], response: 'Logged 8000 steps!', confidence: 0.92,
+          is_cross_domain: false, needs_clarification: false, clarification_question: '', clarification_options: [] },
+        'I walked 8000 steps today', 100
+      );
+      expect(result.intent).toBe('log_health');
+      expect(result.entities).toHaveLength(1);
+      expect(result.entities[0].domain).toBe('health');
+      expect(result.entities[0].type).toBe('steps');
+      expect(result.entities[0].value).toBe(8000);
+      expect(result.success).toBe(true);
+    });
+
+    test('returns null for plain primitive without reconstructable intent', () => {
+      const result = validateEntity(42);
+      expect(result).toBeNull();
+    });
+
+    test('returns null for string primitive', () => {
+      const result = validateEntity('walking');
+      expect(result).toBeNull();
+    });
+  });
+});

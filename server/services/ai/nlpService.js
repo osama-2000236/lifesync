@@ -305,6 +305,31 @@ const parseMessage = async (message, pendingClarification = null) => {
 };
 
 /**
+ * Map model's non-standard intent names to valid intents.
+ * The fine-tuned model often outputs e.g. "log_steps" instead of "log_health".
+ */
+const INTENT_MAP = {
+  log_steps: 'log_health', log_sleep: 'log_health', log_mood: 'log_health',
+  log_exercise: 'log_health', log_water: 'log_health', log_nutrition: 'log_health',
+  log_heart_rate: 'log_health', log_activity: 'log_health',
+  log_expense: 'log_finance', log_income: 'log_finance', log_spending: 'log_finance',
+  log_both_activities: 'log_both', log_cross: 'log_both',
+  query_steps: 'query_health', query_sleep: 'query_health',
+  query_spending: 'query_finance', query_expense: 'query_finance',
+  greet: 'query_general', greeting: 'query_general', hello: 'query_general',
+};
+
+/**
+ * Map model's non-standard domain names to valid domains.
+ * The model often uses health subtypes as domain names.
+ */
+const DOMAIN_MAP = {
+  steps: 'health', sleep: 'health', mood: 'health', exercise: 'health',
+  water: 'health', nutrition: 'health', heart_rate: 'health',
+  expense: 'finance', income: 'finance', spending: 'finance',
+};
+
+/**
  * Normalize and validate the NLP response
  */
 const normalizeNLPResponse = (parsed, originalMessage, processingTime) => {
@@ -315,16 +340,45 @@ const normalizeNLPResponse = (parsed, originalMessage, processingTime) => {
   ];
   const validDomains = ['health', 'finance', 'both', 'general'];
 
-  const intent = validIntents.includes(parsed.intent) ? parsed.intent : 'unclear';
-  const domain = validDomains.includes(parsed.domain) ? parsed.domain : 'general';
+  const rawIntent = (parsed.intent || '').toLowerCase().trim();
+  const mappedIntent = validIntents.includes(rawIntent) ? rawIntent : (INTENT_MAP[rawIntent] || 'unclear');
+  const intent = validIntents.includes(mappedIntent) ? mappedIntent : 'unclear';
+
+  const rawDomain = (parsed.domain || '').toLowerCase().trim();
+  const mappedDomain = validDomains.includes(rawDomain) ? rawDomain : (DOMAIN_MAP[rawDomain] || 'general');
+  const domain = validDomains.includes(mappedDomain) ? mappedDomain : 'general';
   const needsClarification = Boolean(parsed.needs_clarification);
   const confidence = typeof parsed.confidence === 'number'
     ? Math.min(1, Math.max(0, parsed.confidence))
     : (needsClarification ? 0.3 : 0.85);
 
-  const entities = Array.isArray(parsed.entities)
-    ? parsed.entities.map(validateEntity).filter(Boolean)
-    : [];
+  // Pre-process entities: reconstruct from primitives when model returns e.g. [8000]
+  let rawEntities = Array.isArray(parsed.entities) ? parsed.entities : [];
+  const hasPrimitives = rawEntities.some((e) => typeof e === 'number' || typeof e === 'string');
+  if (hasPrimitives && rawEntities.length > 0 && intent !== 'unclear') {
+    // Infer entity type from the raw intent (e.g., "log_steps" → type "steps")
+    const inferredType = rawIntent.replace(/^log_/, '');
+    const healthTypes = ['steps', 'sleep', 'mood', 'nutrition', 'water', 'exercise', 'heart_rate'];
+    if (healthTypes.includes(inferredType)) {
+      const numVal = rawEntities.find((e) => typeof e === 'number');
+      if (numVal !== undefined) {
+        rawEntities = [{
+          domain: 'health', type: inferredType, value: numVal,
+          activity: inferredType, category: inferredType.charAt(0).toUpperCase() + inferredType.slice(1),
+        }];
+      }
+    } else if (inferredType === 'expense' || inferredType === 'income') {
+      const numVal = rawEntities.find((e) => typeof e === 'number');
+      if (numVal !== undefined) {
+        rawEntities = [{
+          domain: 'finance', type: inferredType, amount: numVal,
+          currency: 'USD', category: 'Other',
+        }];
+      }
+    }
+  }
+
+  const entities = rawEntities.map(validateEntity).filter(Boolean);
 
   let clarificationQuestion = parsed.clarification_question || null;
   let clarificationOptions = Array.isArray(parsed.clarification_options) && parsed.clarification_options.length > 0
@@ -353,12 +407,36 @@ const normalizeNLPResponse = (parsed, originalMessage, processingTime) => {
 };
 
 /**
- * Validate and normalize a single entity
+ * Validate and normalize a single entity.
+ * Handles the fine-tuned model's non-standard entity shapes:
+ *   - domain: "sleep" → mapped to "health"
+ *   - plain number entities: [8000] → inferred from context
  */
 const validateEntity = (entity) => {
-  if (!entity || !entity.domain) return null;
+  // Handle primitive values (model sometimes returns [8000] instead of [{...}])
+  if (typeof entity === 'number' || typeof entity === 'string') return null;
+  if (!entity || typeof entity !== 'object') return null;
 
-  if (entity.domain === 'health') {
+  // Map non-standard domains: "sleep"→"health", "expense"→"finance", etc.
+  const healthTypes = ['steps', 'sleep', 'mood', 'nutrition', 'water', 'exercise', 'heart_rate'];
+  const financeTypes = ['income', 'expense'];
+
+  let entityDomain = (entity.domain || '').toLowerCase().trim();
+
+  // If domain is a health subtype (e.g., "sleep", "steps"), map to "health"
+  if (healthTypes.includes(entityDomain)) {
+    entityDomain = 'health';
+    entity = { ...entity, domain: 'health', type: entity.type || entity.domain };
+  }
+  // If domain is a finance subtype, map to "finance"
+  if (financeTypes.includes(entityDomain) || entityDomain === 'spending') {
+    entityDomain = 'finance';
+    entity = { ...entity, domain: 'finance', type: entity.type || 'expense' };
+  }
+
+  if (!entityDomain || (entityDomain !== 'health' && entityDomain !== 'finance')) return null;
+
+  if (entityDomain === 'health') {
     const validTypes = ['steps', 'sleep', 'mood', 'nutrition', 'water', 'exercise', 'heart_rate'];
     const type = validTypes.includes(entity.type) ? entity.type : null;
     if (!type) return null;
