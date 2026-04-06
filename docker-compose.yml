@@ -15,7 +15,7 @@ services:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-lifesync_root_2025}
       MYSQL_DATABASE: ${DB_NAME:-lifesync_db}
       MYSQL_USER: ${DB_USER:-lifesync}
-      MYSQL_PASSWORD: ${DB_PASS:-lifesync_pass_2025}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-lifesync_pass_2025}
     ports:
       - "3306:3306"
     volumes:
@@ -46,7 +46,7 @@ services:
       DB_PORT: 3306
       DB_NAME: ${DB_NAME:-lifesync_db}
       DB_USER: ${DB_USER:-lifesync}
-      DB_PASS: ${DB_PASS:-lifesync_pass_2025}
+      DB_PASSWORD: ${DB_PASSWORD:-lifesync_pass_2025}
       JWT_SECRET: ${JWT_SECRET:-change_this_in_production_at_least_32_chars}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change_this_refresh_secret_also_32_chars}
       AI_PROVIDER: ${AI_PROVIDER:-gemini}

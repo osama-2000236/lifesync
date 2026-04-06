@@ -86,15 +86,21 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=lifesync_db
 DB_USER=root
-DB_PASS=your_mysql_password
+DB_PASSWORD=your_mysql_password
 
 # ─── Security (change in production) ───
 JWT_SECRET=your_jwt_secret_minimum_32_characters_long
 JWT_REFRESH_SECRET=your_refresh_secret_minimum_32_chars
 ENCRYPTION_KEY=your_encryption_key_exactly_32ch!
 
-# ─── Optional (for full NLP features) ───
-OPENAI_API_KEY=sk-...
+# ─── AI provider config ───
+AI_PROVIDER=gemini
+CHAT_AI_PROVIDER=custom_hf
+INSIGHTS_AI_PROVIDER=gemini
+GEMINI_API_KEY=your_gemini_api_key
+CUSTOM_HF_ENDPOINT=https://os-1202883-lifesync-api.hf.space
+# Optional when the HF Space is private:
+# HF_API_KEY=your_hf_token
 
 # ─── Optional (for email OTP) ───
 SMTP_HOST=smtp.gmail.com
@@ -150,21 +156,17 @@ open http://localhost:5173
 
 ---
 
-## Running the Test Suite (97 Tests)
+## Running the Test Suite
 
 ```bash
 # From project root
 npm test
 
-# Expected output:
-# PASS tests/nlp.test.js          (39 tests)
-# PASS tests/otp.test.js          (16 tests)
-# PASS tests/encryption.test.js   (17 tests)
-# PASS tests/insightEngine.test.js (22 tests)
-# PASS tests/app.test.js          (3 tests)
-#
-# Test Suites: 5 passed, 5 total
-# Tests:       97 passed, 97 total
+# Includes backend unit/integration suites.
+# CI also runs a dedicated MySQL-backed E2E suite for:
+# - auth login flow
+# - health log create/list
+# - finance log create/list
 
 # Verbose mode (see each test name):
 npm test -- --verbose
@@ -173,7 +175,7 @@ npm test -- --verbose
 npx jest tests/insightEngine.test.js --verbose
 ```
 
-**Note:** Tests run without MySQL or OpenAI — they test pure logic (entity validation, Pearson correlation, encryption, OTP generation) using mocked data.
+**Note:** Local unit tests run without MySQL; CI runs an additional MySQL service-container E2E gate.
 
 ---
 
@@ -184,11 +186,10 @@ cd client
 npm run build
 
 # Expected output:
-# dist/assets/index-*.js        ~294 KB  (core bundle)
-# dist/assets/DashboardPage-*.js ~205 KB  (lazy chunk)
-# dist/assets/ChatPage-*.js      ~263 KB  (lazy chunk)
-# dist/assets/AdminPage-*.js     ~8 KB    (lazy chunk)
-# ✓ built in ~10s
+# Build requires:
+# - VITE_API_URL
+# - VITE_GOOGLE_CLIENT_ID
+# The build preflight will fail if either is missing or misaligned with release baselines.
 ```
 
 ---
@@ -211,7 +212,8 @@ node server/seeders/seed.js
 |-------|----------|
 | `ECONNREFUSED :3306` | MySQL not running. Start: `sudo systemctl start mysql` |
 | `ER_NOT_SUPPORTED_AUTH_MODE` | Run in MySQL: `ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'password';` |
-| `OPENAI_API_KEY not set` | NLP chat will return fallback responses. Set key for full functionality. |
+| Build fails preflight | Missing/invalid `VITE_API_URL` or `VITE_GOOGLE_CLIENT_ID` | Set both variables before `npm run build` |
+| NLP/API probe fails | HF or Railway service issue | Run `npm run probe:external` and check endpoint health |
 | `SMTP errors on registration` | OTP emails won't send. Use test mode or set SMTP credentials. |
 | Port 5000 in use | Change `PORT` in `.env` |
 | Port 5173 in use | Vite auto-picks next port (5174, etc.) |

@@ -1,6 +1,7 @@
 // src/pages/HealthPage.jsx
 import { useState, useEffect } from 'react';
 import { healthAPI } from '../services/api';
+import { getPaginatedItems, getPaginatedTotalPages } from '../utils/paginatedResponse';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import {
   Heart, Footprints, Moon, SmilePlus, Droplets, Dumbbell,
@@ -34,8 +35,8 @@ export default function HealthPage() {
         if (search) params.search = search;
 
         const { data } = await healthAPI.getLogs(params);
-        setLogs(data.data?.logs || []);
-        setTotalPages(data.data?.pagination?.totalPages || 1);
+        setLogs(getPaginatedItems(data, 'logs'));
+        setTotalPages(getPaginatedTotalPages(data));
       } catch (err) {
         console.error('Failed to load health logs:', err);
       } finally {

@@ -1,6 +1,7 @@
 // src/pages/AdminPage.jsx
 import { useState, useEffect } from 'react';
 import { adminAPI } from '../services/api';
+import { getPaginatedItems } from '../utils/paginatedResponse';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import {
   Users, AlertTriangle, Activity, Clock, UserPlus, Shield,
@@ -41,8 +42,8 @@ export default function AdminPage() {
         ]);
 
         if (dashRes.status === 'fulfilled') setDashboard(dashRes.value.data.data);
-        if (usersRes.status === 'fulfilled') setUsers(usersRes.value.data.data?.users || []);
-        if (logsRes.status === 'fulfilled') setLogs(logsRes.value.data.data?.logs || []);
+        if (usersRes.status === 'fulfilled') setUsers(getPaginatedItems(usersRes.value.data, 'users'));
+        if (logsRes.status === 'fulfilled') setLogs(getPaginatedItems(logsRes.value.data, 'logs'));
       } catch (err) {
         console.error('Admin data fetch error:', err);
       } finally {

@@ -142,25 +142,22 @@ This project is close to a strong student/demo app, but it is not yet production
 
 ### Blocking issues to fix in code/config
 
-1. Docker Compose uses the wrong database password variable for the backend.
-   The app reads `DB_PASSWORD`, but `docker-compose.yml` sets `DB_PASS`.
-
-2. Custom rate limiters trigger IPv6 validation warnings from `express-rate-limit`.
+1. Custom rate limiters trigger IPv6 validation warnings from `express-rate-limit`.
    This should be fixed before production so rate limiting is correct and clean.
 
-3. OTP state is stored in memory.
+2. OTP state is stored in memory.
    Restarting the server or scaling to multiple instances will break registration flows.
 
-4. Chat clarification state is stored in memory.
+3. Chat clarification state is stored in memory.
    Restarting the server or scaling horizontally will lose active clarification sessions.
 
-5. The encryption helper currently uses `JWT_SECRET` instead of `ENCRYPTION_KEY`.
+4. The encryption helper currently uses `JWT_SECRET` instead of `ENCRYPTION_KEY`.
    That couples two unrelated secrets and makes key rotation harder.
 
-6. The seed script creates a default admin with a known password.
+5. The seed script creates a default admin with a known password.
    That is acceptable for local development only and must be removed or overridden for real deployment.
 
-7. Google Fit still requires production OAuth configuration on the Google Cloud side.
+6. Google Fit still requires production OAuth configuration on the Google Cloud side.
    The app needs a real callback URL, consent screen URLs, and approved origins before that integration is launch-ready.
 
 ### Missing production infrastructure
@@ -201,6 +198,14 @@ This repo now includes `wrangler.jsonc` with SPA fallback enabled for Cloudflare
 
 The `deploy` and `preview` scripts build the frontend before calling Wrangler, so Cloudflare does not need a separate build step.
 Those scripts also install the frontend dependencies inside `client/` before running Vite, because Workers Builds only installs the root package by default.
+Both scripts now run a strict release preflight that validates:
+- `VITE_API_URL=https://lifesync-production-6f3e.up.railway.app/api`
+- `VITE_GOOGLE_CLIENT_ID=123174641248-1grp7s1u20ad1d3olkpg28hfe723rkut.apps.googleusercontent.com`
+- if `GOOGLE_AUTH_CLIENT_IDS` is provided, it must include that same Google client ID
+
+Additional release checks:
+- `npm run probe:external` checks Railway `/api/health` and HF Space `/gradio_api/info` + `/infer` round-trip
+- `npm run smoke:workers` checks live frontend routes `/login`, `/dashboard`, `/chat`, `/health`, `/finance` and reports the production asset hash
 
 ## Important Files
 
