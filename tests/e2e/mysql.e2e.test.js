@@ -19,19 +19,21 @@ const {
 } = db;
 
 const truncateAllTables = async () => {
-  await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
-  await Promise.all([
-    LinkedDomain.destroy({ where: {}, truncate: true, force: true }),
-    HealthLog.destroy({ where: {}, truncate: true, force: true }),
-    FinancialLog.destroy({ where: {}, truncate: true, force: true }),
-    AISummary.destroy({ where: {}, truncate: true, force: true }),
-    ChatLog.destroy({ where: {}, truncate: true, force: true }),
-    UserGoal.destroy({ where: {}, truncate: true, force: true }),
-    SystemLog.destroy({ where: {}, truncate: true, force: true }),
-    Category.destroy({ where: {}, truncate: true, force: true }),
-    User.destroy({ where: {}, truncate: true, force: true }),
-  ]);
-  await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+  const deleteOrder = [
+    LinkedDomain,
+    HealthLog,
+    FinancialLog,
+    AISummary,
+    ChatLog,
+    UserGoal,
+    SystemLog,
+    Category,
+    User,
+  ];
+
+  for (const model of deleteOrder) {
+    await model.destroy({ where: {}, force: true });
+  }
 };
 
 suite('MySQL E2E: auth + health + finance', () => {
