@@ -69,8 +69,10 @@ export const authAPI = {
 };
 
 // ─── Chat API ───
+// Chat needs a longer timeout because the HF Space model can take 30-120s
+// on cold start (ZeroGPU queue + inference).
 export const chatAPI = {
-  sendMessage: (message, session_id) => api.post('/chat', { message, session_id }),
+  sendMessage: (message, session_id) => api.post('/chat', { message, session_id }, { timeout: 150000 }),
   getHistory: (params) => api.get('/chat/history', { params }),
   getSessions: () => api.get('/chat/sessions'),
 };
