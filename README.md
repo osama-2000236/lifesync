@@ -201,7 +201,7 @@ Those scripts also install the frontend dependencies inside `client/` before run
 Both scripts now run a strict release preflight that validates:
 - `VITE_API_URL=https://lifesync-production-6f3e.up.railway.app/api`
 - `VITE_GOOGLE_CLIENT_ID=123174641248-1grp7s1u20ad1d3olkpg28hfe723rkut.apps.googleusercontent.com`
-- `GOOGLE_AUTH_CLIENT_IDS` includes that same Google client ID
+- if `GOOGLE_AUTH_CLIENT_IDS` is provided, it must include that same Google client ID
 
 Additional release checks:
 - `npm run probe:external` checks Railway `/api/health` and HF Space `/gradio_api/info` + `/infer` round-trip

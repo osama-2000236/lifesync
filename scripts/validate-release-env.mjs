@@ -1,7 +1,6 @@
 const REQUIRED = [
   'VITE_API_URL',
   'VITE_GOOGLE_CLIENT_ID',
-  'GOOGLE_AUTH_CLIENT_IDS',
 ];
 
 const EXPECTED_API_URL =
@@ -11,6 +10,7 @@ const EXPECTED_GOOGLE_CLIENT_ID =
   process.env.EXPECTED_VITE_GOOGLE_CLIENT_ID
   || '123174641248-1grp7s1u20ad1d3olkpg28hfe723rkut.apps.googleusercontent.com';
 const GOOGLE_CLIENT_ID_PATTERN = /^[0-9]{12}-[a-z0-9-]+\.apps\.googleusercontent\.com$/i;
+const REQUIRE_BACKEND_ALIGNMENT = getBooleanEnv('REQUIRE_BACKEND_GOOGLE_ALIGNMENT');
 
 let hasFailures = false;
 
@@ -20,6 +20,10 @@ const fail = (message) => {
 };
 
 const get = (key) => (process.env[key] || '').trim();
+function getBooleanEnv(key) {
+  const value = (process.env[key] || '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'on'].includes(value);
+}
 
 for (const key of REQUIRED) {
   if (!get(key)) {
@@ -56,15 +60,23 @@ if (googleClientId) {
   }
 }
 
-const backendClientIds = get('GOOGLE_AUTH_CLIENT_IDS')
-  .split(',')
-  .map((value) => value.trim())
-  .filter(Boolean);
+const backendClientIdsRaw = get('GOOGLE_AUTH_CLIENT_IDS');
 
-if (backendClientIds.length && !backendClientIds.includes(EXPECTED_GOOGLE_CLIENT_ID)) {
-  fail(
-    `GOOGLE_AUTH_CLIENT_IDS must include ${EXPECTED_GOOGLE_CLIENT_ID} for frontend/backend alignment.`
-  );
+if (!backendClientIdsRaw && REQUIRE_BACKEND_ALIGNMENT) {
+  fail('Missing required environment variable: GOOGLE_AUTH_CLIENT_IDS');
+}
+
+if (backendClientIdsRaw) {
+  const backendClientIds = backendClientIdsRaw
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (!backendClientIds.includes(EXPECTED_GOOGLE_CLIENT_ID)) {
+    fail(
+      `GOOGLE_AUTH_CLIENT_IDS must include ${EXPECTED_GOOGLE_CLIENT_ID} for frontend/backend alignment.`
+    );
+  }
 }
 
 if (hasFailures) {
