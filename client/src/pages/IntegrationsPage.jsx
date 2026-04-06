@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { externalAPI, healthAPI, financeAPI } from '../services/api';
 import { getApiErrorMessage } from '../utils/apiErrors';
+import { getPaginatedItems } from '../utils/paginatedResponse';
 import {
   ArrowLeft, RefreshCw, Unlink, CheckCircle, AlertCircle,
   Loader2, Download, FileJson, FileSpreadsheet, Heart,
@@ -383,7 +384,7 @@ function DataExportPanel() {
     try {
       const api = domain === 'health' ? healthAPI : financeAPI;
       const { data } = await api.getLogs({ limit: 10000 });
-      const rows = data.data?.logs || [];
+      const rows = getPaginatedItems(data, 'logs');
       const date = new Date().toISOString().slice(0, 10);
 
       if (format === 'json') {

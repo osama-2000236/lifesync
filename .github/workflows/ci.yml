@@ -52,10 +52,87 @@ jobs:
         if: always()
         run: echo "✅ Backend test suite completed"
 
+  # ─── Backend MySQL E2E ───
+  e2e-mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpass
+          MYSQL_DATABASE: lifesync_test
+          MYSQL_USER: lifesync
+          MYSQL_PASSWORD: lifesync_pass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -prootpass"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create test .env
+        run: |
+          cp .env.example .env
+          echo "NODE_ENV=test" >> .env
+          echo "DB_HOST=127.0.0.1" >> .env
+          echo "DB_PORT=3306" >> .env
+          echo "DB_NAME=lifesync_test" >> .env
+          echo "DB_USER=lifesync" >> .env
+          echo "DB_PASSWORD=lifesync_pass" >> .env
+          echo "JWT_SECRET=test_jwt_secret_for_ci_pipeline_32ch" >> .env
+          echo "JWT_REFRESH_SECRET=test_refresh_secret_for_ci_pipe" >> .env
+          echo "ENCRYPTION_KEY=test_encryption_key_for_ci_32ch!" >> .env
+
+      - name: Wait for MySQL
+        run: npm run db:wait
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: lifesync_test
+          DB_USER: lifesync
+          DB_PASSWORD: lifesync_pass
+
+      - name: Run DB migrations
+        run: npx sequelize-cli db:migrate --env development
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: lifesync_test
+          DB_USER: lifesync
+          DB_PASSWORD: lifesync_pass
+
+      - name: Run MySQL E2E suite
+        run: npm run test:e2e:mysql
+        env:
+          NODE_ENV: test
+          RUN_DB_E2E: true
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: lifesync_test
+          DB_USER: lifesync
+          DB_PASSWORD: lifesync_pass
+          JWT_SECRET: test_jwt_secret_for_ci_pipeline_32ch
+          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_pipe
+          ENCRYPTION_KEY: test_encryption_key_for_ci_32ch!
+
   # ─── Frontend Build ───
   build-frontend:
     runs-on: ubuntu-latest
-    needs: test-backend
+    needs: [test-backend, e2e-mysql]
 
     steps:
       - name: Checkout code
@@ -72,11 +149,18 @@ jobs:
         working-directory: ./client
         run: npm ci
 
+      - name: Lint frontend
+        working-directory: ./client
+        run: npm run lint
+
       - name: Build frontend
         working-directory: ./client
         run: npm run build
         env:
-          VITE_API_URL: /api
+          VITE_API_URL: https://lifesync-production-6f3e.up.railway.app/api
+          VITE_GOOGLE_CLIENT_ID: 123174641248-1grp7s1u20ad1d3olkpg28hfe723rkut.apps.googleusercontent.com
+          EXPECTED_VITE_API_URL: https://lifesync-production-6f3e.up.railway.app/api
+          EXPECTED_VITE_GOOGLE_CLIENT_ID: 123174641248-1grp7s1u20ad1d3olkpg28hfe723rkut.apps.googleusercontent.com
 
       - name: Verify build output
         working-directory: ./client
@@ -94,7 +178,7 @@ jobs:
   # ─── Docker Build Validation ───
   docker-build:
     runs-on: ubuntu-latest
-    needs: [test-backend, build-frontend]
+    needs: [test-backend, e2e-mysql, build-frontend]
     if: github.ref == 'refs/heads/main'
 
     steps:

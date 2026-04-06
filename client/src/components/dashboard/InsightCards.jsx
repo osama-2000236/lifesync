@@ -1,5 +1,6 @@
 // src/components/dashboard/InsightCards.jsx
 import { Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, ArrowUpRight } from 'lucide-react';
+import { getInsightCardsViewModel } from './insightCardModel';
 
 const trendIcons = {
   improving: <TrendingUp className="w-4 h-4 text-emerald-500" />,
@@ -15,7 +16,7 @@ const trendColors = {
   insufficient_data: 'text-amber-600 bg-amber-50 border-amber-100',
 };
 
-export default function InsightCards({ insights, loading }) {
+export default function InsightCards({ insights, loading, error }) {
   if (loading) {
     return (
       <div className="space-y-4">
@@ -26,17 +27,40 @@ export default function InsightCards({ insights, loading }) {
     );
   }
 
-  // Show empty state when no real insights exist
-  if (!insights) {
+  const view = getInsightCardsViewModel({ insights, error });
+
+  if (view.kind === 'error') {
     return (
-      <div className="p-5 rounded-2xl bg-navy-50 border border-navy-100 text-center py-10">
-        <p className="text-navy-400 text-sm">
-          No insights yet — log some health or finance data to get started.
+      <div className="p-5 rounded-2xl border border-amber-200 bg-amber-50 space-y-2">
+        <div className="flex items-center gap-2 text-amber-700">
+          <AlertTriangle className="w-5 h-5" />
+          <h3 className="font-display font-semibold text-sm">Insights unavailable</h3>
+        </div>
+        <p className="text-sm text-amber-800 leading-relaxed">
+          {view.error}
+        </p>
+        <p className="text-xs text-amber-700/80">
+          No AI insight cards are being shown because the backend request failed.
         </p>
       </div>
     );
   }
-  const data = insights;
+
+  if (view.kind === 'empty') {
+    return (
+      <div className="p-5 rounded-2xl border border-dashed border-navy-200 bg-navy-50/60 space-y-2">
+        <div className="flex items-center gap-2 text-navy-700">
+          <Lightbulb className="w-5 h-5" />
+          <h3 className="font-display font-semibold text-sm">No insights yet</h3>
+        </div>
+        <p className="text-sm text-navy-600 leading-relaxed">
+          Keep logging health and finance activity to generate real weekly insights.
+        </p>
+      </div>
+    );
+  }
+
+  const { data } = view;
 
   return (
     <div className="space-y-4">

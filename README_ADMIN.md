@@ -22,7 +22,7 @@ The Admin Portal displays six real-time metrics:
 | **Active (24h)** | Users who made API calls in the last 24 hours | > 30% of total |
 | **New (7 days)** | Accounts created in the past week | Steady growth |
 | **Errors (24h)** | System errors logged in 24 hours | < 5 |
-| **NLP Avg Response** | Mean OpenAI processing time | < 2000ms |
+| **NLP Avg Response** | Mean chat provider processing time | < 2000ms |
 | **NLP Max Response** | Worst-case NLP latency | < 5000ms |
 
 ### Health + Finance Logs (24h)
@@ -121,11 +121,16 @@ All secrets are configured via `.env` or `docker-compose.yml` environment:
 | `DB_HOST` | Yes | MySQL host |
 | `DB_NAME` | Yes | Database name |
 | `DB_USER` | Yes | Database user |
-| `DB_PASS` | Yes | Database password |
+| `DB_PASSWORD` | Yes | Database password |
 | `JWT_SECRET` | Yes | JWT signing key (32+ chars) |
 | `JWT_REFRESH_SECRET` | Yes | Refresh token key (32+ chars) |
 | `ENCRYPTION_KEY` | Yes | AES-256 key for field encryption |
-| `OPENAI_API_KEY` | Yes | For NLP processing |
+| `AI_PROVIDER` | Yes | Global AI fallback provider |
+| `CHAT_AI_PROVIDER` | Yes | Chat parser provider (recommended: `custom_hf`) |
+| `INSIGHTS_AI_PROVIDER` | Yes | Weekly insights provider (recommended: `gemini`) |
+| `GEMINI_API_KEY` | Cond. | Required when Gemini is selected |
+| `CUSTOM_HF_ENDPOINT` | Cond. | Required when `CHAT_AI_PROVIDER=custom_hf` |
+| `HF_API_KEY` | No | Optional token for private/public HF Space auth |
 | `CORS_ORIGIN` | Yes | Frontend URL(s), comma-separated |
 | `SMTP_HOST` | No | Email server for OTP |
 | `SMTP_USER` | No | Email account |
@@ -140,9 +145,14 @@ The GitHub Actions workflow (`.github/workflows/ci.yml`) runs automatically on:
 - Pull requests to `main`
 
 Pipeline stages:
-1. **Backend Tests**: Runs 97 Jest tests on Node 18 + 20
-2. **Frontend Build**: Vite production build validation
-3. **Docker Build**: Image build verification (main branch only)
+1. **Backend Tests**: Jest suite on Node 18 + 20
+2. **MySQL E2E**: real DB auth + health + finance flows against MySQL service container
+3. **Frontend Lint + Build**: ESLint 9 flat-config gate plus production Vite build
+4. **Docker Build**: image build verification (main branch only)
+
+Release smoke workflow (`.github/workflows/release-smoke.yml`) runs:
+- external dependency probes (Railway `/api/health`, HF `/gradio_api/info` + `/infer`)
+- production frontend route smoke for `/login`, `/dashboard`, `/chat`, `/health`, `/finance`
 
 ---
 
@@ -183,7 +193,7 @@ mysqldump -u root -p lifesync_db > backup_$(date +%Y%m%d).sql
 - [ ] Rotate JWT secrets
 - [ ] Update dependencies (`npm audit fix`)
 - [ ] Review and archive old system logs
-- [ ] Check OpenAI API usage and billing
+- [ ] Check AI provider usage and billing (Gemini/HF as configured)
 
 ---
 
@@ -192,7 +202,7 @@ mysqldump -u root -p lifesync_db > backup_$(date +%Y%m%d).sql
 | Symptom | Likely Cause | Fix |
 |---|---|---|
 | "Too many requests" errors | Rate limit hit | Wait 15 min, or adjust limits in `rateLimiter.js` |
-| NLP returning empty responses | OpenAI API key invalid/expired | Check `OPENAI_API_KEY` in `.env` |
+| NLP returning empty responses | AI provider endpoint/key misconfigured | Validate `CHAT_AI_PROVIDER`, `CUSTOM_HF_ENDPOINT`, and provider keys in `.env` |
 | Database connection failed | MySQL not running | `docker-compose restart db` |
 | "CORS error" in browser | Frontend URL not in `CORS_ORIGIN` | Update `.env` with correct origin |
 | OTP email not received | SMTP not configured | Set SMTP vars or use Ethereal for dev |

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getGoogleClientId } from '../../config/runtime';
+import { buildGoogleButtonRenderKey, googleIdentityState } from './googleSignInState';
 
 const GOOGLE_SCRIPT_ID = 'google-identity-services';
 
@@ -37,8 +38,18 @@ export default function GoogleSignInButton({
   text = 'signin_with',
 }) {
   const buttonRef = useRef(null);
+  const successRef = useRef(onSuccess);
+  const errorRef = useRef(onError);
   const [scriptError, setScriptError] = useState('');
   const clientId = getGoogleClientId();
+
+  useEffect(() => {
+    successRef.current = onSuccess;
+  }, [onSuccess]);
+
+  useEffect(() => {
+    errorRef.current = onError;
+  }, [onError]);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,16 +58,26 @@ export default function GoogleSignInButton({
       return undefined;
     }
 
+    const renderKey = buildGoogleButtonRenderKey(clientId, text);
+
     loadGoogleScript()
       .then(() => {
         if (cancelled || !buttonRef.current || !window.google?.accounts?.id) {
           return;
         }
 
-        window.google.accounts.id.initialize({
-          client_id: clientId,
-          callback: onSuccess,
-        });
+        if (googleIdentityState.shouldInitialize(clientId)) {
+          window.google.accounts.id.initialize({
+            client_id: clientId,
+            callback: (credentialResponse) => successRef.current?.(credentialResponse),
+          });
+          googleIdentityState.markInitialized(clientId);
+        }
+
+        if (buttonRef.current.dataset.googleRenderKey === renderKey) {
+          setScriptError('');
+          return;
+        }
 
         buttonRef.current.innerHTML = '';
 
@@ -68,6 +89,8 @@ export default function GoogleSignInButton({
           logo_alignment: 'left',
           width: buttonRef.current.offsetWidth || 360,
         });
+        buttonRef.current.dataset.googleRenderKey = renderKey;
+        setScriptError('');
       })
       .catch((error) => {
         if (cancelled) {
@@ -75,13 +98,13 @@ export default function GoogleSignInButton({
         }
 
         setScriptError(error.message);
-        onError?.(error);
+        errorRef.current?.(error);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [clientId, onError, onSuccess, text]);
+  }, [clientId, text]);
 
   if (!clientId) {
     return null;
@@ -91,7 +114,7 @@ export default function GoogleSignInButton({
     <div className="space-y-3">
       <div ref={buttonRef} className="w-full min-h-[44px] flex justify-center" />
       {scriptError && (
-        <p className="text-xs text-coral-500 text-center">{scriptError}</p>
+        <p className="text-xs text-coral-500 text-center" role="alert" aria-live="assertive">{scriptError}</p>
       )}
     </div>
   );

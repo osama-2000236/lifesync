@@ -1,12 +1,14 @@
 // src/services/api.js
 import axios from 'axios';
 import { getApiBaseUrl } from '../config/runtime';
+import { shouldAttemptTokenRefresh } from './authInterceptor';
+import { CHAT_REQUEST_TIMEOUT_MS, DEFAULT_API_TIMEOUT_MS } from './requestTimeouts';
 
 const API_BASE = getApiBaseUrl();
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 30000,
+  timeout: DEFAULT_API_TIMEOUT_MS,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -25,7 +27,7 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (shouldAttemptTokenRefresh(error)) {
       originalRequest._retry = true;
 
       try {
@@ -72,7 +74,7 @@ export const authAPI = {
 // Chat needs a longer timeout because the HF Space model can take 30-120s
 // on cold start (ZeroGPU queue + inference).
 export const chatAPI = {
-  sendMessage: (message, session_id) => api.post('/chat', { message, session_id }, { timeout: 150000 }),
+  sendMessage: (message, session_id) => api.post('/chat', { message, session_id }, { timeout: CHAT_REQUEST_TIMEOUT_MS }),
   getHistory: (params) => api.get('/chat/history', { params }),
   getSessions: () => api.get('/chat/sessions'),
 };

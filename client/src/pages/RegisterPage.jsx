@@ -152,7 +152,7 @@ export default function RegisterPage() {
                 onError={() => setError('Google sign-up is unavailable right now. Please use email.')}
               />
               {googleLoading && (
-                <p className="mt-3 text-center text-sm text-navy-500">Creating your account with Google...</p>
+                <p className="mt-3 text-center text-sm text-navy-500" role="status" aria-live="polite">Creating your account with Google...</p>
               )}
               <div className="mt-6 flex items-center gap-3 text-xs uppercase tracking-[0.22em] text-navy-300">
                 <div className="h-px flex-1 bg-navy-200" />
@@ -163,7 +163,7 @@ export default function RegisterPage() {
           )}
 
           {error && (
-            <div className="mb-6 p-4 rounded-xl bg-coral-500/10 border border-coral-500/20 text-coral-500 text-sm">
+            <div id="register-form-error" className="mb-6 p-4 rounded-xl bg-coral-500/10 border border-coral-500/20 text-coral-500 text-sm" role="alert" aria-live="assertive">
               {error}
             </div>
           )}
@@ -175,12 +175,17 @@ export default function RegisterPage() {
                 <p className="text-navy-500 text-sm">We&apos;ll send a verification code to your email.</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-navy-700 mb-1.5">Email address</label>
+                <label htmlFor="register-email" className="block text-sm font-medium text-navy-700 mb-1.5">Email address</label>
                 <input
+                  id="register-email"
+                  name="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  autoComplete="email"
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'register-form-error' : undefined}
                   className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                   placeholder="you@example.com"
                 />
@@ -206,8 +211,10 @@ export default function RegisterPage() {
                   <input
                     key={i}
                     id={`otp-${i}`}
+                    aria-label={`Verification code digit ${i + 1}`}
                     type="text"
                     inputMode="numeric"
+                    autoComplete="one-time-code"
                     maxLength={1}
                     value={digit}
                     onChange={(e) => handleOtpChange(i, e.target.value)}
@@ -242,35 +249,48 @@ export default function RegisterPage() {
                 <p className="text-navy-500 text-sm">Choose a username and set your password.</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-navy-700 mb-1.5">Full Name <span className="text-navy-400">(optional)</span></label>
+                <label htmlFor="register-name" className="block text-sm font-medium text-navy-700 mb-1.5">Full Name <span className="text-navy-400">(optional)</span></label>
                 <input
+                  id="register-name"
+                  name="name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
                   className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                   placeholder="Your name"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-navy-700 mb-1.5">Username</label>
+                <label htmlFor="register-username" className="block text-sm font-medium text-navy-700 mb-1.5">Username</label>
                 <input
+                  id="register-username"
+                  name="username"
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
                   minLength={3}
+                  autoComplete="username"
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'register-form-error' : undefined}
                   className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                   placeholder="Choose a username"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-navy-700 mb-1.5">Password</label>
+                <label htmlFor="register-password" className="block text-sm font-medium text-navy-700 mb-1.5">Password</label>
                 <input
+                  id="register-password"
+                  name="password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={8}
+                  autoComplete="new-password"
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'register-form-error' : undefined}
                   className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                   placeholder="Min 8 chars, uppercase, lowercase, number"
                 />

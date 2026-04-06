@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "preflight:prod": "node ./scripts/validateBuildEnv.mjs",
+    "build": "npm run preflight:prod && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },

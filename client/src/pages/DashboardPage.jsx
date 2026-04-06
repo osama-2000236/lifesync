@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { healthAPI, financeAPI, insightsAPI } from '../services/api';
+import { getApiErrorMessage } from '../utils/apiErrors';
+import { getPaginatedItems } from '../utils/paginatedResponse';
 import HealthCorrelationChart from '../components/dashboard/HealthCorrelationChart';
 import SpendingChart from '../components/dashboard/SpendingChart';
 import MoodActivityChart from '../components/dashboard/MoodActivityChart';
@@ -30,6 +32,7 @@ export default function DashboardPage() {
   const [healthSummary, setHealthSummary] = useState(null);
   const [financeSummary, setFinanceSummary] = useState(null);
   const [insights, setInsights] = useState(null);
+  const [insightsError, setInsightsError] = useState('');
   const [loading, setLoading] = useState(true);
   const [spendingView, setSpendingView] = useState('doughnut');
 
@@ -44,11 +47,17 @@ export default function DashboardPage() {
           insightsAPI.getCurrent(),
         ]);
 
-        if (healthRes.status === 'fulfilled') setHealthData(healthRes.value.data.data?.logs || []);
-        if (financeRes.status === 'fulfilled') setFinanceData(financeRes.value.data.data?.logs || []);
+        if (healthRes.status === 'fulfilled') setHealthData(getPaginatedItems(healthRes.value.data, 'logs'));
+        if (financeRes.status === 'fulfilled') setFinanceData(getPaginatedItems(financeRes.value.data, 'logs'));
         if (healthSummaryRes.status === 'fulfilled') setHealthSummary(healthSummaryRes.value.data.data);
         if (financeSummaryRes.status === 'fulfilled') setFinanceSummary(financeSummaryRes.value.data.data);
-        if (insightsRes.status === 'fulfilled') setInsights(insightsRes.value.data.data?.insights || null);
+        if (insightsRes.status === 'fulfilled') {
+          setInsights(insightsRes.value.data.data?.insights || null);
+          setInsightsError('');
+        } else {
+          setInsights(null);
+          setInsightsError(getApiErrorMessage(insightsRes.reason, 'Unable to load insights right now.'));
+        }
       } catch (err) {
         console.warn('Dashboard data fetch error:', err);
       } finally {
@@ -183,7 +192,7 @@ export default function DashboardPage() {
             <BarChart3 className="w-5 h-5 text-navy-500" />
             <h2 className="font-display text-lg font-bold text-navy-800">Insights</h2>
           </div>
-          <InsightCards insights={insights} loading={loading} />
+          <InsightCards insights={insights} loading={loading} error={insightsError} />
         </div>
       </div>
     </div>

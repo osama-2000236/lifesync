@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { chatAPI } from '../services/api';
 import { subscribeToChatSession } from '../services/firebase';
+import { getAssistantMessageContent, getChatErrorMessage } from '../utils/chatResponse';
 import { Send, Loader2, Sparkles, Plus, Clock, MessageCircle } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -184,7 +185,7 @@ export default function ChatPage() {
       const assistantMsg = {
         id: Date.now() + 1,
         role: 'assistant',
-        content: result.response,
+        content: getAssistantMessageContent(result),
         entities: result.entities_logged,
         needsClarification: result.needs_clarification,
       };
@@ -198,7 +199,7 @@ export default function ChatPage() {
       const errorMsg = {
         id: Date.now() + 1,
         role: 'assistant',
-        content: err.response?.data?.message || 'Something went wrong. Please try again.',
+        content: getChatErrorMessage(err),
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {

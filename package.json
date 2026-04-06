@@ -8,13 +8,18 @@
     "dev": "nodemon server/app.js",
     "install:client": "npm --prefix client ci",
     "build:client": "npm run install:client && npm --prefix client run build",
+    "preflight:release-env": "node scripts/validate-release-env.mjs",
+    "probe:external": "node scripts/probe-external-services.mjs",
+    "smoke:workers": "node scripts/smoke-workers.mjs",
+    "test:e2e:mysql": "jest --runInBand --runTestsByPath tests/e2e/mysql.e2e.test.js --forceExit --detectOpenHandles",
+    "db:wait": "node scripts/wait-for-mysql.js",
     "seed": "node server/seeders/seed.js",
     "migrate": "npx sequelize-cli db:migrate",
     "migrate:undo": "npx sequelize-cli db:migrate:undo:all",
     "test": "jest --verbose --forceExit",
     "test:watch": "jest --watch",
-    "deploy": "npm run build:client && wrangler deploy",
-    "preview": "npm run build:client && wrangler versions upload",
+    "deploy": "npm run preflight:release-env && npm run build:client && wrangler deploy",
+    "preview": "npm run preflight:release-env && npm run build:client && wrangler versions upload",
     "worker:dev": "wrangler dev"
   },
   "keywords": [
@@ -64,6 +69,7 @@
     "jest": "^30.2.0",
     "nodemon": "^3.1.11",
     "sequelize-cli": "^6.6.5",
+    "supertest": "^7.1.4",
     "wrangler": "^4.78.0"
   }
 }

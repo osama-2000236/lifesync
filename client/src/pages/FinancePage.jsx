@@ -1,6 +1,7 @@
 // src/pages/FinancePage.jsx
 import { useState, useEffect } from 'react';
 import { financeAPI } from '../services/api';
+import { getPaginatedItems, getPaginatedTotalPages } from '../utils/paginatedResponse';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import {
   Wallet, TrendingUp, TrendingDown, Search, Trash2,
@@ -24,8 +25,8 @@ export default function FinancePage() {
         if (search) params.search = search;
 
         const { data } = await financeAPI.getLogs(params);
-        setLogs(data.data?.logs || []);
-        setTotalPages(data.data?.pagination?.totalPages || 1);
+        setLogs(getPaginatedItems(data, 'logs'));
+        setTotalPages(getPaginatedTotalPages(data));
       } catch (err) {
         console.error('Failed to load finance logs:', err);
       } finally {
