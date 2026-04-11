@@ -111,7 +111,7 @@ const startServer = async () => {
 
     // Sync database (creates tables if they don't exist)
     const db = require('./models');
-    await db.sequelize.sync({ alter: process.env.NODE_ENV === 'development' });
+    await db.sequelize.sync({ alter: true });
     console.log('✅ Database tables synchronized.');
 
     // Initialize Firebase (non-blocking)
