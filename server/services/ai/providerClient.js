@@ -268,7 +268,9 @@ const parseModelTagOutput = (rawText) => {
 
 /**
  * Calls the LifeSync HF Space via Gradio queue+SSE.
- * Verified against live Space 2026-04-06.
+ * Includes cold-start retry logic: on 503/502/timeout, retries up to 3 times
+ * with exponential backoff (5s, 10s, 20s).
+ *
  * POST body : {"data": [system_msg, user_msg, temperature, max_tokens]}
  * SSE flow  : heartbeat* → complete → data:["<raw string>"]
  */
@@ -283,75 +285,105 @@ const callCustomHF = async (systemMsg, userMsg) => {
   const hfKey = process.env.HF_API_KEY;
   if (hfKey && hfKey.trim()) headers['Authorization'] = `Bearer ${hfKey.trim()}`;
 
-  // Step 1 — queue
-  const qRes = await fetch(QUEUE, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ data: [systemMsg, userMsg, TEMP, MAXT] }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!qRes.ok) {
-    const t = await qRes.text().catch(() => '');
-    throw new Error(`HF queue failed ${qRes.status}: ${t.slice(0, 200)}`);
-  }
-  const { event_id: eventId } = await qRes.json();
-  if (!eventId) throw new Error('HF Space returned no event_id');
+  const MAX_RETRIES = 3;
+  const BACKOFF_BASE_MS = 5000;
 
-  // Step 2 — SSE stream
-  const sseRes = await fetch(`${BASE}/gradio_api/call/infer/${eventId}`, {
-    headers: { Accept: 'text/event-stream', ...headers },
-    signal: AbortSignal.timeout(120_000),
-  });
-  if (!sseRes.ok) throw new Error(`HF SSE failed ${sseRes.status}`);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // Step 1 — queue
+      const qRes = await fetch(QUEUE, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ data: [systemMsg, userMsg, TEMP, MAXT] }),
+        signal: AbortSignal.timeout(15_000),
+      });
 
-  const reader = sseRes.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  let lastEvent = '';
-  let rawText = null;
+      // Cold-start detection: 502/503 means the Space is waking up
+      if ((qRes.status === 502 || qRes.status === 503) && attempt < MAX_RETRIES) {
+        const wait = BACKOFF_BASE_MS * Math.pow(2, attempt);
+        console.warn(`HF Space cold start (${qRes.status}), retry ${attempt + 1}/${MAX_RETRIES} in ${wait}ms`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
 
-  // eslint-disable-next-line no-constant-condition
-  outer: while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop();
-    for (const line of lines) {
-      if (line.startsWith('event:')) lastEvent = line.slice(6).trim();
-      else if (line.startsWith('data:')) {
-        const ds = line.slice(5).trim();
-        if (lastEvent === 'complete' && ds && ds !== 'null') {
-          rawText = JSON.parse(ds)[0].trim(); // outer[0] → raw model string
-          break outer;
+      if (!qRes.ok) {
+        const t = await qRes.text().catch(() => '');
+        throw new Error(`HF queue failed ${qRes.status}: ${t.slice(0, 200)}`);
+      }
+      const { event_id: eventId } = await qRes.json();
+      if (!eventId) throw new Error('HF Space returned no event_id');
+
+      // Step 2 — SSE stream
+      const sseRes = await fetch(`${BASE}/gradio_api/call/infer/${eventId}`, {
+        headers: { Accept: 'text/event-stream', ...headers },
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!sseRes.ok) throw new Error(`HF SSE failed ${sseRes.status}`);
+
+      const reader = sseRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let lastEvent = '';
+      let rawText = null;
+
+      // eslint-disable-next-line no-constant-condition
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (line.startsWith('event:')) lastEvent = line.slice(6).trim();
+          else if (line.startsWith('data:')) {
+            const ds = line.slice(5).trim();
+            if (lastEvent === 'complete' && ds && ds !== 'null') {
+              rawText = JSON.parse(ds)[0].trim();
+              break outer;
+            }
+          }
         }
       }
-    }
-  }
-  reader.cancel().catch(() => {});
-  if (rawText === null) throw new Error('HF Space timeout after 120 s');
+      reader.cancel().catch(() => {});
+      if (rawText === null) throw new Error('HF Space timeout after 120 s');
 
-  // Step 3 — parse: try JSON first, then tag format, then fallback
-  try {
-    const cleaned = stripJsonFences(rawText);
-    return JSON.parse(cleaned);
-  } catch {
-    // Model uses tagged format: [Category] Food [Amount] $50 ...
-    if (rawText.includes('[') && rawText.includes(']')) {
-      return parseModelTagOutput(rawText);
+      // Step 3 — parse: try JSON first, then tag format, then fallback
+      try {
+        const cleaned = stripJsonFences(rawText);
+        return JSON.parse(cleaned);
+      } catch {
+        if (rawText.includes('[') && rawText.includes(']')) {
+          return parseModelTagOutput(rawText);
+        }
+        return {
+          intent: 'query_general',
+          domain: 'general',
+          entities: [],
+          response: rawText.slice(0, 500),
+          is_cross_domain: false,
+          needs_clarification: false,
+          clarification_question: '',
+          clarification_options: [],
+          confidence: 0.3,
+        };
+      }
+    } catch (err) {
+      // On timeout or network error during queue step, retry if attempts remain
+      const isRetryable = err.name === 'TimeoutError' || err.name === 'AbortError'
+        || (err.message && (err.message.includes('502') || err.message.includes('503')
+        || err.message.includes('ECONNREFUSED') || err.message.includes('fetch failed')));
+
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const wait = BACKOFF_BASE_MS * Math.pow(2, attempt);
+        console.warn(`HF Space error (${err.message}), retry ${attempt + 1}/${MAX_RETRIES} in ${wait}ms`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+      throw err;
     }
-    return {
-      intent: 'query_general',
-      domain: 'general',
-      entities: [],
-      response: rawText.slice(0, 500),
-      is_cross_domain: false,
-      needs_clarification: false,
-      clarification_question: '',
-      clarification_options: [],
-      confidence: 0.3,
-    };
   }
+
+  throw new Error('HF Space: all retry attempts exhausted');
 };
 
 /**

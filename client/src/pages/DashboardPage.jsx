@@ -66,6 +66,10 @@ export default function DashboardPage() {
     };
 
     fetchData();
+
+    // Auto-revalidate every 30s so chat-logged data appears without manual reload
+    const interval = setInterval(fetchData, 30_000);
+    return () => clearInterval(interval);
   }, []);
 
   const normalizedHealthSummary = useMemo(() => mapHealthSummary(healthSummary), [healthSummary]);

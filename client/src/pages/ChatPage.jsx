@@ -7,18 +7,22 @@ import { Send, Loader2, Sparkles, Plus, Clock, MessageCircle } from 'lucide-reac
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Typing Indicator ───
-function TypingIndicator() {
+function TypingIndicator({ statusText }) {
   return (
     <div className="flex items-end gap-2 max-w-[80%]">
       <div className="w-7 h-7 rounded-full bg-gradient-to-br from-navy-200 to-navy-300 flex items-center justify-center flex-shrink-0">
         <Sparkles className="w-3.5 h-3.5 text-navy-600" />
       </div>
       <div className="chat-bubble-assistant px-5 py-3.5">
-        <div className="flex gap-1.5">
-          <div className="w-2 h-2 rounded-full bg-navy-400 typing-dot" />
-          <div className="w-2 h-2 rounded-full bg-navy-400 typing-dot" />
-          <div className="w-2 h-2 rounded-full bg-navy-400 typing-dot" />
-        </div>
+        {statusText ? (
+          <p className="text-xs text-navy-500 animate-pulse">{statusText}</p>
+        ) : (
+          <div className="flex gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-navy-400 typing-dot" />
+            <div className="w-2 h-2 rounded-full bg-navy-400 typing-dot" />
+            <div className="w-2 h-2 rounded-full bg-navy-400 typing-dot" />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -27,15 +31,16 @@ function TypingIndicator() {
 // ─── Single Message Bubble ───
 function ChatBubble({ message }) {
   const isUser = message.role === 'user';
+  const isError = message.isError;
 
   return (
     <div className={`flex items-end gap-2 ${isUser ? 'justify-end' : ''} animate-fade-up`}>
       {!isUser && (
-        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-navy-200 to-navy-300 flex items-center justify-center flex-shrink-0">
-          <Sparkles className="w-3.5 h-3.5 text-navy-600" />
+        <div className={`w-7 h-7 rounded-full bg-gradient-to-br ${isError ? 'from-red-200 to-red-300' : 'from-navy-200 to-navy-300'} flex items-center justify-center flex-shrink-0`}>
+          <Sparkles className={`w-3.5 h-3.5 ${isError ? 'text-red-600' : 'text-navy-600'}`} />
         </div>
       )}
-      <div className={`max-w-[75%] px-4 py-3 text-sm leading-relaxed ${isUser ? 'chat-bubble-user' : 'chat-bubble-assistant'}`}>
+      <div className={`max-w-[75%] px-4 py-3 text-sm leading-relaxed ${isUser ? 'chat-bubble-user' : isError ? 'chat-bubble-assistant border border-red-200 bg-red-50' : 'chat-bubble-assistant'}`}>
         {message.content}
       </div>
     </div>
@@ -48,7 +53,7 @@ function ClarificationButtons({ options, onSelect, disabled }) {
 
   return (
     <div className="flex items-end gap-2 animate-fade-up">
-      <div className="w-7 h-7" /> {/* Spacer to align with bot avatar */}
+      <div className="w-7 h-7" />
       <div className="flex flex-wrap gap-2 max-w-[75%]">
         {options.map((option, i) => (
           <button
@@ -124,12 +129,14 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [statusText, setStatusText] = useState(null);
   const [sessionId, setSessionId] = useState(() => uuidv4());
   const [sessions, setSessions] = useState([]);
   const [clarificationOptions, setClarificationOptions] = useState(null);
   const [showSessions, setShowSessions] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const abortRef = useRef(null);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -146,7 +153,6 @@ export default function ChatPage() {
   // Firebase real-time subscription
   useEffect(() => {
     const unsubscribe = subscribeToChatSession(sessionId, (fbMessages) => {
-      // Only use Firebase if we have no local messages (real-time sync for other devices)
       if (messages.length === 0 && fbMessages.length > 0) {
         setMessages(fbMessages.map((m) => ({
           id: m.id,
@@ -159,54 +165,83 @@ export default function ChatPage() {
     return () => unsubscribe();
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Send Message ───
-  const sendMessage = useCallback(async (text) => {
+  // ─── Send Message via SSE ───
+  const sendMessage = useCallback((text) => {
     const messageText = text || input.trim();
     if (!messageText || sending) return;
 
     setInput('');
     setClarificationOptions(null);
+    setStatusText(null);
 
-    // Add user message
+    // Add user message to UI immediately
     const userMsg = { id: Date.now(), role: 'user', content: messageText };
     setMessages((prev) => [...prev, userMsg]);
     setSending(true);
 
-    try {
-      const { data } = await chatAPI.sendMessage(messageText, sessionId);
-      const result = data.data;
+    // Use SSE streaming endpoint
+    const abort = chatAPI.sendMessageStream(messageText, sessionId, {
+      onAck: (data) => {
+        // User message + pending AI row are now in DB
+        if (data.session_id && data.session_id !== sessionId) {
+          setSessionId(data.session_id);
+        }
+        setStatusText('Processing your message...');
+      },
 
-      // Update session ID if server assigned one
-      if (result.session_id && result.session_id !== sessionId) {
-        setSessionId(result.session_id);
-      }
+      onStatus: (data) => {
+        // Status updates (e.g., "Waking up AI...", "Processing...")
+        setStatusText(data.message || 'Processing...');
+      },
 
-      // Add assistant response
-      const assistantMsg = {
-        id: Date.now() + 1,
-        role: 'assistant',
-        content: getAssistantMessageContent(result),
-        entities: result.entities_logged,
-        needsClarification: result.needs_clarification,
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
+      onComplete: (result) => {
+        // AI response received — add assistant message
+        const assistantMsg = {
+          id: Date.now() + 1,
+          role: 'assistant',
+          content: result.response,
+          entities: result.entities_logged,
+          needsClarification: result.needs_clarification,
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
 
-      // Set clarification options if needed
-      if (result.needs_clarification && result.clarification_options) {
-        setClarificationOptions(result.clarification_options);
-      }
-    } catch (err) {
-      const errorMsg = {
-        id: Date.now() + 1,
-        role: 'assistant',
-        content: getChatErrorMessage(err),
-      };
-      setMessages((prev) => [...prev, errorMsg]);
-    } finally {
-      setSending(false);
-      inputRef.current?.focus();
-    }
+        if (result.needs_clarification && result.clarification_options) {
+          setClarificationOptions(result.clarification_options);
+        }
+
+        if (result.session_id && result.session_id !== sessionId) {
+          setSessionId(result.session_id);
+        }
+
+        setSending(false);
+        setStatusText(null);
+        inputRef.current?.focus();
+      },
+
+      onError: (data) => {
+        // Error — show error message (user msg is already persisted in DB)
+        const errorMsg = {
+          id: Date.now() + 1,
+          role: 'assistant',
+          content: data.message || 'Something went wrong. Please try again.',
+          isError: true,
+        };
+        setMessages((prev) => [...prev, errorMsg]);
+        setSending(false);
+        setStatusText(null);
+        inputRef.current?.focus();
+      },
+    });
+
+    abortRef.current = abort;
   }, [input, sending, sessionId]);
+
+  // Cleanup abort on unmount
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) abortRef.current();
+    };
+  }, []);
 
   // ─── Handle Quick Action ───
   const handleQuickAction = (option) => {
@@ -215,16 +250,20 @@ export default function ChatPage() {
 
   // ─── New Session ───
   const startNewSession = () => {
+    if (abortRef.current) abortRef.current();
     setMessages([]);
     setSessionId(uuidv4());
     setClarificationOptions(null);
+    setStatusText(null);
     setShowSessions(false);
   };
 
   // ─── Load Session ───
   const loadSession = async (sid) => {
+    if (abortRef.current) abortRef.current();
     setSessionId(sid);
     setClarificationOptions(null);
+    setStatusText(null);
     setShowSessions(false);
     try {
       const { data } = await chatAPI.getHistory({ session_id: sid });
@@ -339,7 +378,7 @@ export default function ChatPage() {
             />
           )}
 
-          {sending && <TypingIndicator />}
+          {sending && <TypingIndicator statusText={statusText} />}
           <div ref={messagesEndRef} />
         </div>
 

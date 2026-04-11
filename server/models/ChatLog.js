@@ -47,6 +47,12 @@ const ChatLog = sequelize.define('chat_logs', {
     allowNull: true,
     comment: 'How long the NLP processing took in milliseconds',
   },
+  status: {
+    type: DataTypes.ENUM('sent', 'pending', 'complete', 'error'),
+    allowNull: false,
+    defaultValue: 'complete',
+    comment: 'Message lifecycle: sent (user msg logged), pending (awaiting AI), complete, error',
+  },
 }, {
   tableName: 'chat_logs',
   timestamps: true,

@@ -71,10 +71,83 @@ export const authAPI = {
 };
 
 // ─── Chat API ───
-// Chat needs a longer timeout because the HF Space model can take 30-120s
-// on cold start (ZeroGPU queue + inference).
+// Uses SSE streaming to bypass proxy idle timeouts and provide real-time feedback.
+// Falls back to JSON endpoint if SSE fails.
 export const chatAPI = {
-  sendMessage: (message, session_id) => api.post('/chat', { message, session_id }, { timeout: CHAT_REQUEST_TIMEOUT_MS }),
+  /**
+   * Send a chat message via SSE streaming.
+   * Returns callbacks for each event type.
+   *
+   * @param {string} message
+   * @param {string} session_id
+   * @param {Object} callbacks - { onAck, onStatus, onComplete, onError }
+   * @returns {function} abort - call to cancel the request
+   */
+  sendMessageStream: (message, session_id, callbacks = {}) => {
+    const controller = new AbortController();
+    const token = localStorage.getItem('accessToken');
+
+    fetch(`${API_BASE}/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ message, session_id }),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => ({}));
+          throw new Error(errorBody.error || `HTTP ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        let currentEvent = '';
+
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop(); // keep incomplete line in buffer
+
+          for (const line of lines) {
+            if (line.startsWith(':')) continue; // heartbeat comment
+            if (line.startsWith('event:')) {
+              currentEvent = line.slice(6).trim();
+            } else if (line.startsWith('data:')) {
+              const dataStr = line.slice(5).trim();
+              if (!dataStr) continue;
+              try {
+                const data = JSON.parse(dataStr);
+                if (currentEvent === 'ack' && callbacks.onAck) callbacks.onAck(data);
+                else if (currentEvent === 'status' && callbacks.onStatus) callbacks.onStatus(data);
+                else if (currentEvent === 'complete' && callbacks.onComplete) callbacks.onComplete(data);
+                else if (currentEvent === 'error' && callbacks.onError) callbacks.onError(data);
+                else if (currentEvent === 'done') { /* stream finished */ }
+              } catch { /* ignore malformed JSON */ }
+            }
+          }
+        }
+      })
+      .catch((err) => {
+        if (err.name === 'AbortError') return;
+        if (callbacks.onError) {
+          callbacks.onError({ message: err.message || 'Connection failed. Please try again.' });
+        }
+      });
+
+    return () => controller.abort();
+  },
+
+  // JSON fallback (backwards compatible)
+  sendMessage: (message, session_id) => api.post('/chat', { message, session_id }, { timeout: 150000 }),
+
   getHistory: (params) => api.get('/chat/history', { params }),
   getSessions: () => api.get('/chat/sessions'),
 };
