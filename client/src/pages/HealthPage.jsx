@@ -57,6 +57,7 @@ export default function HealthPage() {
   };
 
   return (
+    <div className="flex-1 overflow-y-auto">
     <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-up">
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -139,6 +140,7 @@ export default function HealthPage() {
           </button>
         </div>
       )}
+    </div>
     </div>
   );
 }

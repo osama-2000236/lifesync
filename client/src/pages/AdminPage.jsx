@@ -92,6 +92,7 @@ export default function AdminPage() {
   };
 
   return (
+    <div className="flex-1 overflow-y-auto">
     <div className="p-6 lg:p-8 max-w-7xl mx-auto animate-fade-up">
       {/* Header */}
       <div className="flex items-center gap-3 mb-8">
@@ -204,6 +205,7 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }

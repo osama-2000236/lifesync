@@ -113,6 +113,7 @@ export default function DashboardPage() {
   };
 
   return (
+    <div className="flex-1 overflow-y-auto">
     <div className="p-6 lg:p-8 max-w-7xl mx-auto animate-fade-up">
       <div className="mb-8">
         <h1 className="font-display text-2xl lg:text-3xl font-bold text-navy-900">
@@ -199,6 +200,7 @@ export default function DashboardPage() {
           <InsightCards insights={insights} loading={loading} error={insightsError} />
         </div>
       </div>
+    </div>
     </div>
   );
 }

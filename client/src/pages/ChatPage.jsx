@@ -455,11 +455,11 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* ─── Sessions Sidebar (Desktop) ─── */}
       <aside className={`
-        ${showSessions ? 'block' : 'hidden'} lg:block
-        w-64 border-r border-navy-100 bg-white flex-shrink-0 flex flex-col
+        ${showSessions ? 'block' : 'hidden'} lg:flex
+        w-64 border-r border-navy-100 bg-white flex-shrink-0 flex-col min-h-0
         fixed lg:static inset-y-0 left-0 z-30
       `}>
         <div className="p-4 border-b border-navy-50">

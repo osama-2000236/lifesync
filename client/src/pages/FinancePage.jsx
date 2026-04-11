@@ -47,6 +47,7 @@ export default function FinancePage() {
   };
 
   return (
+    <div className="flex-1 overflow-y-auto">
     <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-up">
       <div className="mb-6">
         <h1 className="font-display text-2xl font-bold text-navy-900 flex items-center gap-2">
@@ -131,6 +132,7 @@ export default function FinancePage() {
           </button>
         </div>
       )}
+    </div>
     </div>
   );
 }

@@ -485,6 +485,7 @@ export default function ProfilePage() {
   };
 
   return (
+    <div className="flex-1 overflow-y-auto">
     <div className="min-h-full bg-surface">
       <div className="bg-white border-b border-navy-100 px-6 py-4">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
@@ -514,6 +515,7 @@ export default function ProfilePage() {
         <ChangePasswordSection isGoogleUser={isGoogleUser} />
         <DangerZoneSection onDeleteAccount={handleDeleteAccount} />
       </div>
+    </div>
     </div>
   );
 }

@@ -275,6 +275,7 @@ export default function OnboardingPage() {
   };
 
   return (
+    <div className="flex-1 overflow-y-auto">
     <div className="min-h-screen bg-surface flex items-center justify-center p-6">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2.5 mb-8 justify-center">
@@ -313,6 +314,7 @@ export default function OnboardingPage() {
           Step {step + 1} of {TOTAL_STEPS}
         </p>
       </div>
+    </div>
     </div>
   );
 }
