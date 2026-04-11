@@ -87,6 +87,9 @@ export const chatAPI = {
     const controller = new AbortController();
     const token = localStorage.getItem('accessToken');
 
+    // 3-minute safety timeout for completely hung connections
+    const timeout = setTimeout(() => controller.abort(), 180_000);
+
     fetch(`${API_BASE}/chat/stream`, {
       method: 'POST',
       headers: {
@@ -136,13 +139,25 @@ export const chatAPI = {
         }
       })
       .catch((err) => {
-        if (err.name === 'AbortError') return;
-        if (callbacks.onError) {
-          callbacks.onError({ message: err.message || 'Connection failed. Please try again.' });
+        if (err.name === 'AbortError') {
+          // Only fire onError if this was a timeout abort, not a user abort
+          if (callbacks.onError && !controller.signal.reason) {
+            callbacks.onError({
+              message: 'The AI is taking longer than usual. Please try again in a moment.',
+              retryable: true,
+            });
+          }
+          return;
         }
-      });
+        let message = 'Connection failed. Please try again.';
+        if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+          message = 'Network error — please check your connection and try again.';
+        }
+        if (callbacks.onError) callbacks.onError({ message, retryable: true });
+      })
+      .finally(() => clearTimeout(timeout));
 
-    return () => controller.abort();
+    return () => { clearTimeout(timeout); controller.abort('user_cancel'); };
   },
 
   // JSON fallback (backwards compatible)

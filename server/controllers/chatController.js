@@ -22,6 +22,37 @@ const { getFirestore } = require('../config/firebase');
 const { success, error } = require('../utils/responseHelper');
 
 // ============================================
+// Status Column Availability Probe
+// ============================================
+// The `status` column may not exist yet if the migration hasn't run.
+// We probe once on first use and gracefully degrade if missing.
+let _statusColumnReady = null; // null = unknown, true/false = probed
+
+const hasStatusColumn = async () => {
+  if (_statusColumnReady !== null) return _statusColumnReady;
+  try {
+    const desc = await ChatLog.describe();
+    _statusColumnReady = !!desc.status;
+  } catch {
+    _statusColumnReady = false;
+  }
+  return _statusColumnReady;
+};
+
+/** Strip `status` from fields when the column is unavailable */
+const safeFields = async (fields) => {
+  if (await hasStatusColumn()) return fields;
+  const { status, ...rest } = fields;
+  return rest;
+};
+
+/** Safe update — only include `status` if column exists */
+const safeUpdate = async (row, fields) => {
+  const safe = await safeFields(fields);
+  return row.update(safe);
+};
+
+// ============================================
 // In-Memory Clarification State
 // ============================================
 const pendingClarifications = new Map();
@@ -218,7 +249,7 @@ const processMessageStream = async (req, res) => {
   try {
     // ─── Step 1: Optimistic DB writes ───
     // Write user message immediately (status: 'sent')
-    userChatLog = await ChatLog.create({
+    userChatLog = await ChatLog.create(await safeFields({
       user_id: userId,
       session_id: currentSessionId,
       role: 'user',
@@ -227,10 +258,10 @@ const processMessageStream = async (req, res) => {
       entities_json: null,
       processing_time_ms: null,
       status: 'sent',
-    });
+    }));
 
     // Create pending assistant row (placeholder — will be updated)
-    assistantChatLog = await ChatLog.create({
+    assistantChatLog = await ChatLog.create(await safeFields({
       user_id: userId,
       session_id: currentSessionId,
       role: 'assistant',
@@ -238,7 +269,7 @@ const processMessageStream = async (req, res) => {
       intent: null,
       entities_json: null,
       status: 'pending',
-    });
+    }));
 
     // ACK — client now knows both rows exist in DB
     sseWrite(res, 'ack', {
@@ -273,8 +304,8 @@ const processMessageStream = async (req, res) => {
       clearInterval(heartbeat);
 
       // ─── AI Failed — persist error state to DB ───
-      await userChatLog.update({ intent: 'unclear', status: 'complete' });
-      await assistantChatLog.update({
+      await safeUpdate(userChatLog, { intent: 'unclear', status: 'complete' });
+      await safeUpdate(assistantChatLog, {
         message: 'Sorry, the AI service is temporarily unavailable. Your message has been saved and you can try again shortly.',
         intent: 'error',
         status: 'error',
@@ -302,13 +333,13 @@ const processMessageStream = async (req, res) => {
       });
 
       // Update both DB rows
-      await userChatLog.update({
+      await safeUpdate(userChatLog, {
         intent: nlpResult.intent,
         entities_json: [],
         processing_time_ms: nlpResult.processing_time_ms,
         status: 'complete',
       });
-      await assistantChatLog.update({
+      await safeUpdate(assistantChatLog, {
         message: nlpResult.clarification_question,
         intent: 'clarification',
         status: 'complete',
@@ -326,6 +357,7 @@ const processMessageStream = async (req, res) => {
         clarification_question: nlpResult.clarification_question,
         clarification_options: nlpResult.clarification_options,
         confidence: nlpResult.confidence,
+        is_cross_domain: false,
         entities_logged: { health: [], finance: [], linked: [] },
         processing_time_ms: nlpResult.processing_time_ms,
       });
@@ -356,14 +388,18 @@ const processMessageStream = async (req, res) => {
     }
 
     // ─── Step 5: Update chat log rows with final data ───
-    await userChatLog.update({
+    if (nlpResult.entities.length > 0) {
+      sseWrite(res, 'status', { message: 'Logging your entries...' });
+    }
+
+    await safeUpdate(userChatLog, {
       intent: nlpResult.intent,
       entities_json: nlpResult.entities,
       processing_time_ms: nlpResult.processing_time_ms,
       status: 'complete',
     });
 
-    await assistantChatLog.update({
+    await safeUpdate(assistantChatLog, {
       message: nlpResult.response,
       intent: null,
       entities_json: null,
@@ -399,15 +435,20 @@ const processMessageStream = async (req, res) => {
     return res.end();
 
   } catch (err) {
+    // If we hit ER_BAD_FIELD_ERROR, reset the probe so next request retries
+    if (err.original?.code === 'ER_BAD_FIELD_ERROR') {
+      _statusColumnReady = null;
+    }
+
     // Catch-all: update DB rows to error state if they exist
     if (assistantChatLog) {
-      await assistantChatLog.update({
+      await safeUpdate(assistantChatLog, {
         message: 'An unexpected error occurred while processing your message.',
         status: 'error',
       }).catch(() => {});
     }
     if (userChatLog) {
-      await userChatLog.update({ status: 'complete' }).catch(() => {});
+      await safeUpdate(userChatLog, { status: 'complete' }).catch(() => {});
     }
 
     sseWrite(res, 'error', {
@@ -432,7 +473,7 @@ const processMessage = async (req, res, next) => {
     const currentSessionId = session_id || uuidv4();
 
     // ─── Optimistic write: persist user message immediately ───
-    const userChatLog = await ChatLog.create({
+    const userChatLog = await ChatLog.create(await safeFields({
       user_id: userId,
       session_id: currentSessionId,
       role: 'user',
@@ -441,9 +482,9 @@ const processMessage = async (req, res, next) => {
       entities_json: null,
       processing_time_ms: null,
       status: 'sent',
-    });
+    }));
 
-    const assistantChatLog = await ChatLog.create({
+    const assistantChatLog = await ChatLog.create(await safeFields({
       user_id: userId,
       session_id: currentSessionId,
       role: 'assistant',
@@ -451,7 +492,7 @@ const processMessage = async (req, res, next) => {
       intent: null,
       entities_json: null,
       status: 'pending',
-    });
+    }));
 
     // ─── NLP Processing ───
     const pending = pendingClarifications.get(userId);
@@ -470,8 +511,8 @@ const processMessage = async (req, res, next) => {
       }
     } catch (aiError) {
       // AI failed — persist error state, still return a response
-      await userChatLog.update({ intent: 'unclear', status: 'complete' });
-      await assistantChatLog.update({
+      await safeUpdate(userChatLog, { intent: 'unclear', status: 'complete' });
+      await safeUpdate(assistantChatLog, {
         message: 'Sorry, the AI service is temporarily unavailable. Your message has been saved.',
         intent: 'error',
         status: 'error',
@@ -500,13 +541,13 @@ const processMessage = async (req, res, next) => {
         createdAt: Date.now(),
       });
 
-      await userChatLog.update({
+      await safeUpdate(userChatLog, {
         intent: nlpResult.intent,
         entities_json: [],
         processing_time_ms: nlpResult.processing_time_ms,
         status: 'complete',
       });
-      await assistantChatLog.update({
+      await safeUpdate(assistantChatLog, {
         message: nlpResult.clarification_question,
         intent: 'clarification',
         status: 'complete',
@@ -551,13 +592,13 @@ const processMessage = async (req, res, next) => {
     }
 
     // ─── Finalize chat logs ───
-    await userChatLog.update({
+    await safeUpdate(userChatLog, {
       intent: nlpResult.intent,
       entities_json: nlpResult.entities,
       processing_time_ms: nlpResult.processing_time_ms,
       status: 'complete',
     });
-    await assistantChatLog.update({
+    await safeUpdate(assistantChatLog, {
       message: nlpResult.response,
       intent: null,
       entities_json: null,
