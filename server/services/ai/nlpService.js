@@ -245,7 +245,12 @@ PREVIOUS CONTEXT:
 
 USER'S RESPONSE: "${userResponse}"
 
-Parse this in context of the original message. Extract full entities now that ambiguity is resolved.`;
+CRITICAL INSTRUCTIONS FOR THIS TURN:
+1. Identify which option the user chose based on their response.
+2. Extract the final entities from the original message according to that choice.
+3. Set "needs_clarification" to FALSE. You MUST NOT ask another clarification question.
+4. Set "intent" to the proper logging intent (e.g. "log_finance" or "log_health").
+5. Write a friendly "response" confirming the exact data logged.`;
 };
 
 /**
@@ -382,7 +387,7 @@ const normalizeNLPResponse = (parsed, originalMessage, processingTime) => {
 
   let clarificationQuestion = parsed.clarification_question || null;
   let clarificationOptions = Array.isArray(parsed.clarification_options) && parsed.clarification_options.length > 0
-    ? parsed.clarification_options
+    ? parsed.clarification_options.map(String)
     : null;
 
   if (needsClarification && !clarificationQuestion) {

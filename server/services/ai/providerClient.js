@@ -4,12 +4,13 @@ require('dotenv').config();
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const HF_API_BASE_URL = 'https://api-inference.huggingface.co/v1';
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
-const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface', 'groq', 'custom_hf']);
+const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface', 'groq', 'custom_hf', 'ollama']);
 
 const normalizeProvider = (value) => value?.trim().toLowerCase() || '';
 
 const resolveAIProvider = () => {
   const configuredProvider = normalizeProvider(process.env.AI_PROVIDER);
+  console.log('AI_PROVIDER:', configuredProvider);
   if (!configuredProvider) return 'gemini';
   if (!SUPPORTED_PROVIDERS.has(configuredProvider)) {
     throw new Error(`Unsupported AI provider: ${process.env.AI_PROVIDER}`);
@@ -49,6 +50,15 @@ const getProviderSettings = (providerOverride) => {
       provider,
       apiKey: process.env.HF_API_KEY || '',
       endpoint: process.env.CUSTOM_HF_ENDPOINT || '',
+    };
+  }
+
+  if (provider === 'ollama') {
+    return {
+      provider,
+      apiKey: 'ollama', // dummy key
+      model: process.env.OLLAMA_MODEL || 'gemma',
+      endpoint: process.env.OLLAMA_API_BASE_URL || 'http://ollama:11434/v1/chat/completions',
     };
   }
 
@@ -149,9 +159,9 @@ const callGemini = async ({ systemInstruction, userPrompt, responseSchema, tempe
 // ─── Call OpenAI-compatible endpoint (HuggingFace or Groq) ───
 const callOpenAICompatible = async ({ systemInstruction, userPrompt, temperature, maxOutputTokens, providerOverride }) => {
   const settings = getProviderSettings(providerOverride);
-  const providerLabel = settings.provider === 'groq' ? 'Groq' : 'HuggingFace';
+  const providerLabel = settings.provider === 'groq' ? 'Groq' : (settings.provider === 'ollama' ? 'Ollama' : 'HuggingFace');
 
-  if (!settings.apiKey) throw new Error(`${providerLabel} API key is not configured.`);
+  if (settings.provider !== 'ollama' && !settings.apiKey) throw new Error(`${providerLabel} API key is not configured.`);
 
   const messages = [];
   if (systemInstruction) {
@@ -445,7 +455,7 @@ const generateStructuredJson = async ({
     };
   }
 
-  if (provider === 'huggingface' || provider === 'groq') {
+  if (provider === 'huggingface' || provider === 'groq' || provider === 'ollama') {
     return callOpenAICompatible({ systemInstruction, userPrompt, temperature, maxOutputTokens, providerOverride: provider });
   }
 

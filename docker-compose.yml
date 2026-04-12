@@ -81,8 +81,27 @@ services:
     networks:
       - lifesync-net
 
+  # ─── Ollama LLM Engine ───
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - lifesync-net
+    environment:
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma}
+    # Override the default entrypoint ("/bin/ollama") to use a shell
+    entrypoint: /bin/sh
+    # Run the server in the background, wait 5s for it to start, pull the model automatically, and wait for server to keep the container alive.
+    command: -c "ollama serve & sleep 5 && ollama pull $${OLLAMA_MODEL:-gemma} && wait"
+
 volumes:
   mysql_data:
+    driver: local
+  ollama_data:
     driver: local
 
 networks:

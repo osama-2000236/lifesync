@@ -11,6 +11,9 @@ services:
     environment:
       # Set development mode
       NODE_ENV: development
+      # Native AI provider hook-up for Ollama during development
+      AI_PROVIDER: ollama
+      OLLAMA_MODEL: "gemma3:1b"
     # Override start command to install development dependencies and run nodemon
     command: sh -c "npm install && npm run dev"
 
@@ -29,3 +32,7 @@ services:
       VITE_API_PROXY: "http://server:5000"
     # Override command to run Vite dev server instead of Nginx
     command: sh -c "npm install && npm run dev -- --host --port 80"
+
+  ollama:
+    environment:
+      OLLAMA_MODEL: "gemma3:1b"
