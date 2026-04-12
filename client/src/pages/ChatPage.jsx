@@ -318,6 +318,7 @@ export default function ChatPage() {
   const [sessionId, setSessionId] = useState(() => uuidv4());
   const [sessions, setSessions] = useState([]);
   const [clarificationOptions, setClarificationOptions] = useState(null);
+  const [postLogSuggestions, setPostLogSuggestions] = useState(null);
   const [showSessions, setShowSessions] = useState(false);
   const [lastUserText, setLastUserText] = useState(''); // for retry
   const messagesEndRef = useRef(null);
@@ -357,6 +358,7 @@ export default function ChatPage() {
 
     setInput('');
     setClarificationOptions(null);
+    setPostLogSuggestions(null);
     setStatusText(null);
     setLastUserText(messageText);
 
@@ -391,6 +393,8 @@ export default function ChatPage() {
 
         if (result.needs_clarification && result.clarification_options) {
           setClarificationOptions(result.clarification_options);
+        } else if (!result.needs_clarification && result.suggestions?.length) {
+          setPostLogSuggestions(result.suggestions);
         }
 
         if (result.session_id && result.session_id !== sessionId) {
@@ -551,6 +555,24 @@ export default function ChatPage() {
                   onSelect={handleQuickAction}
                   disabled={sending}
                 />
+              )}
+
+              {/* Post-Log Suggestion Chips */}
+              {postLogSuggestions && !clarificationOptions && !sending && (
+                <div className="flex items-end gap-2 animate-fade-up">
+                  <div className="w-7 h-7" />
+                  <div className="flex flex-wrap gap-2 max-w-[75%]">
+                    {postLogSuggestions.map((option, i) => (
+                      <button
+                        key={i}
+                        onClick={() => handleQuickAction(option)}
+                        className="px-4 py-2 rounded-2xl bg-navy-50 border border-navy-200 text-navy-600 text-xs font-medium hover:bg-navy-100 hover:border-navy-300 transition-all active:scale-[0.97]"
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {sending && <TypingIndicator statusText={statusText} />}

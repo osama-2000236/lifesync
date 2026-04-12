@@ -43,4 +43,5 @@ const testConnection = async () => {
   }
 };
 
-module.exports = { sequelize, testConnection };
+const { QueryTypes } = require('sequelize');
+module.exports = { sequelize, testConnection, QueryTypes };

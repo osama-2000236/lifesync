@@ -18,6 +18,7 @@ const FinancialLog = require('../models/FinancialLog');
 const Category = require('../models/Category');
 const ChatLog = require('../models/ChatLog');
 const LinkedDomain = require('../models/LinkedDomain');
+const PendingClarification = require('../models/PendingClarification');
 const { getFirestore } = require('../config/firebase');
 const { success, error } = require('../utils/responseHelper');
 
@@ -53,20 +54,46 @@ const safeUpdate = async (row, fields) => {
 };
 
 // ============================================
-// In-Memory Clarification State
+// Clarification State Helpers (DB-backed)
 // ============================================
-const pendingClarifications = new Map();
+// Previously an in-memory Map — now persisted in pending_clarifications
+// so state survives server restarts and works across instances.
+const CLARIFICATION_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-// TTL cleanup: evict stale clarification state every 60s (5-min TTL)
-const CLARIFICATION_TTL_MS = 5 * 60 * 1000;
-setInterval(() => {
-  const now = Date.now();
-  for (const [userId, state] of pendingClarifications) {
-    if (now - state.createdAt > CLARIFICATION_TTL_MS) {
-      pendingClarifications.delete(userId);
-    }
-  }
-}, 60_000);
+const getPendingClarification = async (userId, sessionId) => {
+  try {
+    return await PendingClarification.findOne({
+      where: {
+        user_id: userId,
+        session_id: sessionId,
+        expires_at: { [Op.gt]: new Date() },
+      },
+      raw: true,
+    });
+  } catch { return null; }
+};
+
+const setPendingClarification = async (userId, sessionId, data) => {
+  try {
+    await PendingClarification.upsert({
+      user_id: userId,
+      session_id: sessionId,
+      original_message: data.originalMessage,
+      clarification_question: data.clarificationQuestion,
+      clarification_options: data.clarificationOptions,
+      expires_at: new Date(Date.now() + CLARIFICATION_TTL_MS),
+    });
+  } catch { /* non-critical */ }
+};
+
+const deletePendingClarification = async (userId) => {
+  try {
+    await PendingClarification.destroy({ where: { user_id: userId } });
+  } catch { /* non-critical */ }
+};
+
+// Keep the Map exported for tests that mock _pendingClarifications
+const pendingClarifications = new Map();
 
 // ============================================
 // VALIDATION
@@ -169,6 +196,70 @@ const createCrossDomainLinks = async (healthEntries, financeEntries, originalMes
     }
   }
   return links;
+};
+
+/**
+ * Compare a newly logged value to the user's 7-day average for that type.
+ * Returns a short phrase, e.g. "22% above your 7-day avg (6,540 steps)" or null.
+ */
+/**
+ * Derive 2 context-aware follow-up suggestion chips from the NLP result.
+ * Returned in the SSE complete event so the client can render them as tappable buttons.
+ */
+const getSuggestions = (intent, domain, isCrossDomain, entities = []) => {
+  if (intent === 'log_health' && !isCrossDomain) {
+    const types = entities.map((e) => e.type);
+    if (types.includes('steps'))     return ['How do my steps compare this week?', 'Log my mood too'];
+    if (types.includes('sleep'))     return ['Log my morning mood', 'How is my sleep trend?'];
+    if (types.includes('mood'))      return ['What affects my mood?', 'Log today\'s activity'];
+    if (types.includes('exercise'))  return ['Log gym expense too', 'How active was I this week?'];
+    if (types.includes('nutrition')) return ['Log related expense', 'How is my nutrition trend?'];
+    return ['How am I doing this week?', 'Get my weekly insights'];
+  }
+  if (intent === 'log_finance' && !isCrossDomain) {
+    return ['Log related health activity', 'Show my spending this week'];
+  }
+  if (intent === 'log_both' || isCrossDomain) {
+    return ['View weekly insights', 'How am I doing this week?'];
+  }
+  if (intent === 'query_health' || intent === 'query_finance') {
+    return ['Get my weekly insights', 'Log today\'s activity'];
+  }
+  return [];
+};
+
+const buildProgressNote = async (userId, type, newValue, domain = 'health') => {
+  try {
+    const { Op, fn, col } = require('sequelize');
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const Model = domain === 'health' ? HealthLog : FinancialLog;
+    const valueCol = domain === 'health' ? 'value' : 'amount';
+
+    const [agg] = await Model.findAll({
+      where: { user_id: userId, type, logged_at: { [Op.gte]: weekAgo } },
+      attributes: [
+        [fn('AVG', col(valueCol)), 'avg'],
+        [fn('COUNT', col('id')), 'count'],
+      ],
+      raw: true,
+    });
+
+    const avg = parseFloat(agg?.avg);
+    const count = parseInt(agg?.count);
+    if (!avg || count < 3) return null; // need at least 3 prior entries for a meaningful avg
+
+    const diff = ((newValue - avg) / avg) * 100;
+    const avgLabel = domain === 'health'
+      ? avg.toLocaleString('en-US', { maximumFractionDigits: 0 })
+      : `$${avg.toFixed(2)}`;
+
+    if (Math.abs(diff) < 5) return `right at your 7-day avg (${avgLabel})`;
+    return diff > 0
+      ? `${Math.round(diff)}% above your 7-day avg (${avgLabel})`
+      : `${Math.round(Math.abs(diff))}% below your 7-day avg (${avgLabel})`;
+  } catch {
+    return null; // non-critical
+  }
 };
 
 const syncToFirebase = async (sessionId, userId, userMessage, assistantMessage, nlpResult) => {
@@ -279,7 +370,7 @@ const processMessageStream = async (req, res) => {
     });
 
     // ─── Step 2: Check for pending clarification ───
-    const pending = pendingClarifications.get(userId);
+    const pending = await getPendingClarification(userId, currentSessionId);
     let nlpResult;
 
     // Fetch recent conversation turns for context (last 10 messages in this session)
@@ -297,13 +388,13 @@ const processMessageStream = async (req, res) => {
     }, 15_000);
 
     try {
-      if (pending && pending.sessionId === currentSessionId) {
+      if (pending) {
         nlpResult = await parseMessage(message, {
-          originalMessage: pending.originalMessage,
-          clarificationQuestion: pending.clarificationQuestion,
-          clarificationOptions: pending.clarificationOptions,
+          originalMessage: pending.original_message,
+          clarificationQuestion: pending.clarification_question,
+          clarificationOptions: pending.clarification_options,
         }, conversationHistory);
-        pendingClarifications.delete(userId);
+        await deletePendingClarification(userId);
       } else {
         // Fresh message — call HF Space (this is the slow part)
         sseWrite(res, 'status', { message: 'Processing your message...' });
@@ -333,12 +424,10 @@ const processMessageStream = async (req, res) => {
 
     // ─── Step 3: Handle clarification needed ───
     if (nlpResult.needs_clarification) {
-      pendingClarifications.set(userId, {
+      await setPendingClarification(userId, currentSessionId, {
         originalMessage: message,
         clarificationQuestion: nlpResult.clarification_question,
         clarificationOptions: nlpResult.clarification_options,
-        sessionId: currentSessionId,
-        createdAt: Date.now(),
       });
 
       // Update both DB rows
@@ -374,6 +463,43 @@ const processMessageStream = async (req, res) => {
       return res.end();
     }
 
+    // ─── Step 3c: Handle get_insight intent ───
+    if (nlpResult.intent === 'get_insight') {
+      sseWrite(res, 'status', { message: 'Generating your insights…' });
+      let insightText;
+      try {
+        const { generateAndPersistInsights } = require('../services/ai/insightEngine');
+        const insight = await generateAndPersistInsights(userId);
+        const hEmoji = insight.health_score >= 70 ? '💪' : insight.health_score >= 50 ? '🙂' : '⚠️';
+        const fEmoji = insight.financial_health_score >= 70 ? '✅' : insight.financial_health_score >= 50 ? '📊' : '⚠️';
+        insightText = `${hEmoji} Health: ${insight.health_score}/100  ${fEmoji} Finance: ${insight.financial_health_score}/100\n\n`
+          + (insight.summary || '')
+          + (insight.cross_domain_insights ? `\n\nCross-domain: ${insight.cross_domain_insights}` : '')
+          + (insight.recommendations?.length ? `\n\nTop tip: ${insight.recommendations[0].text}` : '');
+      } catch {
+        insightText = nlpResult.response || 'Could not generate insights right now — log some data this week first.';
+      }
+
+      await safeUpdate(userChatLog, { intent: 'get_insight', status: 'complete', processing_time_ms: nlpResult.processing_time_ms });
+      await safeUpdate(assistantChatLog, { message: insightText, status: 'complete' });
+      syncToFirebase(currentSessionId, userId, message, insightText, nlpResult).catch(() => {});
+
+      sseWrite(res, 'complete', {
+        session_id: currentSessionId,
+        intent: 'get_insight',
+        domain: 'both',
+        response: insightText,
+        needs_clarification: false,
+        confidence: 1,
+        is_cross_domain: true,
+        entities_logged: { health: [], finance: [], linked: [] },
+        processing_time_ms: nlpResult.processing_time_ms,
+        suggestions: ['How do my scores compare to last week?', 'Show spending breakdown'],
+      });
+      sseWrite(res, 'done', {});
+      return res.end();
+    }
+
     // ─── Step 4: Create entries from extracted entities ───
     let healthEntries = [];
     let financeEntries = [];
@@ -396,8 +522,23 @@ const processMessageStream = async (req, res) => {
       }
     }
 
-    // ─── Step 4b: Resolve query intents with real user data ───
+    // ─── Step 4b: Enrich logging responses with progress context ───
     let finalResponse = nlpResult.response;
+    if (
+      (nlpResult.intent === 'log_health' || nlpResult.intent === 'log_both') &&
+      healthEntries.length > 0 &&
+      !nlpResult.is_cross_domain // keep cross-domain responses concise
+    ) {
+      const firstEntity = nlpResult.entities.find((e) => e.domain === 'health');
+      if (firstEntity?.value) {
+        const note = await buildProgressNote(userId, firstEntity.type, firstEntity.value, 'health');
+        if (note) {
+          finalResponse = finalResponse.replace(/[.!]?\s*$/, ` — ${note}.`);
+        }
+      }
+    }
+
+    // ─── Step 4c: Resolve query intents with real user data ───
     if (nlpResult.intent === 'query_health') {
       try {
         const recentHealth = await HealthLog.findAll({
@@ -472,6 +613,7 @@ const processMessageStream = async (req, res) => {
           id: l.id, health_log_id: l.health_log_id, financial_log_id: l.financial_log_id,
         })),
       },
+      suggestions: getSuggestions(nlpResult.intent, nlpResult.domain, nlpResult.is_cross_domain, nlpResult.entities),
       processing_time_ms: nlpResult.processing_time_ms,
     });
     sseWrite(res, 'done', {});
@@ -538,7 +680,7 @@ const processMessage = async (req, res, next) => {
     }));
 
     // ─── NLP Processing ───
-    const pending = pendingClarifications.get(userId);
+    const pending = await getPendingClarification(userId, currentSessionId);
     let nlpResult;
 
     // Fetch recent conversation turns for context
@@ -551,13 +693,13 @@ const processMessage = async (req, res, next) => {
     const conversationHistoryJson = recentHistoryJson.reverse();
 
     try {
-      if (pending && pending.sessionId === currentSessionId) {
+      if (pending) {
         nlpResult = await parseMessage(message, {
-          originalMessage: pending.originalMessage,
-          clarificationQuestion: pending.clarificationQuestion,
-          clarificationOptions: pending.clarificationOptions,
+          originalMessage: pending.original_message,
+          clarificationQuestion: pending.clarification_question,
+          clarificationOptions: pending.clarification_options,
         }, conversationHistoryJson);
-        pendingClarifications.delete(userId);
+        await deletePendingClarification(userId);
       } else {
         nlpResult = await parseMessage(message, null, conversationHistoryJson);
       }
@@ -585,12 +727,10 @@ const processMessage = async (req, res, next) => {
 
     // ─── Handle clarification ───
     if (nlpResult.needs_clarification) {
-      pendingClarifications.set(userId, {
+      await setPendingClarification(userId, currentSessionId, {
         originalMessage: message,
         clarificationQuestion: nlpResult.clarification_question,
         clarificationOptions: nlpResult.clarification_options,
-        sessionId: currentSessionId,
-        createdAt: Date.now(),
       });
 
       await safeUpdate(userChatLog, {
@@ -621,6 +761,40 @@ const processMessage = async (req, res, next) => {
       });
     }
 
+    // ─── Handle get_insight intent ───
+    if (nlpResult.intent === 'get_insight') {
+      let insightText;
+      try {
+        const { generateAndPersistInsights } = require('../services/ai/insightEngine');
+        const insight = await generateAndPersistInsights(userId);
+        const hEmoji = insight.health_score >= 70 ? '💪' : insight.health_score >= 50 ? '🙂' : '⚠️';
+        const fEmoji = insight.financial_health_score >= 70 ? '✅' : insight.financial_health_score >= 50 ? '📊' : '⚠️';
+        insightText = `${hEmoji} Health: ${insight.health_score}/100  ${fEmoji} Finance: ${insight.financial_health_score}/100\n\n`
+          + (insight.summary || '')
+          + (insight.cross_domain_insights ? `\n\nCross-domain: ${insight.cross_domain_insights}` : '')
+          + (insight.recommendations?.length ? `\n\nTop tip: ${insight.recommendations[0].text}` : '');
+      } catch {
+        insightText = nlpResult.response || 'Could not generate insights right now — log some data this week first.';
+      }
+
+      await safeUpdate(userChatLog, { intent: 'get_insight', status: 'complete', processing_time_ms: nlpResult.processing_time_ms });
+      await safeUpdate(assistantChatLog, { message: insightText, status: 'complete' });
+      syncToFirebase(currentSessionId, userId, message, insightText, nlpResult).catch(() => {});
+
+      return success(res, {
+        session_id: currentSessionId,
+        intent: 'get_insight',
+        domain: 'both',
+        response: insightText,
+        needs_clarification: false,
+        confidence: 1,
+        is_cross_domain: true,
+        entities_logged: { health: [], finance: [], linked: [] },
+        processing_time_ms: nlpResult.processing_time_ms,
+        suggestions: ['How do my scores compare to last week?', 'Show spending breakdown'],
+      });
+    }
+
     // ─── Create entries ───
     let healthEntries = [];
     let financeEntries = [];
@@ -643,8 +817,23 @@ const processMessage = async (req, res, next) => {
       }
     }
 
-    // ─── Resolve query intents with real data ───
+    // ─── Enrich logging responses with progress context ───
     let finalResponseJson = nlpResult.response;
+    if (
+      (nlpResult.intent === 'log_health' || nlpResult.intent === 'log_both') &&
+      healthEntries.length > 0 &&
+      !nlpResult.is_cross_domain
+    ) {
+      const firstEntityJson = nlpResult.entities.find((e) => e.domain === 'health');
+      if (firstEntityJson?.value) {
+        const note = await buildProgressNote(userId, firstEntityJson.type, firstEntityJson.value, 'health');
+        if (note) {
+          finalResponseJson = finalResponseJson.replace(/[.!]?\s*$/, ` — ${note}.`);
+        }
+      }
+    }
+
+    // ─── Resolve query intents with real data ───
     if (nlpResult.intent === 'query_health') {
       try {
         const recentHealth = await HealthLog.findAll({
@@ -712,6 +901,7 @@ const processMessage = async (req, res, next) => {
           id: l.id, health_log_id: l.health_log_id, financial_log_id: l.financial_log_id,
         })),
       },
+      suggestions: getSuggestions(nlpResult.intent, nlpResult.domain, nlpResult.is_cross_domain, nlpResult.entities),
       processing_time_ms: nlpResult.processing_time_ms,
     });
   } catch (err) {
@@ -754,20 +944,29 @@ const getChatHistory = async (req, res, next) => {
  */
 const getSessions = async (req, res, next) => {
   try {
-    const { sequelize } = require('../config/database');
-    const sessions = await ChatLog.findAll({
-      where: { user_id: req.user.id, role: 'user' },
-      attributes: [
-        'session_id',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'message_count'],
-        [sequelize.fn('MIN', sequelize.col('created_at')), 'started_at'],
-        [sequelize.fn('MAX', sequelize.col('created_at')), 'last_message_at'],
-        // First message in the session as a preview label
-        [sequelize.fn('MIN', sequelize.col('message')), 'preview'],
-      ],
-      group: ['session_id'],
-      order: [[sequelize.fn('MAX', sequelize.col('created_at')), 'DESC']],
-      raw: true,
+    const { sequelize, QueryTypes } = require('../config/database');
+    // Use a correlated subquery to get the chronologically FIRST user message
+    // as the preview label (MIN(message) sorts alphabetically, not by time).
+    const sessions = await sequelize.query(`
+      SELECT
+        session_id,
+        COUNT(id)       AS message_count,
+        MIN(created_at) AS started_at,
+        MAX(created_at) AS last_message_at,
+        (SELECT message FROM chat_logs AS cl2
+         WHERE cl2.session_id = cl1.session_id
+           AND cl2.role = 'user'
+           AND cl2.user_id = :userId
+         ORDER BY cl2.created_at ASC
+         LIMIT 1)        AS preview
+      FROM chat_logs AS cl1
+      WHERE user_id = :userId
+        AND role = 'user'
+      GROUP BY session_id
+      ORDER BY MAX(created_at) DESC
+    `, {
+      replacements: { userId: req.user.id },
+      type: QueryTypes.SELECT,
     });
 
     return success(res, { sessions });
