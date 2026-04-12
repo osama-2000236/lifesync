@@ -279,7 +279,7 @@ const callCustomHF = async (systemMsg, userMsg) => {
     'https://os-1202883-lifesync-api.hf.space').replace(/\/$/, '');
   const QUEUE = `${BASE}/gradio_api/call/infer`;
   const TEMP = parseFloat(process.env.CUSTOM_HF_TEMPERATURE) || 0.1;
-  const MAXT = parseInt(process.env.CUSTOM_HF_MAX_TOKENS) || 512;
+  const MAXT = parseInt(process.env.CUSTOM_HF_MAX_TOKENS) || 800; // was 512 — cross-domain JSON needs 600-800 tokens
 
   const headers = { 'Content-Type': 'application/json' };
   const hfKey = process.env.HF_API_KEY;

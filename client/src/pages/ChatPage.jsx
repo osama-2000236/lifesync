@@ -7,6 +7,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { chatAPI } from '../services/api';
+import { getAssistantMessageContent } from '../utils/chatResponse';
 import { subscribeToChatSession } from '../services/firebase';
 import {
   Send, Loader2, Sparkles, Plus, Clock, MessageCircle,
@@ -70,26 +71,41 @@ function EntitiesBadge({ entities }) {
     <div className="flex items-end gap-2 animate-fade-up">
       <div className="w-7 h-7" />
       <div className="flex flex-wrap gap-1.5">
-        {health.map((e, i) => (
-          <span
-            key={`h-${i}`}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-100 text-xs font-medium text-emerald-700 shadow-sm animate-fade-up"
-            style={{ animationDelay: `${i * 80}ms` }}
-          >
-            <Heart className="w-3 h-3 text-emerald-500" />
-            {e.type}: {e.value}
-          </span>
-        ))}
-        {finance.map((e, i) => (
-          <span
-            key={`f-${i}`}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-100 text-xs font-medium text-blue-700 shadow-sm animate-fade-up"
-            style={{ animationDelay: `${(health.length + i) * 80}ms` }}
-          >
-            <Wallet className="w-3 h-3 text-blue-500" />
-            {e.type}: ${e.amount}
-          </span>
-        ))}
+        {health.map((e, i) => {
+          const displayValue = typeof e.value === 'number'
+            ? e.value.toLocaleString()
+            : (e.value || '');
+          const unitLabels = {
+            steps: 'steps', hours: 'hrs', rating: '/10',
+            kcal: 'kcal', liters: 'L', minutes: 'min', bpm: 'bpm',
+          };
+          const unitLabel = unitLabels[e.unit] || (e.unit || '');
+          return (
+            <span
+              key={`h-${i}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-100 text-xs font-medium text-emerald-700 shadow-sm animate-fade-up"
+              style={{ animationDelay: `${i * 80}ms` }}
+            >
+              <Heart className="w-3 h-3 text-emerald-500" />
+              {displayValue}{unitLabel ? ' ' + unitLabel : ''} {e.type}
+            </span>
+          );
+        })}
+        {finance.map((e, i) => {
+          const displayAmount = typeof e.amount === 'number'
+            ? e.amount % 1 === 0 ? `$${e.amount}` : `$${e.amount.toFixed(2)}`
+            : `$${e.amount}`;
+          return (
+            <span
+              key={`f-${i}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-100 text-xs font-medium text-blue-700 shadow-sm animate-fade-up"
+              style={{ animationDelay: `${(health.length + i) * 80}ms` }}
+            >
+              <Wallet className="w-3 h-3 text-blue-500" />
+              {displayAmount} {e.type}
+            </span>
+          );
+        })}
         {linked.length > 0 && (
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-100 text-xs font-medium text-purple-700 shadow-sm animate-fade-up">
             <Link2 className="w-3 h-3 text-purple-500" />
@@ -198,6 +214,10 @@ function ClarificationButtons({ options, onSelect, disabled }) {
 
 /** Session sidebar item */
 function SessionItem({ session, isActive, onClick }) {
+  const preview = session.preview
+    ? session.preview.length > 38 ? session.preview.slice(0, 38) + '…' : session.preview
+    : `${session.message_count} messages`;
+
   return (
     <button
       onClick={onClick}
@@ -206,12 +226,13 @@ function SessionItem({ session, isActive, onClick }) {
       }`}
     >
       <div className="flex items-center gap-2">
-        <MessageCircle className="w-3.5 h-3.5 flex-shrink-0" />
-        <span className="truncate">{session.message_count} messages</span>
+        <MessageCircle className="w-3.5 h-3.5 flex-shrink-0 opacity-60" />
+        <span className="truncate text-xs font-medium">{preview}</span>
       </div>
       <p className="text-[11px] text-navy-400 mt-0.5 flex items-center gap-1">
         <Clock className="w-3 h-3" />
         {new Date(session.last_message_at || session.started_at).toLocaleDateString()}
+        <span className="ml-auto">{session.message_count} msgs</span>
       </p>
     </button>
   );
@@ -360,7 +381,7 @@ export default function ChatPage() {
         const assistantMsg = {
           id: Date.now() + 1,
           role: 'assistant',
-          content: result.response,
+          content: getAssistantMessageContent(result),
           entities: result.entities_logged,
           domain: result.domain,
           isCrossDomain: result.is_cross_domain,

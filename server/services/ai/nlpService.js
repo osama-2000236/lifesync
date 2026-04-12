@@ -123,6 +123,30 @@ When needs_clarification = false:
 
 8. CLARIFICATION RESPONSES: When context is provided, match the answer to extract entities.
 
+9. CONVERSATION CONTEXT: If a RECENT CONVERSATION block is provided before the CURRENT MESSAGE,
+   use it to resolve pronouns and follow-ups ("log that", "change it", "same as yesterday").
+
+─── RESPONSE QUALITY (CRITICAL) ───
+
+The "response" field is what the user sees. Make it helpful and specific:
+
+• LOGGING: Always echo the specific value logged.
+  - Steps: "Logged 8,000 steps! Great effort." (never just "Got it!")
+  - Sleep: "Logged 7 hours of sleep. Good rest!"
+  - Finance: "Noted your $15 lunch expense under Food & Dining."
+  - Mood: "Logged mood 7/10 — sounds like a good day!"
+  - Cross-domain: "Logged your $50 gym expense AND 60-minute workout!"
+
+• QUERIES: Acknowledge what you are looking up concisely.
+  Example: "Here's your recent step data:" — the server will append the actual numbers.
+
+• CLARIFICATION: The clarification_question is shown directly to the user — make it a clear,
+  friendly question with 2-4 tappable options in clarification_options.
+
+• GENERAL / GREETING: Mention LifeSync tracks both health AND finances together.
+
+Keep responses under 2 sentences. Never reply with only "Got it!" — always be specific.
+
 ONLY return valid JSON.`;
 
 const GENERIC_ENTITY_SCHEMA = {
@@ -249,18 +273,37 @@ Parse this in context of the original message. Extract full entities now that am
 };
 
 /**
+ * Build a brief recent-conversation context string for the AI.
+ * Passes the last few turns so the model can handle follow-up messages.
+ * @param {Array} history - Array of ChatLog rows (raw, with role + message)
+ * @returns {string}
+ */
+const buildConversationContext = (history) => {
+  if (!Array.isArray(history) || history.length === 0) return '';
+  const turns = history
+    .filter((m) => m.role && m.message)
+    .slice(-6) // last 3 user+assistant pairs
+    .map((m) => `${m.role === 'user' ? 'USER' : 'ASSISTANT'}: ${m.message}`)
+    .join('\n');
+  return turns ? `\nRECENT CONVERSATION:\n${turns}\n` : '';
+};
+
+/**
  * Parse a natural language message using the configured AI provider
  * @param {string} message - The user's input
  * @param {Object|null} pendingClarification - Previous clarification context
+ * @param {Array} conversationHistory - Recent ChatLog rows for context (optional)
  * @returns {Object} Parsed result
  */
-const parseMessage = async (message, pendingClarification = null) => {
+const parseMessage = async (message, pendingClarification = null, conversationHistory = []) => {
   const startTime = Date.now();
 
   try {
+    const historyContext = buildConversationContext(conversationHistory);
+
     const userPrompt = pendingClarification
       ? buildClarificationContext(pendingClarification, message)
-      : message;
+      : `${historyContext}CURRENT MESSAGE: ${message}`;
 
     const completion = await generateStructuredJson({
       systemInstruction: SYSTEM_PROMPT,

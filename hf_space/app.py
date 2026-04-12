@@ -31,7 +31,7 @@ print(f"Model downloaded to: {model_path}")
 print("Loading model...")
 llm = Llama(
     model_path=model_path,
-    n_ctx=2048,
+    n_ctx=4096,   # increased from 2048 — system prompt alone is ~350 tokens
     n_threads=2,  # CPU Basic has 2 vCPU
     verbose=False,
 )

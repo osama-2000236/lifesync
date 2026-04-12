@@ -282,6 +282,15 @@ const processMessageStream = async (req, res) => {
     const pending = pendingClarifications.get(userId);
     let nlpResult;
 
+    // Fetch recent conversation turns for context (last 10 messages in this session)
+    const recentHistory = await ChatLog.findAll({
+      where: { user_id: userId, session_id: currentSessionId },
+      order: [['created_at', 'DESC']],
+      limit: 10,
+      raw: true,
+    });
+    const conversationHistory = recentHistory.reverse();
+
     // Heartbeat interval to keep the connection alive during HF inference
     const heartbeat = setInterval(() => {
       res.write(':heartbeat\n\n');
@@ -293,12 +302,12 @@ const processMessageStream = async (req, res) => {
           originalMessage: pending.originalMessage,
           clarificationQuestion: pending.clarificationQuestion,
           clarificationOptions: pending.clarificationOptions,
-        });
+        }, conversationHistory);
         pendingClarifications.delete(userId);
       } else {
         // Fresh message — call HF Space (this is the slow part)
         sseWrite(res, 'status', { message: 'Processing your message...' });
-        nlpResult = await parseMessage(message);
+        nlpResult = await parseMessage(message, null, conversationHistory);
       }
     } catch (aiError) {
       clearInterval(heartbeat);
@@ -387,6 +396,40 @@ const processMessageStream = async (req, res) => {
       }
     }
 
+    // ─── Step 4b: Resolve query intents with real user data ───
+    let finalResponse = nlpResult.response;
+    if (nlpResult.intent === 'query_health') {
+      try {
+        const recentHealth = await HealthLog.findAll({
+          where: { user_id: userId },
+          order: [['logged_at', 'DESC']],
+          limit: 7,
+          raw: true,
+        });
+        if (recentHealth.length > 0) {
+          const summary = recentHealth.map((h) =>
+            `${h.type}: ${h.value}${h.unit ? ' ' + h.unit : ''} (${new Date(h.logged_at).toLocaleDateString()})`
+          ).join(', ');
+          finalResponse = `${nlpResult.response} Your recent entries: ${summary}.`;
+        }
+      } catch { /* non-critical — use AI response as fallback */ }
+    } else if (nlpResult.intent === 'query_finance') {
+      try {
+        const recentFinance = await FinancialLog.findAll({
+          where: { user_id: userId },
+          order: [['logged_at', 'DESC']],
+          limit: 7,
+          raw: true,
+        });
+        if (recentFinance.length > 0) {
+          const summary = recentFinance.map((f) =>
+            `${f.type} $${Number(f.amount).toFixed(2)} (${new Date(f.logged_at).toLocaleDateString()})`
+          ).join(', ');
+          finalResponse = `${nlpResult.response} Your recent entries: ${summary}.`;
+        }
+      } catch { /* non-critical — use AI response as fallback */ }
+    }
+
     // ─── Step 5: Update chat log rows with final data ───
     if (nlpResult.entities.length > 0) {
       sseWrite(res, 'status', { message: 'Logging your entries...' });
@@ -400,21 +443,21 @@ const processMessageStream = async (req, res) => {
     });
 
     await safeUpdate(assistantChatLog, {
-      message: nlpResult.response,
+      message: finalResponse,
       intent: null,
       entities_json: null,
       status: 'complete',
     });
 
     // ─── Step 6: Firebase sync (non-blocking) ───
-    syncToFirebase(currentSessionId, userId, message, nlpResult.response, nlpResult).catch(() => {});
+    syncToFirebase(currentSessionId, userId, message, finalResponse, nlpResult).catch(() => {});
 
     // ─── Step 7: Send complete event ───
     sseWrite(res, 'complete', {
       session_id: currentSessionId,
       intent: nlpResult.intent,
       domain: nlpResult.domain,
-      response: nlpResult.response,
+      response: finalResponse,
       needs_clarification: false,
       confidence: nlpResult.confidence,
       is_cross_domain: nlpResult.is_cross_domain,
@@ -498,16 +541,25 @@ const processMessage = async (req, res, next) => {
     const pending = pendingClarifications.get(userId);
     let nlpResult;
 
+    // Fetch recent conversation turns for context
+    const recentHistoryJson = await ChatLog.findAll({
+      where: { user_id: userId, session_id: currentSessionId },
+      order: [['created_at', 'DESC']],
+      limit: 10,
+      raw: true,
+    });
+    const conversationHistoryJson = recentHistoryJson.reverse();
+
     try {
       if (pending && pending.sessionId === currentSessionId) {
         nlpResult = await parseMessage(message, {
           originalMessage: pending.originalMessage,
           clarificationQuestion: pending.clarificationQuestion,
           clarificationOptions: pending.clarificationOptions,
-        });
+        }, conversationHistoryJson);
         pendingClarifications.delete(userId);
       } else {
-        nlpResult = await parseMessage(message);
+        nlpResult = await parseMessage(message, null, conversationHistoryJson);
       }
     } catch (aiError) {
       // AI failed — persist error state, still return a response
@@ -591,6 +643,40 @@ const processMessage = async (req, res, next) => {
       }
     }
 
+    // ─── Resolve query intents with real data ───
+    let finalResponseJson = nlpResult.response;
+    if (nlpResult.intent === 'query_health') {
+      try {
+        const recentHealth = await HealthLog.findAll({
+          where: { user_id: userId },
+          order: [['logged_at', 'DESC']],
+          limit: 7,
+          raw: true,
+        });
+        if (recentHealth.length > 0) {
+          const summary = recentHealth.map((h) =>
+            `${h.type}: ${h.value}${h.unit ? ' ' + h.unit : ''} (${new Date(h.logged_at).toLocaleDateString()})`
+          ).join(', ');
+          finalResponseJson = `${nlpResult.response} Your recent entries: ${summary}.`;
+        }
+      } catch { /* non-critical */ }
+    } else if (nlpResult.intent === 'query_finance') {
+      try {
+        const recentFinance = await FinancialLog.findAll({
+          where: { user_id: userId },
+          order: [['logged_at', 'DESC']],
+          limit: 7,
+          raw: true,
+        });
+        if (recentFinance.length > 0) {
+          const summary = recentFinance.map((f) =>
+            `${f.type} $${Number(f.amount).toFixed(2)} (${new Date(f.logged_at).toLocaleDateString()})`
+          ).join(', ');
+          finalResponseJson = `${nlpResult.response} Your recent entries: ${summary}.`;
+        }
+      } catch { /* non-critical */ }
+    }
+
     // ─── Finalize chat logs ───
     await safeUpdate(userChatLog, {
       intent: nlpResult.intent,
@@ -599,19 +685,19 @@ const processMessage = async (req, res, next) => {
       status: 'complete',
     });
     await safeUpdate(assistantChatLog, {
-      message: nlpResult.response,
+      message: finalResponseJson,
       intent: null,
       entities_json: null,
       status: 'complete',
     });
 
-    syncToFirebase(currentSessionId, userId, message, nlpResult.response, nlpResult).catch(() => {});
+    syncToFirebase(currentSessionId, userId, message, finalResponseJson, nlpResult).catch(() => {});
 
     return success(res, {
       session_id: currentSessionId,
       intent: nlpResult.intent,
       domain: nlpResult.domain,
-      response: nlpResult.response,
+      response: finalResponseJson,
       needs_clarification: false,
       confidence: nlpResult.confidence,
       is_cross_domain: nlpResult.is_cross_domain,
@@ -676,6 +762,8 @@ const getSessions = async (req, res, next) => {
         [sequelize.fn('COUNT', sequelize.col('id')), 'message_count'],
         [sequelize.fn('MIN', sequelize.col('created_at')), 'started_at'],
         [sequelize.fn('MAX', sequelize.col('created_at')), 'last_message_at'],
+        // First message in the session as a preview label
+        [sequelize.fn('MIN', sequelize.col('message')), 'preview'],
       ],
       group: ['session_id'],
       order: [[sequelize.fn('MAX', sequelize.col('created_at')), 'DESC']],
