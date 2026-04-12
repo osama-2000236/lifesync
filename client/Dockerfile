@@ -5,13 +5,15 @@
 # Stage 2: Nginx serving
 # ============================================
 
-# --- Stage 1: Build ---
-FROM node:20-alpine AS builder
+# --- Stage 1: Dependencies ---
+FROM node:20-alpine AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
 RUN npm ci
 
+# --- Stage 2: Build ---
+FROM deps AS builder
 COPY . .
 
 # Build-time environment variables
@@ -20,7 +22,7 @@ ENV VITE_API_URL=$VITE_API_URL
 
 RUN npm run build
 
-# --- Stage 2: Serve with Nginx ---
+# --- Stage 3: Serve with Nginx ---
 FROM nginx:1.27-alpine
 
 # Remove default config

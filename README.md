@@ -19,6 +19,12 @@ Verified on 2026-03-30 in this workspace:
 - the backend server does not start in this machine as-is because MySQL is not installed here
 - Docker is not installed on this machine, so Docker Compose could not be validated end-to-end
 
+```powershell
+# Safely deploy to production:
+docker compose -f docker-compose.yml up -d --build
+
+```
+
 ## What I Ran
 
 Backend:

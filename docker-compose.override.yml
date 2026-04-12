@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  server:
+    user: root
+    volumes:
+      # Map host codebase to container for hot-reloading
+      - ./:/app
+      # Keep isolation for node_modules
+      - /app/node_modules
+    environment:
+      # Set development mode
+      NODE_ENV: development
+    # Override start command to install development dependencies and run nodemon
+    command: sh -c "npm install && npm run dev"
+
+  client:
+    build:
+      # Bypass the production Dockerfile completely to avoid environment validation issues
+      context: ./client
+      dockerfile: Dockerfile.dev
+    volumes:
+      # Map host codebase to container for hot-reloading
+      - ./client:/app
+      # Keep isolation for node_modules
+      - /app/node_modules
+    environment:
+      # Point Vite to the backend server container
+      VITE_API_PROXY: "http://server:5000"
+    # Override command to run Vite dev server instead of Nginx
+    command: sh -c "npm install && npm run dev -- --host --port 80"

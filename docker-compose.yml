@@ -62,7 +62,7 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       APP_URL: ${APP_URL:-http://localhost}
     ports:
-      - "5000:5000"
+      - "5001:5000"
     networks:
       - lifesync-net
 
