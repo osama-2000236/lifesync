@@ -295,8 +295,8 @@ const callCustomHF = async (systemMsg, userMsg) => {
   const hfKey = process.env.HF_API_KEY;
   if (hfKey && hfKey.trim()) headers['Authorization'] = `Bearer ${hfKey.trim()}`;
 
-  const MAX_RETRIES = 3;
-  const BACKOFF_BASE_MS = 5000;
+  const MAX_RETRIES = 1;
+  const BACKOFF_BASE_MS = 3000;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -323,10 +323,10 @@ const callCustomHF = async (systemMsg, userMsg) => {
       const { event_id: eventId } = await qRes.json();
       if (!eventId) throw new Error('HF Space returned no event_id');
 
-      // Step 2 — SSE stream
+      // Step 2 — SSE stream (45s timeout — fast enough for fallback to kick in)
       const sseRes = await fetch(`${BASE}/gradio_api/call/infer/${eventId}`, {
         headers: { Accept: 'text/event-stream', ...headers },
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(45_000),
       });
       if (!sseRes.ok) throw new Error(`HF SSE failed ${sseRes.status}`);
 
@@ -355,7 +355,7 @@ const callCustomHF = async (systemMsg, userMsg) => {
         }
       }
       reader.cancel().catch(() => {});
-      if (rawText === null) throw new Error('HF Space timeout after 120 s');
+      if (rawText === null) throw new Error('HF Space inference timeout — model did not return a result');
 
       // Step 3 — parse: try JSON first, then tag format, then fallback
       try {
@@ -434,6 +434,7 @@ const normalizeEntities = (parsed) => {
 };
 
 // ─── Main exported function — provider-agnostic ───
+// Auto-fallback: if custom_hf fails/times out AND a Gemini key exists, retry with Gemini.
 const generateStructuredJson = async ({
   systemInstruction,
   userPrompt,
@@ -445,14 +446,31 @@ const generateStructuredJson = async ({
   const provider = getProvider(feature);
 
   if (provider === 'custom_hf') {
-    const parsed = await callCustomHF(systemInstruction || '', userPrompt);
-    return {
-      provider: 'custom_hf',
-      model: 'os-1202883/LifeSync',
-      rawText: JSON.stringify(parsed),
-      data: parsed,
-      response: parsed,
-    };
+    try {
+      const parsed = await callCustomHF(systemInstruction || '', userPrompt);
+      return {
+        provider: 'custom_hf',
+        model: 'os-1202883/LifeSync',
+        rawText: JSON.stringify(parsed),
+        data: parsed,
+        response: parsed,
+      };
+    } catch (hfError) {
+      // Auto-fallback to Gemini if HF Space fails and Gemini key exists
+      const geminiKey = process.env.GEMINI_API_KEY;
+      if (geminiKey && geminiKey.trim()) {
+        console.warn(`HF Space failed (${hfError.message}), falling back to Gemini`);
+        return callGemini({
+          systemInstruction,
+          userPrompt,
+          responseSchema,
+          temperature,
+          maxOutputTokens,
+          providerOverride: 'gemini',
+        });
+      }
+      throw hfError; // No fallback available
+    }
   }
 
   if (provider === 'huggingface' || provider === 'groq' || provider === 'ollama') {
