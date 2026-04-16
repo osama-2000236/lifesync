@@ -60,12 +60,12 @@ export default function LoginPage() {
         </div>
 
         <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center backdrop-blur">
-              <Activity className="w-6 h-6 text-emerald-400" />
-            </div>
-            <span className="font-display text-xl font-bold text-white">LifeSync</span>
-          </div>
+          <Link to="/" className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center backdrop-blur">
+          <Activity className="w-6 h-6 text-emerald-400" />
+        </div>
+  <span className="font-display text-xl font-bold text-white">LifeSync</span>
+</Link>
         </div>
 
         <div className="relative z-10">
@@ -85,12 +85,12 @@ export default function LoginPage() {
 
       <div className="flex-1 flex items-center justify-center p-8 bg-surface">
         <div className="w-full max-w-md">
-          <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
+          <Link to="/" className="lg:hidden flex items-center gap-3 mb-8 justify-center">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center">
               <Activity className="w-6 h-6 text-white" />
             </div>
             <span className="font-display text-2xl font-bold text-navy-900">LifeSync</span>
-          </div>
+          </Link>
 
           <h1 className="font-display text-2xl font-bold text-navy-900 mb-1">Welcome back</h1>
           <p className="text-navy-500 mb-8">Sign in to continue to your dashboard.</p>
