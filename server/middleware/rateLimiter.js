@@ -11,6 +11,17 @@
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = rateLimit;
 
+const isEnabled = (value) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+const isLocalStrictGemmaMode = () => {
+  const provider = (process.env.INSIGHTS_AI_PROVIDER || process.env.AI_PROVIDER || '').trim().toLowerCase();
+  const endpoint = (process.env.CUSTOM_HF_ENDPOINT || '').trim().toLowerCase();
+
+  return process.env.NODE_ENV !== 'production'
+    && provider === 'custom_hf'
+    && isEnabled(process.env.CUSTOM_HF_STRICT)
+    && (endpoint.includes('127.0.0.1') || endpoint.includes('localhost'));
+};
+
 /**
  * Auth rate limiter — prevents brute-force login attacks
  * 10 requests per 15 minutes per IP
@@ -87,7 +98,7 @@ const insightLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => `insight:${req.user?.id || ipKeyGenerator(req.ip)}`,
-  skip: (req) => process.env.NODE_ENV === 'test',
+  skip: (req) => process.env.NODE_ENV === 'test' || isLocalStrictGemmaMode(),
 });
 
 /**

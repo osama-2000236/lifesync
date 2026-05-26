@@ -1,7 +1,15 @@
-const RAILWAY_HEALTH_URL =
-  process.env.RAILWAY_HEALTH_URL || 'https://lifesync-production-6f3e.up.railway.app/api/health';
+import 'dotenv/config';
+
+const BACKEND_HEALTH_URL =
+  process.env.BACKEND_HEALTH_URL
+  || process.env.RAILWAY_HEALTH_URL
+  || 'http://localhost:5000/api/health';
 const HF_SPACE_URL =
-  (process.env.HF_SPACE_URL || 'https://os-1202883-lifesync-api.hf.space').replace(/\/+$/, '');
+  (
+    process.env.HF_SPACE_URL
+    || process.env.CUSTOM_HF_ENDPOINT
+    || 'https://os-1202883-lifesync-api.hf.space'
+  ).replace(/\/+$/, '');
 const HF_TIMEOUT_MS = Number(process.env.HF_PROBE_TIMEOUT_MS || 120000);
 const REQUEST_TIMEOUT_MS = Number(process.env.PROBE_REQUEST_TIMEOUT_MS || 30000);
 
@@ -25,13 +33,13 @@ const assert = (condition, message) => {
   }
 };
 
-const probeRailway = async () => {
-  const response = await withTimeout(RAILWAY_HEALTH_URL);
-  assert(response.ok, `Railway health check failed with status ${response.status}`);
+const probeBackend = async () => {
+  const response = await withTimeout(BACKEND_HEALTH_URL);
+  assert(response.ok, `Backend health check failed with status ${response.status}`);
 
   const payload = await response.json();
-  assert(payload?.success === true, 'Railway health check payload is missing success=true');
-  console.log(`[probe] Railway OK: ${RAILWAY_HEALTH_URL}`);
+  assert(payload?.success === true, 'Backend health check payload is missing success=true');
+  console.log(`[probe] Backend OK: ${BACKEND_HEALTH_URL}`);
 };
 
 const parseSseCompletionPayload = (text) => {
@@ -119,7 +127,7 @@ const probeHfSpace = async () => {
 };
 
 const main = async () => {
-  await probeRailway();
+  await probeBackend();
   await probeHfSpace();
   console.log('[probe] External dependency probes passed.');
 };

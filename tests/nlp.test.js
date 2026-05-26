@@ -6,6 +6,7 @@
 // ============================================
 
 const {
+  _tryFastPathParse: tryFastPathParse,
   _validateEntity: validateEntity,
   _normalizeNLPResponse: normalizeNLPResponse,
 } = require('../server/services/ai/nlpService');
@@ -604,6 +605,81 @@ describe('Domain Classification', () => {
       const result = validateEntity({ domain: 'health', type, value: 1 });
       expect(result.unit).toBe(expectedUnit);
     });
+  });
+});
+
+// ============================================
+// 4. FAST PATH PARSING TESTS
+// ============================================
+
+describe('Fast Path Parsing', () => {
+  test('parses a straightforward finance expense without AI', () => {
+    const result = tryFastPathParse('I spent 10 dollars on coffee');
+
+    expect(result).not.toBeNull();
+    expect(result.intent).toBe('log_finance');
+    expect(result.domain).toBe('finance');
+    expect(result.needs_clarification).toBe(false);
+    expect(result.entities).toHaveLength(1);
+    expect(result.entities[0].amount).toBe(10);
+  });
+
+  test('parses a straightforward health steps message without AI', () => {
+    const result = tryFastPathParse('I walked 5000 steps today');
+
+    expect(result).not.toBeNull();
+    expect(result.intent).toBe('log_health');
+    expect(result.domain).toBe('health');
+    expect(result.entities).toHaveLength(1);
+    expect(result.entities[0].type).toBe('steps');
+    expect(result.entities[0].value).toBe(5000);
+  });
+
+  test('parses a clear cross-domain message without AI', () => {
+    const result = tryFastPathParse('I slept 7 hours and spent $15 on breakfast');
+
+    expect(result).not.toBeNull();
+    expect(result.intent).toBe('log_both');
+    expect(result.domain).toBe('both');
+    expect(result.entities).toHaveLength(2);
+  });
+
+  test('asks for clarification when only a finance amount is provided', () => {
+    const result = tryFastPathParse('I spent 10');
+
+    expect(result).not.toBeNull();
+    expect(result.needs_clarification).toBe(true);
+    expect(result.entities).toHaveLength(0);
+    expect(result.clarification_question).toMatch(/\$10/);
+  });
+
+  test('resolves a simple finance clarification answer without AI', () => {
+    const result = tryFastPathParse('Food', {
+      originalMessage: 'I spent 10',
+      clarificationQuestion: 'What was the $10 expense for?',
+      clarificationOptions: ['Food', 'Transport', 'Shopping'],
+    });
+
+    expect(result).not.toBeNull();
+    expect(result.needs_clarification).toBe(false);
+    expect(result.intent).toBe('log_finance');
+    expect(result.entities).toHaveLength(1);
+    expect(result.entities[0].amount).toBe(10);
+    expect(result.entities[0].category).toBe('Food & Dining');
+  });
+
+  test('allows a complete new log while clarification state exists', () => {
+    const result = tryFastPathParse('Walked 5000 steps', {
+      originalMessage: 'something unclear',
+      clarificationQuestion: 'Try one of these clear formats:',
+      clarificationOptions: ['Spent $20 on food', 'Walked 5000 steps'],
+    });
+
+    expect(result).not.toBeNull();
+    expect(result.needs_clarification).toBe(false);
+    expect(result.intent).toBe('log_health');
+    expect(result.entities[0].type).toBe('steps');
+    expect(result.entities[0].value).toBe(5000);
   });
 });
 

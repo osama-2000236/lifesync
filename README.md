@@ -9,6 +9,8 @@ LifeSync is a full-stack health and finance tracking app with:
 - OTP-based registration flow via email
 - Public landing, privacy, and terms pages for Google-ready deployment
 
+For teammate onboarding and local machine setup, use [TEAM_LOCAL_SETUP.md](./TEAM_LOCAL_SETUP.md).
+
 ## Verified Status
 
 Verified on 2026-03-30 in this workspace:
@@ -59,6 +61,7 @@ To run the full app locally you need:
 - an `.env` file for the backend
 - an `.env` file for the frontend
 - a valid Gemini API key for real NLP chat behavior
+- Python plus the `hf_space` dependencies if you want to run the custom HF/Gemma service locally
 - a real SMTP provider for production OTP emails
 - Firebase credentials if you want real-time chat sync
 
@@ -91,8 +94,16 @@ DB_PASSWORD=your_mysql_password
 JWT_SECRET=replace_with_a_real_32_plus_char_secret
 JWT_REFRESH_SECRET=replace_with_a_second_real_secret
 ENCRYPTION_KEY=replace_with_a_real_32_plus_char_key
-AI_PROVIDER=gemini
+AI_PROVIDER=custom_hf
+CHAT_AI_PROVIDER=custom_hf
+INSIGHTS_AI_PROVIDER=gemini
 GEMINI_API_KEY=your_gemini_api_key
+CUSTOM_HF_ENDPOINT=http://127.0.0.1:7860
+CUSTOM_HF_MODEL=google/gemma-4-E2B-it
+# Optional when Hugging Face download/auth is required:
+# HF_TOKEN=your_hf_token
+HF_HUB_DISABLE_XET=1
+HF_SPACE_QUANTIZATION=int4_cpu
 GEMINI_MODEL=gemini-2.5-flash
 CORS_ORIGIN=http://localhost:5173
 APP_URL=http://localhost:5000
@@ -104,6 +115,13 @@ Create the database, then run:
 npm install
 npm run migrate
 npm run seed
+npm run hf:install
+npm run hf:dev
+```
+
+In another terminal:
+
+```powershell
 npm run dev
 ```
 
@@ -137,6 +155,9 @@ npm run build
 ## Environment Notes
 
 - `GEMINI_API_KEY` is required for live chat parsing and model-backed summaries when `AI_PROVIDER=gemini`.
+- `CUSTOM_HF_ENDPOINT` can point to the bundled local Gradio service at `http://127.0.0.1:7860`.
+- The bundled `hf_space` service now targets `google/gemma-4-E2B-it` through Transformers.
+- On CPU-only machines, the service defaults to the official TorchAO int4 CPU quantization path to reduce memory pressure.
 - Firebase is optional. If it is not configured, Firebase-backed chat sync is skipped.
 - SMTP is optional in development. In production, use a real provider.
 - For Gmail SMTP, set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_SECURE=false`, and set `SMTP_FROM_EMAIL` to the same Gmail address as `SMTP_USER`.

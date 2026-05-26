@@ -16,10 +16,21 @@ const trendColors = {
   insufficient_data: 'text-amber-600 bg-amber-50 border-amber-100',
 };
 
+const hasScore = (value) => value !== null && value !== undefined && value !== '';
+
 export default function InsightCards({ insights, loading, error }) {
   if (loading) {
     return (
       <div className="space-y-4">
+        <div className="rounded-2xl border border-navy-100 bg-white/80 p-4 shadow-sm">
+          <div className="flex items-center gap-2 text-navy-700">
+            <Lightbulb className="w-4 h-4 text-amber-500" />
+            <p className="text-sm font-semibold">Preparing local Gemma insights...</p>
+          </div>
+          <p className="mt-1 text-xs text-navy-400">
+            The dashboard stays usable while your device generates the cards.
+          </p>
+        </div>
         {[1, 2, 3].map((i) => (
           <div key={i} className="h-24 skeleton rounded-xl" />
         ))}
@@ -40,7 +51,7 @@ export default function InsightCards({ insights, loading, error }) {
           {view.error}
         </p>
         <p className="text-xs text-amber-700/80">
-          No AI insight cards are being shown because the backend request failed.
+          Gemma-only insight cards are generated on your device. The dashboard will keep retrying automatically while everything else stays usable.
         </p>
       </div>
     );
@@ -74,13 +85,13 @@ export default function InsightCards({ insights, loading, error }) {
 
         {/* Scores */}
         <div className="flex gap-4 mt-4">
-          {data.health_score && (
+          {hasScore(data.health_score) && (
             <div className="flex-1 text-center py-2 rounded-xl bg-white/10 backdrop-blur">
               <p className="text-2xl font-bold">{data.health_score}</p>
               <p className="text-[10px] uppercase tracking-wider text-navy-300 mt-0.5">Health</p>
             </div>
           )}
-          {data.financial_health_score && (
+          {hasScore(data.financial_health_score) && (
             <div className="flex-1 text-center py-2 rounded-xl bg-white/10 backdrop-blur">
               <p className="text-2xl font-bold">{data.financial_health_score}</p>
               <p className="text-[10px] uppercase tracking-wider text-navy-300 mt-0.5">Finance</p>

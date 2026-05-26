@@ -11,6 +11,8 @@ const {
   _getProviderSettings,
   _extractResponseText,
   _parseModelTagOutput,
+  _resolveCustomHFModelName,
+  _isStrictCustomHFMode,
 } = require('../server/services/ai/providerClient');
 
 // Helper: build a mock SSE ReadableStream from lines
@@ -71,9 +73,12 @@ describe('providerClient', () => {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_MODEL: process.env.GEMINI_MODEL,
     HF_API_KEY: process.env.HF_API_KEY,
+    HF_MODEL: process.env.HF_MODEL,
     CUSTOM_HF_ENDPOINT: process.env.CUSTOM_HF_ENDPOINT,
+    CUSTOM_HF_MODEL: process.env.CUSTOM_HF_MODEL,
     CUSTOM_HF_TEMPERATURE: process.env.CUSTOM_HF_TEMPERATURE,
     CUSTOM_HF_MAX_TOKENS: process.env.CUSTOM_HF_MAX_TOKENS,
+    CUSTOM_HF_STRICT: process.env.CUSTOM_HF_STRICT,
   };
 
   afterEach(() => {
@@ -255,11 +260,27 @@ describe('providerClient', () => {
     expect(settings.endpoint).toBe('https://os-1202883-lifesync-api.hf.space');
   });
 
+  test('resolveCustomHFModelName prefers CUSTOM_HF_MODEL over HF_MODEL', () => {
+    process.env.HF_MODEL = 'Qwen/Qwen2.5-7B-Instruct';
+    process.env.CUSTOM_HF_MODEL = 'google/gemma-4-E2B-it';
+
+    expect(_resolveCustomHFModelName()).toBe('google/gemma-4-E2B-it');
+  });
+
+  test('strict custom_hf mode is enabled only when configured', () => {
+    process.env.CUSTOM_HF_STRICT = 'true';
+    expect(_isStrictCustomHFMode()).toBe(true);
+
+    process.env.CUSTOM_HF_STRICT = 'false';
+    expect(_isStrictCustomHFMode()).toBe(false);
+  });
+
   // ─── generateStructuredJson — custom_hf path via Gradio SSE ───
 
   test('generateStructuredJson calls custom_hf via Gradio queue+SSE', async () => {
     process.env.CHAT_AI_PROVIDER = 'custom_hf';
     process.env.CUSTOM_HF_ENDPOINT = 'https://os-1202883-lifesync-api.hf.space';
+    process.env.CUSTOM_HF_MODEL = 'google/gemma-4-E2B-it';
     delete process.env.HF_API_KEY;
 
     const modelJson = '{"intent":"log_finance","domain":"finance","entities":[{"domain":"finance","type":"expense","amount":20}],"response":"Logged!","confidence":0.95,"is_cross_domain":false,"needs_clarification":false,"clarification_question":"","clarification_options":[]}';
@@ -283,7 +304,7 @@ describe('providerClient', () => {
 
     expect(result.data.intent).toBe('log_finance');
     expect(result.provider).toBe('custom_hf');
-    expect(result.model).toBe('os-1202883/LifeSync');
+    expect(result.model).toBe('google/gemma-4-E2B-it');
   });
 
   test('generateStructuredJson handles tagged model output from custom_hf', async () => {
@@ -304,6 +325,24 @@ describe('providerClient', () => {
     expect(result.data.entities[0].amount).toBe(50);
     expect(result.data.entities[0].category).toBe('Food');
     expect(result.data.confidence).toBeCloseTo(0.9);
+  });
+
+  test('strict custom_hf mode does not fall back to Gemini on failure', async () => {
+    process.env.CHAT_AI_PROVIDER = 'custom_hf';
+    process.env.CUSTOM_HF_ENDPOINT = 'http://127.0.0.1:7860';
+    process.env.CUSTOM_HF_STRICT = 'true';
+    process.env.GEMINI_API_KEY = 'gem-key';
+
+    global.fetch = jest.fn().mockRejectedValue(new Error('fetch failed'));
+
+    await expect(generateStructuredJson({
+      systemInstruction: 'JSON only.',
+      userPrompt: 'hello',
+      responseSchema: { type: 'object', properties: {} },
+      feature: 'chat',
+    })).rejects.toThrow('fetch failed');
+
+    expect(axios.post).not.toHaveBeenCalled();
   });
 
   // ─── parseModelTagOutput ───

@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server/app.js",
     "dev": "nodemon server/app.js",
+    "hf:install": "python -m pip install -r hf_space/requirements.txt",
+    "hf:dev": "python hf_space/app.py",
     "install:client": "npm --prefix client ci",
     "build:client": "npm run install:client && npm --prefix client run build",
     "preflight:release-env": "node scripts/validate-release-env.mjs",

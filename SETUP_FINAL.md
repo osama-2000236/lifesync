@@ -94,13 +94,17 @@ JWT_REFRESH_SECRET=your_refresh_secret_minimum_32_chars
 ENCRYPTION_KEY=your_encryption_key_exactly_32ch!
 
 # ─── AI provider config ───
-AI_PROVIDER=gemini
+AI_PROVIDER=custom_hf
 CHAT_AI_PROVIDER=custom_hf
 INSIGHTS_AI_PROVIDER=gemini
 GEMINI_API_KEY=your_gemini_api_key
-CUSTOM_HF_ENDPOINT=https://os-1202883-lifesync-api.hf.space
-# Optional when the HF Space is private:
+CUSTOM_HF_ENDPOINT=http://127.0.0.1:7860
+CUSTOM_HF_MODEL=google/gemma-4-E2B-it
+# Optional when the HF model or Space requires auth:
+# HF_TOKEN=your_hf_token
 # HF_API_KEY=your_hf_token
+HF_HUB_DISABLE_XET=1
+HF_SPACE_QUANTIZATION=int4_cpu
 
 # ─── Optional (for email OTP) ───
 SMTP_HOST=smtp.gmail.com
@@ -134,7 +138,19 @@ npm run dev
 
 The backend auto-creates all tables via Sequelize `sync({ alter: true })` in development mode. No manual migration commands needed.
 
-### Step 5: Start the Frontend
+### Step 5: Start the Local Gemma Service
+
+```bash
+# From project root
+npm run hf:install
+npm run hf:dev
+# Output: Gradio app on http://127.0.0.1:7860
+```
+
+If the custom HF service is unavailable, the backend falls back to Gemini when `GEMINI_API_KEY` is configured.
+For CPU-only local machines, the bundled service uses TorchAO int4 quantization by default.
+
+### Step 6: Start the Frontend
 
 ```bash
 # In a second terminal
@@ -144,11 +160,14 @@ npm run dev
 #   ➜ Local: http://localhost:5173/
 ```
 
-### Step 6: Verify Everything Works
+### Step 7: Verify Everything Works
 
 ```bash
 # Health check (should return JSON)
 curl http://localhost:5000/api/health
+
+# Probe backend + configured HF endpoint
+npm run probe:external
 
 # Open browser
 open http://localhost:5173

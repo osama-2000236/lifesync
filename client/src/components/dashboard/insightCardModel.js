@@ -1,4 +1,12 @@
 export const getInsightCardsViewModel = ({ insights, error }) => {
+  if (insights) {
+    return {
+      kind: 'data',
+      data: insights,
+      error: null,
+    };
+  }
+
   if (error) {
     return {
       kind: 'error',
@@ -16,8 +24,8 @@ export const getInsightCardsViewModel = ({ insights, error }) => {
   }
 
   return {
-    kind: 'data',
-    data: insights,
+    kind: 'empty',
+    data: null,
     error: null,
   };
 };

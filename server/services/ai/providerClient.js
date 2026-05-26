@@ -7,6 +7,24 @@ const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
 const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface', 'groq', 'custom_hf', 'ollama']);
 
 const normalizeProvider = (value) => value?.trim().toLowerCase() || '';
+const isEnabled = (value) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+const parsePositiveInt = (value, fallback) => {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+const resolveCustomHFModelName = () =>
+  process.env.CUSTOM_HF_MODEL?.trim()
+  || process.env.HF_MODEL?.trim()
+  || 'google/gemma-4-E2B-it';
+const isStrictCustomHFMode = () => isEnabled(process.env.CUSTOM_HF_STRICT);
+const getCustomHFMaxRetries = () => {
+  if (process.env.CUSTOM_HF_MAX_RETRIES !== undefined) {
+    const parsed = parseInt(process.env.CUSTOM_HF_MAX_RETRIES, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  }
+
+  return isStrictCustomHFMode() ? 0 : 1;
+};
 
 const resolveAIProvider = () => {
   const configuredProvider = normalizeProvider(process.env.AI_PROVIDER);
@@ -284,18 +302,44 @@ const parseModelTagOutput = (rawText) => {
  * POST body : {"data": [system_msg, user_msg, temperature, max_tokens]}
  * SSE flow  : heartbeat* → complete → data:["<raw string>"]
  */
-const callCustomHF = async (systemMsg, userMsg) => {
+const getCustomHFRequestConfig = ({ temperature, maxOutputTokens, feature = 'chat' } = {}) => {
+  const envTemperature = parseFloat(process.env.CUSTOM_HF_TEMPERATURE);
+  const resolvedTemperature = Number.isFinite(temperature)
+    ? temperature
+    : (Number.isFinite(envTemperature) ? envTemperature : 0.1);
+  const resolvedMaxTokens = Number.isFinite(maxOutputTokens)
+    ? maxOutputTokens
+    : parsePositiveInt(
+      feature === 'insights'
+        ? (process.env.CUSTOM_HF_INSIGHTS_MAX_TOKENS || process.env.CUSTOM_HF_MAX_TOKENS)
+        : process.env.CUSTOM_HF_MAX_TOKENS,
+      512
+    );
+  const sseTimeoutMs = parsePositiveInt(
+    feature === 'insights'
+      ? (process.env.CUSTOM_HF_INSIGHTS_TIMEOUT_MS || process.env.CUSTOM_HF_TIMEOUT_MS)
+      : process.env.CUSTOM_HF_TIMEOUT_MS,
+    feature === 'insights' ? 180_000 : 45_000
+  );
+
+  return {
+    temperature: resolvedTemperature,
+    maxTokens: resolvedMaxTokens,
+    sseTimeoutMs,
+  };
+};
+
+const callCustomHF = async (systemMsg, userMsg, options = {}) => {
   const BASE = (process.env.CUSTOM_HF_ENDPOINT ||
     'https://os-1202883-lifesync-api.hf.space').replace(/\/$/, '');
   const QUEUE = `${BASE}/gradio_api/call/infer`;
-  const TEMP = parseFloat(process.env.CUSTOM_HF_TEMPERATURE) || 0.1;
-  const MAXT = parseInt(process.env.CUSTOM_HF_MAX_TOKENS) || 512;
+  const requestConfig = getCustomHFRequestConfig(options);
 
   const headers = { 'Content-Type': 'application/json' };
   const hfKey = process.env.HF_API_KEY;
   if (hfKey && hfKey.trim()) headers['Authorization'] = `Bearer ${hfKey.trim()}`;
 
-  const MAX_RETRIES = 1;
+  const MAX_RETRIES = getCustomHFMaxRetries();
   const BACKOFF_BASE_MS = 3000;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -304,7 +348,7 @@ const callCustomHF = async (systemMsg, userMsg) => {
       const qRes = await fetch(QUEUE, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ data: [systemMsg, userMsg, TEMP, MAXT] }),
+        body: JSON.stringify({ data: [systemMsg, userMsg, requestConfig.temperature, requestConfig.maxTokens] }),
         signal: AbortSignal.timeout(15_000),
       });
 
@@ -326,7 +370,7 @@ const callCustomHF = async (systemMsg, userMsg) => {
       // Step 2 — SSE stream (45s timeout — fast enough for fallback to kick in)
       const sseRes = await fetch(`${BASE}/gradio_api/call/infer/${eventId}`, {
         headers: { Accept: 'text/event-stream', ...headers },
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.timeout(requestConfig.sseTimeoutMs),
       });
       if (!sseRes.ok) throw new Error(`HF SSE failed ${sseRes.status}`);
 
@@ -434,7 +478,7 @@ const normalizeEntities = (parsed) => {
 };
 
 // ─── Main exported function — provider-agnostic ───
-// Auto-fallback: if custom_hf fails/times out AND a Gemini key exists, retry with Gemini.
+// When CUSTOM_HF_STRICT=true, custom_hf is the only allowed model path.
 const generateStructuredJson = async ({
   systemInstruction,
   userPrompt,
@@ -447,15 +491,23 @@ const generateStructuredJson = async ({
 
   if (provider === 'custom_hf') {
     try {
-      const parsed = await callCustomHF(systemInstruction || '', userPrompt);
+      const parsed = await callCustomHF(systemInstruction || '', userPrompt, {
+        temperature,
+        maxOutputTokens,
+        feature,
+      });
       return {
         provider: 'custom_hf',
-        model: 'os-1202883/LifeSync',
+        model: resolveCustomHFModelName(),
         rawText: JSON.stringify(parsed),
         data: parsed,
         response: parsed,
       };
     } catch (hfError) {
+      if (isStrictCustomHFMode()) {
+        throw hfError;
+      }
+
       // Auto-fallback to Gemini if HF Space fails and Gemini key exists
       const geminiKey = process.env.GEMINI_API_KEY;
       if (geminiKey && geminiKey.trim()) {
@@ -488,4 +540,6 @@ module.exports = {
   _getProviderSettings: getProviderSettings,
   _extractResponseText: extractGeminiText,
   _parseModelTagOutput: parseModelTagOutput,
+  _resolveCustomHFModelName: resolveCustomHFModelName,
+  _isStrictCustomHFMode: isStrictCustomHFMode,
 };

@@ -213,6 +213,10 @@ const sseWrite = (res, event, data) => {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 };
 
+const resolveAIErrorMessage = (aiError) =>
+  aiError?.userMessage
+  || 'Sorry, Local Gemma is temporarily unavailable. Your message was saved and you can try again shortly.';
+
 // ============================================
 // STREAMING ENDPOINT — POST /api/chat/stream
 // ============================================
@@ -302,19 +306,21 @@ const processMessageStream = async (req, res) => {
       }
     } catch (aiError) {
       clearInterval(heartbeat);
+      const errorMessage = resolveAIErrorMessage(aiError);
 
       // ─── AI Failed — persist error state to DB ───
       await safeUpdate(userChatLog, { intent: 'unclear', status: 'complete' });
       await safeUpdate(assistantChatLog, {
-        message: 'Sorry, the AI service is temporarily unavailable. Your message has been saved and you can try again shortly.',
+        message: errorMessage,
         intent: 'error',
         status: 'error',
       });
 
       sseWrite(res, 'error', {
         session_id: currentSessionId,
-        message: 'AI service temporarily unavailable. Your message was saved.',
-        retryable: true,
+        message: errorMessage,
+        retryable: aiError?.retryable !== false,
+        code: aiError?.code || 'AI_UNAVAILABLE',
       });
       sseWrite(res, 'done', {});
       return res.end();
@@ -510,10 +516,12 @@ const processMessage = async (req, res, next) => {
         nlpResult = await parseMessage(message);
       }
     } catch (aiError) {
+      const errorMessage = resolveAIErrorMessage(aiError);
+
       // AI failed — persist error state, still return a response
       await safeUpdate(userChatLog, { intent: 'unclear', status: 'complete' });
       await safeUpdate(assistantChatLog, {
-        message: 'Sorry, the AI service is temporarily unavailable. Your message has been saved.',
+        message: errorMessage,
         intent: 'error',
         status: 'error',
       });
@@ -522,12 +530,13 @@ const processMessage = async (req, res, next) => {
         session_id: currentSessionId,
         intent: 'error',
         domain: 'general',
-        response: 'Sorry, the AI service is temporarily unavailable. Your message has been saved and you can try again shortly.',
+        response: errorMessage,
         needs_clarification: false,
         confidence: 0,
         entities_logged: { health: [], finance: [], linked: [] },
-        processing_time_ms: 0,
+        processing_time_ms: aiError?.processing_time_ms || 0,
         error: true,
+        retryable: aiError?.retryable !== false,
       });
     }
 
