@@ -657,7 +657,7 @@ const parseMessage = async (message, pendingClarification = null) => {
       userPrompt,
       responseSchema: NLP_RESPONSE_SCHEMA,
       temperature: 0,
-      maxOutputTokens: 192,
+      maxOutputTokens: 300,
       feature: 'chat',
     });
 
@@ -916,7 +916,7 @@ Respond ONLY with valid JSON:
       userPrompt: prompt,
       responseSchema: WEEKLY_INSIGHTS_SCHEMA,
       temperature: 0.2,
-      maxOutputTokens: 700,
+      maxOutputTokens: 2000,
       feature: 'insights',
     });
 

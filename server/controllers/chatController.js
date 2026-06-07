@@ -58,15 +58,24 @@ const safeUpdate = async (row, fields) => {
 const pendingClarifications = new Map();
 
 // TTL cleanup: evict stale clarification state every 60s (5-min TTL)
+// Only set up the interval in non-test environments to avoid Jest open handles
 const CLARIFICATION_TTL_MS = 5 * 60 * 1000;
-setInterval(() => {
-  const now = Date.now();
-  for (const [userId, state] of pendingClarifications) {
-    if (now - state.createdAt > CLARIFICATION_TTL_MS) {
-      pendingClarifications.delete(userId);
+let clarificationInterval;
+if (process.env.NODE_ENV !== 'test') {
+  clarificationInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [userId, state] of pendingClarifications) {
+      if (now - state.createdAt > CLARIFICATION_TTL_MS) {
+        pendingClarifications.delete(userId);
+      }
     }
-  }
-}, 60_000);
+  }, 60_000);
+}
+
+// Export for testing (to clear interval in tests if needed)
+if (process.env.NODE_ENV === 'test') {
+  module.exports._clarificationInterval = clarificationInterval;
+}
 
 // ============================================
 // VALIDATION

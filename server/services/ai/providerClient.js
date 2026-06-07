@@ -76,7 +76,7 @@ const getProviderSettings = (providerOverride) => {
       provider,
       apiKey: 'ollama', // dummy key
       model: process.env.OLLAMA_MODEL || 'gemma',
-      endpoint: process.env.OLLAMA_API_BASE_URL || 'http://ollama:11434/v1/chat/completions',
+      endpoint: (process.env.OLLAMA_API_BASE_URL || 'http://ollama:11434/v1/chat/completions').replace(/\/+$/, '') + '/chat/completions',
     };
   }
 
@@ -108,12 +108,16 @@ const extractGeminiText = (payload) => {
   throw new Error(`Empty response from Gemini${finishReason ? ` (${finishReason})` : ''}`);
 };
 
-// ─── OpenAI-compatible response extractor (HuggingFace + Groq) ───
-const extractOpenAIText = (payload, providerName) => {
-  const text = payload?.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error(`Empty response from ${providerName}`);
-  return text;
-};
+  // ─── OpenAI-compatible response extractor (HuggingFace + Groq) ───
+  const extractOpenAIText = (payload, providerName) => {
+    let text = payload?.choices?.[0]?.message?.content?.trim();
+    if (!text) {
+      // For models that output reasoning in a separate field (e.g., Gemma via Ollama)
+      text = payload?.choices?.[0]?.message?.reasoning_content?.trim();
+    }
+    if (!text) throw new Error(`Empty response from ${providerName}`);
+    return text;
+  };
 
 // ─── Extract JSON object from model output (handles preamble/postamble text) ───
 const stripJsonFences = (text) => {
@@ -175,7 +179,7 @@ const callGemini = async ({ systemInstruction, userPrompt, responseSchema, tempe
 };
 
 // ─── Call OpenAI-compatible endpoint (HuggingFace or Groq) ───
-const callOpenAICompatible = async ({ systemInstruction, userPrompt, temperature, maxOutputTokens, providerOverride }) => {
+const callOpenAICompatible = async ({ systemInstruction, userPrompt, temperature, maxOutputTokens, providerOverride, feature }) => {
   const settings = getProviderSettings(providerOverride);
   const providerLabel = settings.provider === 'groq' ? 'Groq' : (settings.provider === 'ollama' ? 'Ollama' : 'HuggingFace');
 
@@ -187,17 +191,28 @@ const callOpenAICompatible = async ({ systemInstruction, userPrompt, temperature
   }
   messages.push({ role: 'user', content: userPrompt });
 
+  // Build the payload
+  const payload = {
+    model: settings.model,
+    messages,
+    temperature: temperature ?? 0.1,
+    max_tokens: maxOutputTokens ?? 1000,
+    stream: false,
+  };
+
+  // For Ollama, specify the response format as JSON to suppress reasoning and get valid JSON
+  if (settings.provider === 'ollama') {
+    payload.format = 'json';
+  }
+
+  // Set timeout based on feature: insights need more time
+  const timeoutMs = feature === 'insights' ? 300000 : 60000;
+
   const response = await axios.post(
     settings.endpoint,
+    payload,
     {
-      model: settings.model,
-      messages,
-      temperature: temperature ?? 0.1,
-      max_tokens: maxOutputTokens ?? 1000,
-      stream: false,
-    },
-    {
-      timeout: 60000,
+      timeout: timeoutMs,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${settings.apiKey}`,
@@ -526,7 +541,7 @@ const generateStructuredJson = async ({
   }
 
   if (provider === 'huggingface' || provider === 'groq' || provider === 'ollama') {
-    return callOpenAICompatible({ systemInstruction, userPrompt, temperature, maxOutputTokens, providerOverride: provider });
+    return callOpenAICompatible({ systemInstruction, userPrompt, temperature, maxOutputTokens, providerOverride: provider, feature });
   }
 
   return callGemini({ systemInstruction, userPrompt, responseSchema, temperature, maxOutputTokens, providerOverride: provider });
