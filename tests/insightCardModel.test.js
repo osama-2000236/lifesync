@@ -24,4 +24,20 @@ describe('insight card model', () => {
     expect(view.data).toBe(insights);
     expect(view.error).toBeNull();
   });
+
+  it('keeps showing the last real insight data when refresh errors happen later', () => {
+    const insights = {
+      summary: 'Cached Gemma summary',
+      recommendations: [{ text: 'Keep going' }],
+    };
+
+    const view = getInsightCardsViewModel({
+      insights,
+      error: 'Local Gemma could not generate insight cards right now.',
+    });
+
+    expect(view.kind).toBe('data');
+    expect(view.data).toBe(insights);
+    expect(view.error).toBeNull();
+  });
 });

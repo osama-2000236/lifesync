@@ -5,6 +5,7 @@ import {
 import {
   CHAT_REQUEST_TIMEOUT_MS,
   DEFAULT_API_TIMEOUT_MS,
+  INSIGHTS_REQUEST_TIMEOUT_MS,
 } from '../client/src/services/requestTimeouts';
 
 describe('chat response helpers', () => {
@@ -34,5 +35,9 @@ describe('chat response helpers', () => {
 
   it('uses a longer timeout for chat requests than the shared API default', () => {
     expect(CHAT_REQUEST_TIMEOUT_MS).toBeGreaterThan(DEFAULT_API_TIMEOUT_MS);
+  });
+
+  it('uses a longer timeout for local Gemma insights than the shared API default', () => {
+    expect(INSIGHTS_REQUEST_TIMEOUT_MS).toBeGreaterThan(DEFAULT_API_TIMEOUT_MS);
   });
 });

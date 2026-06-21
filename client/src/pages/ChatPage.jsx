@@ -107,15 +107,18 @@ function EntitiesBadge({ entities }) {
 function ChatBubble({ message, onRetry }) {
   const isUser = message.role === 'user';
   const isError = message.isError;
+  const retryableError = isError && message.retryable;
 
   return (
     <div className={`flex items-end gap-2 ${isUser ? 'justify-end' : ''} animate-fade-up`}>
       {!isUser && (
         <div className={`w-7 h-7 rounded-full bg-gradient-to-br ${
-          isError ? 'from-red-200 to-red-300' : 'from-navy-200 to-navy-300'
+          isError
+            ? retryableError ? 'from-amber-100 to-amber-200' : 'from-red-200 to-red-300'
+            : 'from-navy-200 to-navy-300'
         } flex items-center justify-center flex-shrink-0`}>
           {isError ? (
-            <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+            <AlertCircle className={`w-3.5 h-3.5 ${retryableError ? 'text-amber-600' : 'text-red-600'}`} />
           ) : (
             <Sparkles className="w-3.5 h-3.5 text-navy-600" />
           )}
@@ -126,7 +129,9 @@ function ChatBubble({ message, onRetry }) {
           isUser
             ? 'chat-bubble-user'
             : isError
-              ? 'chat-bubble-assistant border border-red-200 bg-red-50/80'
+              ? retryableError
+                ? 'chat-bubble-assistant border border-amber-200 bg-amber-50/80'
+                : 'chat-bubble-assistant border border-red-200 bg-red-50/80'
               : 'chat-bubble-assistant'
         }`}>
           {message.content}
@@ -139,12 +144,17 @@ function ChatBubble({ message, onRetry }) {
 
         {/* Retry button on errors */}
         {isError && message.retryable && onRetry && (
-          <button
-            onClick={() => onRetry(message.originalText)}
-            className="flex items-center gap-1.5 mt-1.5 px-3 py-1.5 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-medium hover:bg-red-100 transition-colors"
-          >
-            <RotateCcw className="w-3 h-3" /> Tap to retry
-          </button>
+          <div className="mt-2 space-y-2">
+            <p className="text-[11px] text-amber-700">
+              Your message is saved here. You can retry it, or send a clearer version like "Spent $20 on food".
+            </p>
+            <button
+              onClick={() => onRetry(message.originalText)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors"
+            >
+              <RotateCcw className="w-3 h-3" /> Retry message
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -453,6 +463,12 @@ export default function ChatPage() {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(null);
+  const statusTimersRef = useRef([]);
+
+  const clearStatusTimers = useCallback(() => {
+    statusTimersRef.current.forEach(clearTimeout);
+    statusTimersRef.current = [];
+  }, []);
 
   const loadModelStatus = useCallback(async ({ quiet = false } = {}) => {
     if (!quiet) setModelLoading(true);
@@ -531,6 +547,24 @@ export default function ChatPage() {
     const userMsg = { id: Date.now(), role: 'user', content: messageText };
     setMessages((prev) => [...prev, userMsg]);
     setSending(true);
+    clearStatusTimers();
+
+    statusTimersRef.current = [
+      setTimeout(() => {
+        setStatusText((current) => (
+          current === 'Logging your entries...'
+            ? current
+            : 'Local Gemma is checking this on your device...'
+        ));
+      }, 15000),
+      setTimeout(() => {
+        setStatusText((current) => (
+          current === 'Logging your entries...'
+            ? current
+            : 'This is taking longer than usual. The app will stay usable if you need to retry.'
+        ));
+      }, 35000),
+    ];
 
     const abort = chatAPI.sendMessageStream(messageText, sessionId, {
       onAck: (data) => {
@@ -576,6 +610,7 @@ export default function ChatPage() {
           setSessionId(result.session_id);
         }
 
+        clearStatusTimers();
         setSending(false);
         setStatusText(null);
         inputRef.current?.focus();
@@ -591,6 +626,7 @@ export default function ChatPage() {
           originalText: messageText,
         };
         setMessages((prev) => [...prev, errorMsg]);
+        clearStatusTimers();
         setSending(false);
         setStatusText(null);
         inputRef.current?.focus();
@@ -598,14 +634,15 @@ export default function ChatPage() {
     });
 
     abortRef.current = abort;
-  }, [input, sending, sessionId]);
+  }, [clearStatusTimers, input, sending, sessionId]);
 
   // Cleanup abort on unmount or session switch
   useEffect(() => {
     return () => {
+      clearStatusTimers();
       if (abortRef.current) abortRef.current();
     };
-  }, []);
+  }, [clearStatusTimers]);
 
   // ─── Retry failed message ───
   const handleRetry = useCallback((originalText) => {
@@ -621,6 +658,7 @@ export default function ChatPage() {
   // ─── New Session ───
   const startNewSession = () => {
     if (abortRef.current) abortRef.current();
+    clearStatusTimers();
     setMessages([]);
     setSessionId(uuidv4());
     setClarificationOptions(null);
@@ -631,6 +669,7 @@ export default function ChatPage() {
   // ─── Load Session ───
   const loadSession = async (sid) => {
     if (abortRef.current) abortRef.current();
+    clearStatusTimers();
     setSessionId(sid);
     setClarificationOptions(null);
     setStatusText(null);

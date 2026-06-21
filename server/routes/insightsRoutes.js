@@ -17,7 +17,7 @@ const {
 const { getLatestInsights, markAsRead } = require('../services/ai/insightsService');
 const { success, error, created } = require('../utils/responseHelper');
 
-// Get current insights (runs engine in real-time)
+// Get current insights (Gemma-backed, with short cache for dashboard refreshes)
 router.get('/', authenticate, async (req, res, next) => {
   try {
     const insights = await buildDashboardInsights(req.user.id);

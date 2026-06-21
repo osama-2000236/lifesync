@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { healthAPI, financeAPI, insightsAPI } from '../services/api';
 import { getApiErrorMessage } from '../utils/apiErrors';
@@ -26,6 +26,8 @@ const mapHealthSummary = (payload) => {
 };
 
 export default function DashboardPage() {
+  const DASHBOARD_REFRESH_INTERVAL_MS = 30_000;
+  const INSIGHTS_REFRESH_INTERVAL_MS = 5 * 60_000;
   const { user } = useAuth();
   const [healthData, setHealthData] = useState([]);
   const [financeData, setFinanceData] = useState([]);
@@ -33,15 +35,24 @@ export default function DashboardPage() {
   const [financeSummary, setFinanceSummary] = useState(null);
   const [insights, setInsights] = useState(null);
   const [insightsError, setInsightsError] = useState('');
+  const [dashboardLoading, setDashboardLoading] = useState(true);
   const [insightsLoading, setInsightsLoading] = useState(true);
-  const [loading, setLoading] = useState(true);
   const [spendingView, setSpendingView] = useState('doughnut');
+  const dashboardFetchInFlightRef = useRef(false);
+  const insightsFetchInFlightRef = useRef(false);
 
   useEffect(() => {
-    const fetchData = async () => {
+    let isMounted = true;
+
+    const fetchDashboardData = async ({ isInitial = false } = {}) => {
+      if (dashboardFetchInFlightRef.current) return;
+      dashboardFetchInFlightRef.current = true;
+
+      if (isInitial && isMounted) {
+        setDashboardLoading(true);
+      }
+
       try {
-        setInsightsLoading(true);
-        const insightsPromise = insightsAPI.getCurrent();
         const [healthRes, financeRes, healthSummaryRes, financeSummaryRes] = await Promise.allSettled([
           healthAPI.getLogs({ limit: 100 }),
           financeAPI.getLogs({ limit: 100 }),
@@ -49,34 +60,68 @@ export default function DashboardPage() {
           financeAPI.getWeeklySummary(),
         ]);
 
-        if (healthRes.status === 'fulfilled') setHealthData(getPaginatedItems(healthRes.value.data, 'logs'));
-        if (financeRes.status === 'fulfilled') setFinanceData(getPaginatedItems(financeRes.value.data, 'logs'));
-        if (healthSummaryRes.status === 'fulfilled') setHealthSummary(healthSummaryRes.value.data.data);
-        if (financeSummaryRes.status === 'fulfilled') setFinanceSummary(financeSummaryRes.value.data.data);
-        setLoading(false);
+        if (!isMounted) return;
 
-        try {
-          const insightsRes = await insightsPromise;
-          setInsights(insightsRes.data.data?.insights || null);
-          setInsightsError('');
-        } catch (insightsErr) {
-          setInsights(null);
-          setInsightsError(getApiErrorMessage(insightsErr, 'Unable to load insights right now.'));
-        } finally {
-          setInsightsLoading(false);
+        if (healthRes.status === 'fulfilled') {
+          setHealthData(getPaginatedItems(healthRes.value.data, 'logs'));
+        }
+        if (financeRes.status === 'fulfilled') {
+          setFinanceData(getPaginatedItems(financeRes.value.data, 'logs'));
+        }
+        if (healthSummaryRes.status === 'fulfilled') {
+          setHealthSummary(healthSummaryRes.value.data.data);
+        }
+        if (financeSummaryRes.status === 'fulfilled') {
+          setFinanceSummary(financeSummaryRes.value.data.data);
         }
       } catch (err) {
         console.warn('Dashboard data fetch error:', err);
       } finally {
-        setLoading(false);
+        dashboardFetchInFlightRef.current = false;
+        if (isInitial && isMounted) {
+          setDashboardLoading(false);
+        }
       }
     };
 
-    fetchData();
+    const fetchInsights = async ({ isInitial = false } = {}) => {
+      if (insightsFetchInFlightRef.current) return;
+      insightsFetchInFlightRef.current = true;
 
-    // Auto-revalidate every 30s so chat-logged data appears without manual reload
-    const interval = setInterval(fetchData, 30_000);
-    return () => clearInterval(interval);
+      if (isInitial && isMounted) {
+        setInsightsLoading(true);
+      }
+
+      try {
+        const insightsRes = await insightsAPI.getCurrent();
+        if (!isMounted) return;
+
+        setInsights(insightsRes.data.data?.insights || null);
+        setInsightsError('');
+      } catch (err) {
+        if (!isMounted) return;
+
+        setInsights((currentInsights) => currentInsights || null);
+        setInsightsError(getApiErrorMessage(err, 'Unable to load insights right now.'));
+      } finally {
+        insightsFetchInFlightRef.current = false;
+        if (isMounted) {
+          setInsightsLoading(false);
+        }
+      }
+    };
+
+    fetchDashboardData({ isInitial: true });
+    fetchInsights({ isInitial: true });
+
+    const dashboardInterval = setInterval(() => fetchDashboardData(), DASHBOARD_REFRESH_INTERVAL_MS);
+    const insightsInterval = setInterval(() => fetchInsights(), INSIGHTS_REFRESH_INTERVAL_MS);
+
+    return () => {
+      isMounted = false;
+      clearInterval(dashboardInterval);
+      clearInterval(insightsInterval);
+    };
   }, []);
 
   const normalizedHealthSummary = useMemo(() => mapHealthSummary(healthSummary), [healthSummary]);
@@ -130,7 +175,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {loading ? (
+        {dashboardLoading ? (
           [1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)
         ) : (
           quickStats.map(({ label, value, icon: Icon, color, bg }) => (
@@ -157,7 +202,7 @@ export default function DashboardPage() {
               </div>
               <span className="text-xs text-navy-400 font-medium px-3 py-1 rounded-full bg-navy-50">Last 7 days</span>
             </div>
-            <HealthCorrelationChart healthData={healthData} loading={loading} />
+            <HealthCorrelationChart healthData={healthData} loading={dashboardLoading} />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -184,7 +229,7 @@ export default function DashboardPage() {
               <SpendingChart
                 financeData={financeData}
                 financeSummary={financeSummary}
-                loading={loading}
+                loading={dashboardLoading}
                 view={spendingView}
               />
             </div>
@@ -194,7 +239,7 @@ export default function DashboardPage() {
                 <Heart className="w-5 h-5 text-purple-500" />
                 <h2 className="font-display text-base font-bold text-navy-800">Mood vs. Activity</h2>
               </div>
-              <MoodActivityChart healthData={healthData} loading={loading} />
+              <MoodActivityChart healthData={healthData} loading={dashboardLoading} />
             </div>
           </div>
         </div>

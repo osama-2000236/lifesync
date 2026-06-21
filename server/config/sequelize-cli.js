@@ -2,35 +2,42 @@
 // Used by Sequelize CLI for migrations and seeders
 require('dotenv').config();
 
+const dialect = process.env.DB_DIALECT || 'mysql';
+const config = {
+  define: {
+    underscored: true,
+    freezeTableName: true,
+  },
+  dialect: dialect,
+};
+
+if (dialect === 'sqlite') {
+  config.storage = process.env.DB_STORAGE || './lifesync_db.sqlite';
+} else {
+  // MySQL configuration
+  config.host = process.env.DB_HOST;
+  config.port = process.env.DB_PORT || 3306;
+}
+
 module.exports = {
   development: {
     username: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT || 3306,
-    dialect: 'mysql',
-    define: {
-      underscored: true,
-      freezeTableName: true,
-    },
+    ...config,
   },
   test: {
     username: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: `${process.env.DB_NAME}_test`,
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT || 3306,
-    dialect: 'mysql',
+    ...config,
     logging: false,
   },
   production: {
     username: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT || 3306,
-    dialect: 'mysql',
+    ...config,
     logging: false,
     pool: {
       max: 20,

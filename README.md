@@ -4,7 +4,7 @@ LifeSync is a private, user-aware assistant that connects health, finance, goals
 
 ## One-shot setup (recommended)
 
-This path works on Windows, macOS, and Linux and does not require Node.js, Python, MySQL, or an API key on the host.
+This path works on Windows, macOS, and Linux and does not require Node.js, Python, MySQL, or an API key on the host. For teammate onboarding and native local setup, see [TEAM_LOCAL_SETUP.md](./TEAM_LOCAL_SETUP.md).
 
 ### Requirements
 
@@ -198,6 +198,13 @@ npm ci
 cp .env.example .env
 npm run migrate
 npm run seed
+npm run hf:install
+npm run hf:dev
+```
+
+In another terminal:
+
+```powershell
 npm run dev
 ```
 
@@ -305,3 +312,121 @@ docker compose up --build
 ```
 
 This permanently deletes the local LifeSync database and downloaded model volume.
+
+## Environment Notes
+
+- `GEMINI_API_KEY` is required for live chat parsing and model-backed summaries when `AI_PROVIDER=gemini`.
+- `CUSTOM_HF_ENDPOINT` can point to the bundled local Gradio service at `http://127.0.0.1:7860`.
+- The bundled `hf_space` service now targets `google/gemma-4-E2B-it` through Transformers.
+- On CPU-only machines, the service defaults to the official TorchAO int4 CPU quantization path to reduce memory pressure.
+- Firebase is optional. If it is not configured, Firebase-backed chat sync is skipped.
+- SMTP is optional in development. In production, use a real provider.
+- For Gmail SMTP, set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_SECURE=false`, and set `SMTP_FROM_EMAIL` to the same Gmail address as `SMTP_USER`.
+- The backend code expects `DB_PASSWORD`, not `DB_PASS`.
+
+## Current Deployment Gaps
+
+This project is close to a strong student/demo app, but it is not yet production-ready. These are the main missing pieces.
+
+### Blocking issues to fix in code/config
+
+1. Custom rate limiters trigger IPv6 validation warnings from `express-rate-limit`.
+   This should be fixed before production so rate limiting is correct and clean.
+
+2. OTP state is stored in memory.
+   Restarting the server or scaling to multiple instances will break registration flows.
+
+3. Chat clarification state is stored in memory.
+   Restarting the server or scaling horizontally will lose active clarification sessions.
+
+4. The encryption helper currently uses `JWT_SECRET` instead of `ENCRYPTION_KEY`.
+   That couples two unrelated secrets and makes key rotation harder.
+
+5. The seed script creates a default admin with a known password.
+   That is acceptable for local development only and must be removed or overridden for real deployment.
+
+6. Google Fit still requires production OAuth configuration on the Google Cloud side.
+   The app needs a real callback URL, consent screen URLs, and approved origins before that integration is launch-ready.
+
+### Missing production infrastructure
+
+1. Managed MySQL with backups and restore strategy
+2. Managed Redis for OTP and clarification/session state
+3. Real SMTP provider for OTP delivery
+4. Secret management for API keys and JWT secrets
+5. HTTPS, DNS, and environment-specific CORS settings
+6. Centralized logs, uptime monitoring, and error tracking
+
+### Missing launch readiness items
+
+1. Google Cloud consent-screen setup using the live homepage, privacy, and terms URLs
+2. Production incident logging and alerting
+3. Load testing and basic security review
+
+## Recommended Production Architecture
+
+- Frontend: static host or Nginx container
+- Backend: Node.js service host
+- Database: managed MySQL
+- Cache/session store: managed Redis
+- Email: managed SMTP provider
+- Optional realtime layer: Firebase
+
+## Cloudflare Frontend Deploy
+
+If you deploy the frontend to Cloudflare, do not publish the raw `client/index.html` source file. It references `/src/main.jsx` and will render a blank page on a static host.
+
+Use:
+
+- production deploy command: `npm run deploy`
+- preview deploy command: `npm run preview`
+- static asset directory from `wrangler.jsonc`: `./client/dist`
+
+This repo now includes `wrangler.jsonc` with SPA fallback enabled for Cloudflare Workers static assets.
+
+The `deploy` and `preview` scripts build the frontend before calling Wrangler, so Cloudflare does not need a separate build step.
+Those scripts also install the frontend dependencies inside `client/` before running Vite, because Workers Builds only installs the root package by default.
+Both scripts now run a strict release preflight that validates:
+- `VITE_API_URL=https://lifesync-production-6f3e.up.railway.app/api`
+- `VITE_GOOGLE_CLIENT_ID=123174641248-1grp7s1u20ad1d3olkpg28hfe723rkut.apps.googleusercontent.com`
+- if `GOOGLE_AUTH_CLIENT_IDS` is provided, it must include that same Google client ID
+
+Additional release checks:
+- `npm run probe:external` checks Railway `/api/health` and HF Space `/gradio_api/info` + `/infer` round-trip
+- `npm run smoke:workers` checks live frontend routes `/login`, `/dashboard`, `/chat`, `/health`, `/finance` and reports the production asset hash
+
+## Important Files
+
+- `server/app.js`
+- `server/config/database.js`
+- `server/middleware/rateLimiter.js`
+- `server/services/otpService.js`
+- `server/services/ai/nlpService.js`
+- `server/services/ai/providerClient.js`
+- `server/utils/encryption.js`
+- `server/seeders/seed.js`
+- `client/src/App.jsx`
+- `client/src/pages/LandingPage.jsx`
+- `client/src/pages/PrivacyPolicyPage.jsx`
+- `client/src/pages/TermsPage.jsx`
+- `client/src/services/api.js`
+- `client/nginx.conf`
+- `docker-compose.yml`
+
+## Summary
+
+What works today:
+
+- frontend build
+- frontend preview
+- backend tests with env variables
+- app structure is complete enough for a real product foundation
+
+What is still missing before real deployment:
+
+- database and runtime infrastructure
+- Redis-backed ephemeral state
+- Docker/config fixes
+- production secrets and email setup
+- security and operations hardening
+- legal and recovery flows

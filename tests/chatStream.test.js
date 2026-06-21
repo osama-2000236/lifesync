@@ -107,6 +107,12 @@ describe('POST /api/chat/stream', () => {
     // Truncate ChatLog between tests so counts are predictable
     const ChatLog = require('../server/models/ChatLog');
     await ChatLog.destroy({ where: {}, truncate: true });
+
+    // Clear the clarification interval if it exists (to prevent open handles in Jest)
+    const chatController = require('../server/controllers/chatController');
+    if (chatController._clarificationInterval) {
+      clearInterval(chatController._clarificationInterval);
+    }
   });
 
   // ─── 1. Authentication ───

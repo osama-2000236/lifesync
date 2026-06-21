@@ -9,8 +9,78 @@
 // ============================================
 
 require('dotenv').config();
-const { generateStructuredJson, _getProvider } = require('./providerClient');
+const { generateStructuredJson, _getProvider, _isStrictCustomHFMode } = require('./providerClient');
 const { parseMessageWithBert } = require('./bertNlpService');
+
+const AI_SERVICE_ERROR_PATTERNS = [
+  /timeout/i,
+  /timed out/i,
+  /aborted/i,
+  /fetch failed/i,
+  /econnrefused/i,
+  /enotfound/i,
+  /hf queue failed/i,
+  /hf sse failed/i,
+  /all retry attempts exhausted/i,
+];
+
+const AI_TIMEOUT_ERROR_PATTERNS = [
+  /timeout/i,
+  /timed out/i,
+  /aborted/i,
+];
+
+const isAIServiceFailure = (error) => {
+  const message = error?.message || '';
+  return AI_SERVICE_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+};
+
+const isAITimeoutFailure = (error) => {
+  const message = error?.message || '';
+  return AI_TIMEOUT_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+};
+
+const createAIUnavailableError = (processingTime, cause) => {
+  const error = new Error('Local Gemma is taking longer than usual or is unavailable right now.');
+  error.code = 'AI_UNAVAILABLE';
+  error.statusCode = 503;
+  error.retryable = true;
+  error.processing_time_ms = processingTime;
+  error.userMessage = 'Local Gemma is taking longer than usual or is unavailable right now. Please try again in a moment.';
+  error.cause = cause;
+  return error;
+};
+
+const createModelDelayClarification = (message, processingTime, cause) => ({
+  success: false,
+  intent: 'unclear',
+  domain: 'general',
+  entities: [],
+  response: "I couldn't tell what to save yet. Try adding a number and what it was for.",
+  is_cross_domain: false,
+  needs_clarification: true,
+  clarification_question: 'Try one of these formats:',
+  clarification_options: [
+    'Spent $20 on food',
+    'Walked 5000 steps',
+    'Slept 7 hours',
+  ],
+  confidence: 0.2,
+  processing_time_ms: processingTime,
+  original_message: message,
+  error: cause?.message || 'Local Gemma timed out',
+});
+
+const createInsightsUnavailableError = (processingTime, cause) => {
+  const error = new Error('Local Gemma could not generate insight cards right now.');
+  error.code = 'AI_UNAVAILABLE';
+  error.statusCode = 503;
+  error.retryable = true;
+  error.processing_time_ms = processingTime;
+  error.userMessage = 'Local Gemma could not generate insight cards right now. Please try again in a moment.';
+  error.cause = cause;
+  return error;
+};
 
 // ============================================
 // SYSTEM PROMPT — Core NLP Instructions
@@ -245,6 +315,316 @@ const WEEKLY_INSIGHTS_SCHEMA = {
 // CORE NLP FUNCTIONS
 // ============================================
 
+const GREETING_PATTERN = /^(hi|hello|hey|good morning|good afternoon|good evening)\b/i;
+const FINANCE_AMOUNT_PATTERN = /(?:[$€£₪]\s?(\d+(?:[.,]\d{1,2})?)|(\d+(?:[.,]\d{1,2})?)\s?(?:usd|dollars?|bucks?|ils|nis|shekels?))/i;
+const BARE_NUMBER_PATTERN = /\b(\d+(?:[.,]\d{1,2})?)\b/;
+const EXPENSE_PATTERN = /\b(spent|paid|bought|purchase(?:d)?|cost|pay(?:ing)?|bill)\b/i;
+const INCOME_PATTERN = /\b(earned|received|income|salary|sold|got paid|paycheck|freelance)\b/i;
+const MOOD_KEYWORDS = [
+  { score: 9, pattern: /\b(amazing|excellent|fantastic)\b/i },
+  { score: 8, pattern: /\b(great|happy)\b/i },
+  { score: 6, pattern: /\b(good|fine)\b/i },
+  { score: 5, pattern: /\b(okay|ok|neutral)\b/i },
+  { score: 3, pattern: /\b(bad|poor)\b/i },
+  { score: 2, pattern: /\b(awful|terrible)\b/i },
+];
+const FINANCE_CATEGORY_RULES = [
+  { category: 'Food & Dining', pattern: /\b(coffee|lunch|dinner|breakfast|meal|restaurant|food)\b/i },
+  { category: 'Groceries', pattern: /\b(grocer|supermarket|market)\b/i },
+  { category: 'Transportation', pattern: /\b(uber|taxi|bus|train|metro|fuel|gas|transport)\b/i },
+  { category: 'Bills & Utilities', pattern: /\b(rent|electric|water bill|internet|phone bill|utility)\b/i },
+  { category: 'Healthcare', pattern: /\b(medicine|doctor|clinic|hospital|pharmacy)\b/i },
+  { category: 'Entertainment', pattern: /\b(movie|cinema|netflix|game|concert)\b/i },
+  { category: 'Shopping', pattern: /\b(clothes|shirt|shoes|shopping|amazon)\b/i },
+  { category: 'Income - Salary', pattern: /\b(salary|paycheck)\b/i },
+  { category: 'Income - Freelance', pattern: /\b(freelance|client|project)\b/i },
+];
+
+const normalizeText = (value) => value.trim().replace(/\s+/g, ' ');
+const parseNumericValue = (value) => parseFloat(String(value).replace(/,/g, ''));
+const titleCase = (value) => value.replace(/\b\w/g, (char) => char.toUpperCase());
+const formatAmount = (value) => `$${Number.isInteger(value) ? value : value.toFixed(2)}`;
+
+const inferFinanceCategory = (text, isIncome) => {
+  if (isIncome) {
+    return FINANCE_CATEGORY_RULES.find((rule) => rule.category.startsWith('Income') && rule.pattern.test(text))?.category || 'Income - Salary';
+  }
+
+  return FINANCE_CATEGORY_RULES.find((rule) => !rule.category.startsWith('Income') && rule.pattern.test(text))?.category || 'Other';
+};
+
+const summarizeEntity = (entity) => {
+  if (entity.domain === 'finance') {
+    return `${formatAmount(entity.amount)} ${entity.type} for ${entity.description || entity.category}`;
+  }
+
+  if (entity.type === 'sleep') {
+    return `${entity.value} hours of sleep`;
+  }
+  if (entity.type === 'steps') {
+    return `${entity.value.toLocaleString()} steps`;
+  }
+  if (entity.type === 'water') {
+    return `${entity.value}L of water`;
+  }
+  if (entity.type === 'exercise') {
+    return `${entity.value} minutes of exercise`;
+  }
+  if (entity.type === 'mood') {
+    return `mood ${entity.value}/10`;
+  }
+
+  return entity.activity || entity.type;
+};
+
+const buildFastPathSuccess = (message, entities, startedAt) => {
+  const processingTime = Date.now() - startedAt;
+  const domainSet = new Set(entities.map((entity) => entity.domain));
+  const domain = domainSet.size > 1 ? 'both' : (entities[0]?.domain || 'general');
+  const intent = domain === 'both'
+    ? 'log_both'
+    : domain === 'finance'
+    ? 'log_finance'
+    : domain === 'health'
+    ? 'log_health'
+    : 'query_general';
+  const response = entities.length === 1
+    ? `Logged ${summarizeEntity(entities[0])}.`
+    : `Logged ${entities.map(summarizeEntity).join(' and ')}.`;
+
+  return {
+    success: entities.length > 0,
+    intent,
+    domain,
+    entities,
+    response,
+    is_cross_domain: domain === 'both',
+    needs_clarification: false,
+    clarification_question: '',
+    clarification_options: [],
+    confidence: 0.96,
+    processing_time_ms: processingTime,
+    original_message: message,
+  };
+};
+
+const buildFastPathClarification = (message, startedAt, question, options, domain = 'general') => ({
+  success: false,
+  intent: 'unclear',
+  domain,
+  entities: [],
+  response: question,
+  is_cross_domain: false,
+  needs_clarification: true,
+  clarification_question: question,
+  clarification_options: options,
+  confidence: 0.35,
+  processing_time_ms: Date.now() - startedAt,
+  original_message: message,
+});
+
+const tryFastPathClarification = (message, pendingClarification, startedAt) => {
+  const standaloneResult = tryFastPathParse(message);
+  if (standaloneResult && !standaloneResult.needs_clarification) {
+    return {
+      ...standaloneResult,
+      processing_time_ms: Date.now() - startedAt,
+    };
+  }
+
+  const originalMessage = normalizeText(pendingClarification?.originalMessage || '');
+  const answer = normalizeText(message || '');
+  if (!originalMessage || !answer) return null;
+
+  const originalHasFinanceAmount = (
+    (EXPENSE_PATTERN.test(originalMessage) || INCOME_PATTERN.test(originalMessage) || /[$€£₪]/.test(originalMessage))
+    && (FINANCE_AMOUNT_PATTERN.test(originalMessage) || BARE_NUMBER_PATTERN.test(originalMessage))
+  );
+
+  if (originalHasFinanceAmount) {
+    const resolved = tryFastPathParse(`${originalMessage} on ${answer}`);
+    if (resolved && !resolved.needs_clarification && resolved.domain === 'finance') {
+      return {
+        ...resolved,
+        processing_time_ms: Date.now() - startedAt,
+        original_message: originalMessage,
+      };
+    }
+  }
+
+  return null;
+};
+
+const tryFastPathParse = (message, pendingClarification = null) => {
+  const startedAt = Date.now();
+
+  if (pendingClarification) {
+    return tryFastPathClarification(message, pendingClarification, startedAt);
+  }
+
+  const normalizedMessage = normalizeText(message || '');
+  const lowerMessage = normalizedMessage.toLowerCase();
+
+  if (!normalizedMessage) return null;
+
+  if (GREETING_PATTERN.test(normalizedMessage)) {
+    return {
+      success: false,
+      intent: 'query_general',
+      domain: 'general',
+      entities: [],
+      response: 'Hi! You can tell me something like "spent $12 on lunch" or "walked 5000 steps".',
+      is_cross_domain: false,
+      needs_clarification: false,
+      clarification_question: '',
+      clarification_options: [],
+      confidence: 0.9,
+      processing_time_ms: Date.now() - startedAt,
+      original_message: message,
+    };
+  }
+
+  const entities = [];
+
+  const stepsMatch = normalizedMessage.match(/(\d[\d,]*)\s*steps?\b/i);
+  if (stepsMatch) {
+    const value = parseNumericValue(stepsMatch[1]);
+    const entity = validateEntity({
+      domain: 'health',
+      type: 'steps',
+      value,
+      unit: 'steps',
+      activity: 'walking',
+      category: 'Steps',
+    });
+    if (entity) entities.push(entity);
+  }
+
+  const sleepMatch = normalizedMessage.match(/(?:slept?|sleep(?:ed)?)\s*(?:for\s*)?(\d+(?:\.\d+)?)\s*(hours?|hrs?|h)\b|(\d+(?:\.\d+)?)\s*(hours?|hrs?|h)\b[^.!?\n]*\b(?:sleep|slept)\b/i);
+  if (sleepMatch) {
+    const hours = parseNumericValue(sleepMatch[1] || sleepMatch[3]);
+    const entity = validateEntity({
+      domain: 'health',
+      type: 'sleep',
+      value: hours,
+      unit: 'hours',
+      duration: Math.round(hours * 60),
+      activity: 'sleeping',
+      category: 'Sleep',
+    });
+    if (entity) entities.push(entity);
+  }
+
+  const waterMatch = /\b(water|drank|drink)\b/i.test(normalizedMessage)
+    ? normalizedMessage.match(/(\d+(?:\.\d+)?)\s*(liters?|l|ml|glasses?|cups?)\b/i)
+    : null;
+  if (waterMatch) {
+    const rawValue = parseNumericValue(waterMatch[1]);
+    const rawUnit = waterMatch[2].toLowerCase();
+    const liters = rawUnit.startsWith('ml')
+      ? rawValue / 1000
+      : rawUnit.startsWith('glass')
+      ? rawValue * 0.25
+      : rawUnit.startsWith('cup')
+      ? rawValue * 0.24
+      : rawValue;
+    const entity = validateEntity({
+      domain: 'health',
+      type: 'water',
+      value: Math.round(liters * 100) / 100,
+      unit: 'liters',
+      activity: 'drinking water',
+      category: 'Water Intake',
+    });
+    if (entity) entities.push(entity);
+  }
+
+  const exerciseMatch = normalizedMessage.match(/(?:exercise|workout|gym|run(?:ning)?|walk(?:ing)?|jog(?:ging)?|cycle|cycling)[^.!?\n]*?(\d+)\s*(minutes?|mins?|min)\b|(\d+)\s*(minutes?|mins?|min)\b[^.!?\n]*\b(?:exercise|workout|gym|run(?:ning)?|walk(?:ing)?|jog(?:ging)?|cycle|cycling)\b/i);
+  if (exerciseMatch) {
+    const minutes = parseInt(exerciseMatch[1] || exerciseMatch[3], 10);
+    const activityMatch = normalizedMessage.match(/\b(run(?:ning)?|walk(?:ing)?|jog(?:ging)?|cycle|cycling|gym|workout|exercise)\b/i);
+    const entity = validateEntity({
+      domain: 'health',
+      type: 'exercise',
+      value: minutes,
+      unit: 'minutes',
+      duration: minutes,
+      activity: activityMatch ? activityMatch[0].toLowerCase() : 'exercise',
+      category: 'Exercise',
+    });
+    if (entity) entities.push(entity);
+  }
+
+  const moodScaleMatch = normalizedMessage.match(/\b(?:mood|feeling|feel)\b[^0-9]{0,12}(\d{1,2})(?:\/10)?\b/i);
+  if (moodScaleMatch) {
+    const moodValue = Math.min(10, Math.max(1, parseInt(moodScaleMatch[1], 10)));
+    const entity = validateEntity({
+      domain: 'health',
+      type: 'mood',
+      value: moodValue,
+      unit: 'rating',
+      activity: 'mood',
+      category: 'Mood',
+    });
+    if (entity) entities.push(entity);
+  } else if (/\b(feel|feeling|mood)\b/i.test(normalizedMessage)) {
+    const moodMatch = MOOD_KEYWORDS.find((entry) => entry.pattern.test(normalizedMessage));
+    if (moodMatch) {
+      const entity = validateEntity({
+        domain: 'health',
+        type: 'mood',
+        value: moodMatch.score,
+        unit: 'rating',
+        activity: 'mood',
+        category: 'Mood',
+      });
+      if (entity) entities.push(entity);
+    }
+  }
+
+  const financeContext = EXPENSE_PATTERN.test(normalizedMessage) || INCOME_PATTERN.test(normalizedMessage) || /[$€£₪]/.test(normalizedMessage);
+  const amountMatch = normalizedMessage.match(FINANCE_AMOUNT_PATTERN);
+  const bareAmountMatch = financeContext && !amountMatch ? normalizedMessage.match(BARE_NUMBER_PATTERN) : null;
+  if ((amountMatch || bareAmountMatch) && financeContext) {
+    const amount = parseNumericValue(amountMatch?.[1] || amountMatch?.[2] || bareAmountMatch?.[1]);
+    const isIncome = INCOME_PATTERN.test(normalizedMessage) && !EXPENSE_PATTERN.test(normalizedMessage);
+    const descriptor = lowerMessage
+      .replace(FINANCE_AMOUNT_PATTERN, ' ')
+      .replace(BARE_NUMBER_PATTERN, ' ')
+      .replace(/\b(i|just|today|yesterday|spent|paid|bought|purchase(?:d)?|cost|earn(?:ed)?|received|income|salary|got|paid|for|on|from|a|an|the|my)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!descriptor) {
+      return buildFastPathClarification(
+        message,
+        startedAt,
+        `What was the ${formatAmount(amount)} ${isIncome ? 'income' : 'expense'} for?`,
+        isIncome ? ['Salary', 'Freelance work', 'Gift'] : ['Food', 'Transport', 'Shopping'],
+        'finance'
+      );
+    }
+
+    const category = inferFinanceCategory(descriptor, isIncome);
+    const entity = validateEntity({
+      domain: 'finance',
+      type: isIncome ? 'income' : 'expense',
+      amount,
+      currency: 'USD',
+      category,
+      description: descriptor,
+      activity: descriptor,
+    });
+    if (entity) entities.push(entity);
+  }
+
+  if (entities.length === 0) {
+    return null;
+  }
+
+  return buildFastPathSuccess(message, entities, startedAt);
+};
+
 /**
  * Build context for clarification follow-ups
  */
@@ -304,6 +684,11 @@ const parseMessage = async (message, pendingClarification = null, context = {}) 
   const startTime = Date.now();
 
   try {
+    const fastPathResult = tryFastPathParse(message, pendingClarification);
+    if (fastPathResult) {
+      return fastPathResult;
+    }
+
     const turnPrompt = pendingClarification
       ? buildClarificationContext(pendingClarification, message)
       : message;
@@ -313,8 +698,8 @@ const parseMessage = async (message, pendingClarification = null, context = {}) 
       systemInstruction: SYSTEM_PROMPT,
       userPrompt,
       responseSchema: NLP_RESPONSE_SCHEMA,
-      temperature: 0.05,
-      maxOutputTokens: 1000,
+      temperature: 0,
+      maxOutputTokens: 300,
       feature: 'chat',
     });
 
@@ -335,6 +720,14 @@ const parseMessage = async (message, pendingClarification = null, context = {}) 
   } catch (error) {
     const processingTime = Date.now() - startTime;
     console.error('NLP Service Error:', error.message);
+
+    if (isAIServiceFailure(error)) {
+      if (isAITimeoutFailure(error)) {
+        return createModelDelayClarification(message, processingTime, error);
+      }
+
+      throw createAIUnavailableError(processingTime, error);
+    }
 
     return {
       success: false,
@@ -565,6 +958,8 @@ const generateWeeklyInsights = async (healthData, financeData) => {
       },
     };
   }
+  const startTime = Date.now();
+
   try {
     const prompt = `Analyze this user's weekly LifeSync data and provide personalized insights.
 
@@ -594,8 +989,8 @@ Respond ONLY with valid JSON:
       systemInstruction: 'You are a wellness and finance advisor for LifeSync. Be empathetic, reference specific data, find cross-domain correlations. JSON only.',
       userPrompt: prompt,
       responseSchema: WEEKLY_INSIGHTS_SCHEMA,
-      temperature: 0.4,
-      maxOutputTokens: 1200,
+      temperature: 0.2,
+      maxOutputTokens: 2000,
       feature: 'insights',
     });
 
@@ -608,7 +1003,13 @@ Respond ONLY with valid JSON:
       },
     };
   } catch (error) {
+    const processingTime = Date.now() - startTime;
     console.error('Insight Generation Error:', error.message);
+
+    if (isAIServiceFailure(error) || _isStrictCustomHFMode()) {
+      throw createInsightsUnavailableError(processingTime, error);
+    }
+
     return {
       summary: 'Not enough data for detailed insights this week. Keep logging!',
       patterns: [],
@@ -635,4 +1036,5 @@ module.exports = {
   _validateEntity: validateEntity,
   _normalizeNLPResponse: normalizeNLPResponse,
   _buildContextAwarePrompt: buildContextAwarePrompt,
+  _tryFastPathParse: tryFastPathParse,
 };

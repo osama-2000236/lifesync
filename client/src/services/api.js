@@ -2,7 +2,11 @@
 import axios from 'axios';
 import { getApiBaseUrl } from '../config/runtime';
 import { shouldAttemptTokenRefresh } from './authInterceptor';
-import { CHAT_REQUEST_TIMEOUT_MS, DEFAULT_API_TIMEOUT_MS } from './requestTimeouts';
+import {
+  CHAT_REQUEST_TIMEOUT_MS,
+  DEFAULT_API_TIMEOUT_MS,
+  INSIGHTS_REQUEST_TIMEOUT_MS,
+} from './requestTimeouts';
 
 const API_BASE = getApiBaseUrl();
 
@@ -204,9 +208,9 @@ export const adminAPI = {
 
 // ─── Insights API ───
 export const insightsAPI = {
-  getCurrent: () => api.get('/insights'),
+  getCurrent: (config = {}) => api.get('/insights', { timeout: INSIGHTS_REQUEST_TIMEOUT_MS, ...config }),
   getHistory: (limit) => api.get('/insights/history', { params: { limit } }),
-  generate: () => api.post('/insights/generate'),
+  generate: (config = {}) => api.post('/insights/generate', {}, { timeout: INSIGHTS_REQUEST_TIMEOUT_MS, ...config }),
   markRead: (id) => api.put(`/insights/${id}/read`),
 };
 
