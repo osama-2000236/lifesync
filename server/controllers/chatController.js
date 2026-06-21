@@ -59,14 +59,17 @@ const pendingClarifications = new Map();
 
 // TTL cleanup: evict stale clarification state every 60s (5-min TTL)
 const CLARIFICATION_TTL_MS = 5 * 60 * 1000;
-setInterval(() => {
-  const now = Date.now();
-  for (const [userId, state] of pendingClarifications) {
-    if (now - state.createdAt > CLARIFICATION_TTL_MS) {
-      pendingClarifications.delete(userId);
+// Only set the interval if not in a test environment (to avoid Jest open handles)
+if (typeof jest === 'undefined') {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [userId, state] of pendingClarifications) {
+      if (now - state.createdAt > CLARIFICATION_TTL_MS) {
+        pendingClarifications.delete(userId);
+      }
     }
-  }
-}, 60_000);
+  }, 60_000);
+}
 
 // ============================================
 // VALIDATION
