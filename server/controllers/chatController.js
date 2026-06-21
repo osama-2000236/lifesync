@@ -109,9 +109,7 @@ const pendingClarifications = new Map();
 // TTL cleanup: evict stale clarification state every 60s (5-min TTL)
 // Only set up the interval in non-test environments to avoid Jest open handles
 const CLARIFICATION_TTL_MS = 5 * 60 * 1000;
-let clarificationInterval;
-if (process.env.NODE_ENV !== 'test') {
-  clarificationInterval = setInterval(() => {
+// TTL cleanup: evict stale clarification state every 60s (5-min TTL)`n// Only set the interval if not in a test environment (to avoid Jest open handles)`nconst CLARIFICATION_TTL_MS = 5 * 60 * 1000;`nif (typeof jest === 'undefined') {`n  setInterval(() => {`n    const now = Date.now();`n    for (const [userId, state] of pendingClarifications) {`n      if (now - state.createdAt > CLARIFICATION_TTL_MS) {`n        pendingClarifications.delete(userId);`n      }`n    }`n  }, 60_000);
     const now = Date.now();
     for (const [userId, state] of pendingClarifications) {
       if (now - state.createdAt > CLARIFICATION_TTL_MS) {
@@ -120,11 +118,14 @@ if (process.env.NODE_ENV !== 'test') {
     }
   }, 60_000);
 }
+<<<<<<< HEAD
 
 // Export for testing (to clear interval in tests if needed)
 if (process.env.NODE_ENV === 'test') {
   module.exports._clarificationInterval = clarificationInterval;
 }
+=======
+>>>>>>> worktree-wf_ff323ff9-264-4
 
 // ============================================
 // VALIDATION
@@ -769,3 +770,4 @@ module.exports = {
   chatValidation,
   _pendingClarifications: pendingClarifications,
 };
+
