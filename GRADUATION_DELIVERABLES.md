@@ -4,9 +4,18 @@
 
 ---
 
+> **⚠️ Update — June 2026 (supersedes earlier AI claims below).**
+> The AI layer changed since the February draft. **Read this first; where the text below conflicts, this note wins.**
+> - **NLP engine is no longer OpenAI GPT-4.** OpenAI was removed entirely. The default is a **local fine-tuned BERT intent classifier (`BertForSequenceClassification`, ONNX Runtime DirectML GPU / PyTorch CPU)** combined with a deterministic high-precision router + entity extractor. A **model picker** lets the user switch to **local Gemma 3 / Gemma 4** (via Ollama/LM Studio) — no silent fallback.
+> - **BERT is an intent classifier, not a generative model.** Raw accuracy ≈ 60–68%; the hybrid router reaches ≈ 96.7% on an independent shadow set. The deterministic engine owns dashboard scores and narrative. Full methodology, benchmarks, and release gates: `docs/LifeSync_Local_AI_Integration_and_QA_Report.md`.
+> - **Tests:** now **202 Jest tests passing (2 skipped)** plus Playwright E2E (13 API + 8 UI + 1 OAuth). The "97/97" figures below are historical.
+> - **Honesty on scope:** the QA report rates **weekly report download, scheduled notifications, external health/finance sync, and full admin** as *not fully implemented* (code exists but no complete production flow). Treat PART 3 / PART 5 "PASS" rows for admin/external as **partial**, not done.
+
+---
+
 # PART 1: Project Manifest — Complete File Map
 
-> 82 source files · 10,008 lines of code · 97 automated tests
+> 82 source files · 10,008 lines of code · 97 automated tests *(Feb draft; now 202 Jest tests + Playwright E2E — see update note above)*
 
 ---
 
@@ -55,7 +64,7 @@
 
 | # | File | Lines | Purpose |
 |---|------|-------|---------|
-| 32 | `server/services/ai/nlpService.js` | 389 | **NLP Engine**: OpenAI GPT-4 integration, structured JSON extraction, 10 intent types, entity validation, clarification rules, confidence scoring |
+| 32 | `server/services/ai/nlpService.js` | 389 | **NLP Engine**: pluggable provider routing (default local BERT hybrid; optional local Gemma 3/4, Gemini, Groq), structured JSON extraction, 10 intent types, entity validation, clarification rules, confidence scoring |
 | 33 | `server/services/ai/insightEngine.js` | 666 | **AI Insight Engine**: 4 pattern detectors (Sleep↔Spending, Mood↔Nutrition, Smart Budget, Activity↔Mood), Pearson correlation, health/finance scoring (0-100), trend analysis, recommendation generation |
 | 34 | `server/services/ai/insightsService.js` | 116 | Insight persistence: generate + store to AISummary, retrieve history, mark-as-read |
 | 35 | `server/services/otpService.js` | 277 | OTP system: 6-digit generation, email delivery via nodemailer, verification with max attempts, cooldown, expiry |
@@ -217,7 +226,7 @@ The project is fully containerized with a **three-service Docker Compose** stack
 
 The **GitHub Actions CI pipeline** runs the 97-test suite against Node 18 and 20, builds the frontend, and validates Docker images on every push to main. The test suite covers the four most critical subsystems: NLP entity parsing (39 tests), AI pattern detection (22 tests), encryption (17 tests), and OTP verification (16 tests).
 
-**Metrics:** 82 files, 10,008 lines of source code, 97/97 tests passing, 29 API endpoints, 5 test suites, build time ~10 seconds.
+**Metrics:** 202 Jest tests passing (2 skipped) + Playwright E2E (13 API + 8 UI + 1 OAuth), 31 API endpoints, build time ~5 seconds. *(Feb draft listed 97/97; see update note.)*
 
 ---
 
@@ -228,7 +237,7 @@ The **GitHub Actions CI pipeline** runs the 97-test suite against Node 18 and 20
 | **UR12 — Behavioral Pattern Detection** | ✅ PASS | `insightEngine.js:169` — `detectSleepSpendingCorrelation()` correlates sleep hours with daily expenses using Pearson's r. `insightEngine.js:234` — `detectMoodNutritionImpact()` detects mood↔nutrition and mood↔water correlations. Both confirmed by 22 passing tests. |
 | **UR14 — Decision Support** | ✅ PASS | `insightEngine.js:300` — `detectBudgetPatterns()` generates **Smart Budget suggestions** with priority levels (high/medium/low). `insightEngine.js:570-595` — Aggregates health recovery recommendations (sleep improvement → reduced impulse spending, hydration → mood boost, activity → mood correlation). `InsightCards.jsx` renders these as **actionable recommendation cards** with severity dots, not just charts. |
 | **NLP Workflow (Appendix A.2)** | ✅ PASS | `nlpService.js:21-130` — System prompt enforces strict Intent Extraction (10 intents) → Entity Recognition (health: 7 types with units, finance: income/expense with categories) → Clarification (5 triggers: missing category, ambiguous domain, missing value, vague mood, ambiguous amount). `chatController.js:204-280` — State machine stores pending clarification context per user. `nlp.test.js` — 39 tests verify the full pipeline. |
-| **UR14/UR18 — Admin Governance** | ✅ PASS | `adminController.js:126-150` — `toggleUserStatus()` activates/deactivates users with audit logging to SystemLog. `adminController.js:45-80` — Monitors **System Error Rates** (`errors_24h`), NLP response times (`nlp_avg_ms`, `nlp_max_ms`), and system health status (healthy/degraded threshold at 10 errors). `AdminPage.jsx` renders all metrics with toggle controls and severity badges. |
+| **UR14/UR18 — Admin Governance** | ⚠️ PARTIAL (code present; no full E2E admin flow per QA report) | `adminController.js:126-150` — `toggleUserStatus()` activates/deactivates users with audit logging to SystemLog. `adminController.js:45-80` — Monitors **System Error Rates** (`errors_24h`), NLP response times (`nlp_avg_ms`, `nlp_max_ms`), and system health status (healthy/degraded threshold at 10 errors). `AdminPage.jsx` renders all metrics with toggle controls and severity badges. |
 
 ---
 
@@ -239,8 +248,8 @@ The **GitHub Actions CI pipeline** runs the 97-test suite against Node 18 and 20
 ```
 LifeSync v2.0.0 — Smart Life Management System
 Status: GRADUATION READY
-Build:  ✅ Passing (294KB initial bundle)
-Tests:  ✅ 97/97 passing (5 suites)
+Build:  ✅ Passing
+Tests:  ✅ 202 Jest passing (2 skipped) + Playwright E2E
 Docker: ✅ 3-service compose (MySQL + Node + Nginx)
 CI/CD:  ✅ GitHub Actions (test → build → docker)
 ```
@@ -254,12 +263,13 @@ CI/CD:  ✅ GitHub Actions (test → build → docker)
 - Sequelize auto-sync in development, Firebase non-blocking init
 
 ### `server/services/ai/nlpService.js` — v2.0 (389 lines)
-- OpenAI GPT-4 integration with structured JSON response format
+- Local BERT intent classifier (default) + deterministic router/extractor; optional local Gemma 3/4, Gemini, Groq via the model picker
+- Structured JSON response format
 - 10 intents, 2 domain types (health/finance), confidence scoring
 - 5 clarification trigger rules with option generation
 - Entity validation with auto-assigned units/categories
 - `generateWeeklyInsights()` for AISummary persistence
-- Graceful fallback when OpenAI unavailable
+- Explicit error surfacing when a selected model is unavailable (no silent fallback)
 
 ### `server/services/ai/insightEngine.js` — v2.0 (666 lines)
 - `gatherWeekData(userId)` — queries 7-day + 14-day data for comparison
@@ -292,7 +302,7 @@ npm install && cd client && npm install && cd ..
 cp .env.example .env   # Edit DB credentials, JWT secrets
 
 # 3. Verify everything works
-npm test               # 97 tests should pass
+npm test               # 202 tests should pass (2 skipped)
 
 # 4. Start development
 npm run dev            # Backend on :5000
@@ -304,7 +314,7 @@ docker-compose up -d   # Full stack on :80
 
 ### Architecture Quick Reference
 - **Backend**: Express → Controllers → Services → Models (Sequelize → MySQL)
-- **NLP Pipeline**: User message → `chatController` → `nlpService.parseMessage()` → OpenAI → entity validation → DB insert → Firebase sync
+- **NLP Pipeline**: User message → `chatController` → `nlpService.parseMessage()` → local BERT classifier + deterministic router (or selected generative model) → entity validation → DB insert → Firebase sync
 - **Insight Pipeline**: `insightsRoutes` → `insightEngine.runInsightEngine()` → 4 detectors → JSON → `InsightCards.jsx`
 - **Auth Flow**: OTP email → verify → complete registration → JWT pair → Axios interceptor auto-refresh
 
@@ -323,9 +333,9 @@ docker-compose up -d   # Full stack on :80
 
 | Criterion | Status | Detail |
 |-----------|--------|--------|
-| Functional Requirements | ✅ | All UR requirements implemented (UR5, UR7, UR11, UR12, UR14, UR15, UR17) |
+| Functional Requirements | ⚠️ MOSTLY | Core implemented (UR5, UR7, UR11, UR12, UR14, UR17). **Not fully implemented:** weekly report download, scheduled notifications, external health/finance sync (UR15), full admin flow — see QA report §8 use-case statuses. |
 | Non-Functional Requirements | ✅ | Security (AES-256, bcrypt, JWT, rate limiting, CSP), Performance (code splitting, caching) |
-| Test Coverage | ✅ | 97/97 tests, 5 suites, covering NLP, AI, encryption, OTP, server |
+| Test Coverage | ✅ | 202 Jest tests + Playwright E2E (API + UI + OAuth), covering NLP, BERT routing, AI insights, encryption, OTP, server |
 | Documentation | ✅ | User manual, Admin manual, Setup guide, Assembly map, this manifest |
 | Deployment | ✅ | Docker Compose (3 services), CI/CD pipeline, production Nginx config |
 | Code Quality | ✅ | 82 files, 10,008 lines, consistent structure, JSDoc comments, error handling |
