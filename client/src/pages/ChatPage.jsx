@@ -60,6 +60,33 @@ function DomainBadges({ domain, isCrossDomain }) {
   return <div className="flex flex-wrap gap-1 mt-1.5">{badges}</div>;
 }
 
+const INTENT_LABELS = {
+  log_health: 'Logged health', log_finance: 'Logged expense', log_both: 'Logged both',
+  query_health: 'Health query', query_finance: 'Finance query', query_general: 'Chat',
+  get_insight: 'Insight request', get_advice: 'Advice', set_goal: 'Goal',
+  edit_entry: 'Edit', unclear: 'Needs detail',
+};
+
+/** Small badge showing the detected intent + confidence and which engine produced it */
+function BertBadge({ intent, confidence, engine }) {
+  if (!intent) return null;
+  const label = INTENT_LABELS[intent] || intent;
+  const pct = typeof confidence === 'number' ? Math.round(confidence * 100) : null;
+  const isBert = engine === 'bert';
+  return (
+    <div className="mt-1.5">
+      <span
+        className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+          isBert ? 'bg-purple-50 text-purple-600 border-purple-100' : 'bg-navy-50 text-navy-500 border-navy-100'
+        }`}
+        title={isBert ? 'Classified locally by the BERT NLP model' : 'Matched instantly by the local rule engine'}
+      >
+        <Sparkles className="w-2.5 h-2.5" /> {isBert ? 'BERT' : 'Quick-match'} · {label}{pct !== null ? ` · ${pct}%` : ''}
+      </span>
+    </div>
+  );
+}
+
 /** Entity badges showing what was logged */
 function EntitiesBadge({ entities }) {
   if (!entities) return null;
@@ -138,6 +165,11 @@ function ChatBubble({ message, onRetry }) {
         {/* Domain badges */}
         {!isUser && !isError && message.domain && (
           <DomainBadges domain={message.domain} isCrossDomain={message.isCrossDomain} />
+        )}
+
+        {/* Intent + confidence (BERT or quick-match) */}
+        {!isUser && !isError && message.intent && (
+          <BertBadge intent={message.intent} confidence={message.confidence} engine={message.engine} />
         )}
 
         {/* Retry button on errors */}
@@ -233,8 +265,8 @@ function WelcomeScreen({ onSend }) {
     { text: 'I walked 8000 steps today', domain: 'health', icon: Heart },
     { text: 'Spent $15 on lunch', domain: 'finance', icon: Wallet },
     { text: 'Slept 7 hours last night', domain: 'health', icon: Heart },
-    { text: 'Feeling great, mood 8/10', domain: 'health', icon: Heart },
     { text: 'Spent $50 on a healthy dinner', domain: 'both', icon: Link2 },
+    { text: 'I slept 4 hours and have $15 — what should I eat for a better mood?', domain: 'both', icon: Link2 },
   ];
 
   return (
@@ -366,7 +398,7 @@ export default function ChatPage() {
         setStatusText((current) => (
           current === 'Logging your entries...'
             ? current
-            : 'Local Gemma is checking this on your device...'
+            : 'The BERT model is analyzing your message...'
         ));
       }, 15000),
       setTimeout(() => {
@@ -397,6 +429,10 @@ export default function ChatPage() {
           content: result.response,
           entities: result.entities_logged,
           domain: result.domain,
+          intent: result.intent,
+          confidence: result.confidence,
+          engine: result.engine,
+          model: result.model,
           isCrossDomain: result.is_cross_domain,
           needsClarification: result.needs_clarification,
         };

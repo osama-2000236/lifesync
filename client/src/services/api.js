@@ -207,6 +207,27 @@ export const insightsAPI = {
   markRead: (id) => api.put(`/insights/${id}/read`),
 };
 
+// ─── Reports API (UR12) ───
+export const reportsAPI = {
+  list: (params) => api.get('/reports', { params }),
+  get: (id) => api.get(`/reports/${id}`),
+  generate: () => api.post('/reports/generate', {}, { timeout: INSIGHTS_REQUEST_TIMEOUT_MS }),
+  remove: (id) => api.delete(`/reports/${id}`),
+  // Build a direct download URL (token attached via query is avoided; use fetch with auth instead)
+  downloadUrl: (id, format = 'json') => `${API_BASE}/reports/${id}/download?format=${format}`,
+  download: (id, format = 'json') =>
+    api.get(`/reports/${id}/download`, { params: { format }, responseType: 'blob' }),
+};
+
+// ─── Notifications API (UR9) ───
+export const notificationsAPI = {
+  list: (params) => api.get('/notifications', { params }),
+  unreadCount: () => api.get('/notifications/unread-count'),
+  markRead: (id) => api.put(`/notifications/${id}/read`),
+  markAllRead: () => api.put('/notifications/read-all'),
+  remove: (id) => api.delete(`/notifications/${id}`),
+};
+
 // ─── External Integrations API ───
 export const externalAPI = {
   connect: (platform) => api.get(`/external/connect/${platform}`),

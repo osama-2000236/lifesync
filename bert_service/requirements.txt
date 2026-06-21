@@ -1,0 +1,12 @@
+# LifeSync BERT NLP service
+# CPU works out of the box. For GPU, install the CUDA build of torch first:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.6.0
+transformers>=4.40.0
+torch>=2.2.0
+
+# --- Fine-tuning (only needed to run train.py) ---
+# train.py uses a plain torch Dataset, so no `datasets`/pyarrow needed.
+accelerate>=0.27.0

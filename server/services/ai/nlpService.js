@@ -40,12 +40,12 @@ const isAITimeoutFailure = (error) => {
 };
 
 const createAIUnavailableError = (processingTime, cause) => {
-  const error = new Error('Local Gemma is taking longer than usual or is unavailable right now.');
+  const error = new Error('The LifeSync model is taking longer than usual or is unavailable right now.');
   error.code = 'AI_UNAVAILABLE';
   error.statusCode = 503;
   error.retryable = true;
   error.processing_time_ms = processingTime;
-  error.userMessage = 'Local Gemma is taking longer than usual or is unavailable right now. Please try again in a moment.';
+  error.userMessage = 'The LifeSync model is taking longer than usual or is unavailable right now. Please try again in a moment.';
   error.cause = cause;
   return error;
 };
@@ -67,16 +67,16 @@ const createModelDelayClarification = (message, processingTime, cause) => ({
   confidence: 0.2,
   processing_time_ms: processingTime,
   original_message: message,
-  error: cause?.message || 'Local Gemma timed out',
+  error: cause?.message || 'the LifeSync model timed out',
 });
 
 const createInsightsUnavailableError = (processingTime, cause) => {
-  const error = new Error('Local Gemma could not generate insight cards right now.');
+  const error = new Error('The LifeSync model could not generate insight cards right now.');
   error.code = 'AI_UNAVAILABLE';
   error.statusCode = 503;
   error.retryable = true;
   error.processing_time_ms = processingTime;
-  error.userMessage = 'Local Gemma could not generate insight cards right now. Please try again in a moment.';
+  error.userMessage = 'The LifeSync model could not generate insight cards right now. Please try again in a moment.';
   error.cause = cause;
   return error;
 };
@@ -639,13 +639,21 @@ CRITICAL INSTRUCTIONS FOR THIS TURN:
  * @param {Object|null} pendingClarification - Previous clarification context
  * @returns {Object} Parsed result
  */
-const parseMessage = async (message, pendingClarification = null) => {
+const parseMessage = async (message, pendingClarification = null, context = null) => {
   const startTime = Date.now();
 
   try {
-    const fastPathResult = tryFastPathParse(message, pendingClarification);
-    if (fastPathResult) {
-      return fastPathResult;
+    // The regex fast-path is a local mirror of the BERT engine for common logs
+    // (steps/sleep/spend…). Set NLP_DISABLE_FAST_PATH=1 to route EVERY message
+    // through the BERT service instead (useful for demos / model evaluation).
+    const fastPathDisabled = ['1', 'true', 'yes', 'on']
+      .includes(String(process.env.NLP_DISABLE_FAST_PATH || '').trim().toLowerCase());
+    if (!fastPathDisabled) {
+      const fastPathResult = tryFastPathParse(message, pendingClarification);
+      if (fastPathResult) {
+        fastPathResult.engine = 'quick'; // regex fast-path, not the BERT model
+        return fastPathResult;
+      }
     }
 
     const userPrompt = pendingClarification
@@ -659,6 +667,7 @@ const parseMessage = async (message, pendingClarification = null) => {
       temperature: 0,
       maxOutputTokens: 300,
       feature: 'chat',
+      context,
     });
 
     const rawResponse = completion.rawText;
@@ -668,7 +677,10 @@ const parseMessage = async (message, pendingClarification = null) => {
 
     const parsed = completion.data;
 
-    return normalizeNLPResponse(parsed, message, processingTime);
+    const normalized = normalizeNLPResponse(parsed, message, processingTime);
+    normalized.engine = completion.provider === 'bert' ? 'bert' : (completion.provider || 'ai');
+    normalized.model = (parsed && parsed.model) || completion.model || null;
+    return normalized;
   } catch (error) {
     const processingTime = Date.now() - startTime;
     console.error('NLP Service Error:', error.message);
@@ -734,7 +746,7 @@ const normalizeNLPResponse = (parsed, originalMessage, processingTime) => {
   const validIntents = [
     'log_health', 'log_finance', 'log_both', 'query_health',
     'query_finance', 'query_general', 'set_goal', 'get_insight',
-    'edit_entry', 'unclear',
+    'get_advice', 'edit_entry', 'unclear',
   ];
   const validDomains = ['health', 'finance', 'both', 'general'];
 

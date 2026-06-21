@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import NotificationBell from './NotificationBell';
 import {
   LayoutDashboard, MessageCircle, Heart, Wallet, Shield,
   LogOut, Menu, X, Activity, ChevronRight, Plug, Globe, FileText,
@@ -63,9 +64,12 @@ export default function AppLayout() {
               <p className="text-[11px] text-navy-400 -mt-0.5 font-medium">Smart Life Management</p>
             </div>
           </Link>
-          <button onClick={() => setSidebarOpen(false)} className="ml-auto lg:hidden text-navy-400">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="ml-auto flex items-center gap-1">
+            <NotificationBell />
+            <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-navy-400">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
@@ -138,6 +142,9 @@ export default function AppLayout() {
             <Activity className="w-5 h-5 text-emerald-500" />
             <span className="font-display font-bold text-navy-800">LifeSync</span>
           </Link>
+          <div className="ml-auto">
+            <NotificationBell />
+          </div>
         </header>
 
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">

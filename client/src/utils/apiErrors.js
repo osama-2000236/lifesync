@@ -1,6 +1,6 @@
 export const getApiErrorMessage = (error, fallbackMessage) => {
   if (/timeout of \d+ms exceeded/i.test(error?.message || '')) {
-    return 'Local Gemma is still generating your insight cards. The rest of the dashboard stays available while it finishes.';
+    return 'The BERT model is still generating your insight cards. The rest of the dashboard stays available while it finishes.';
   }
 
   return (

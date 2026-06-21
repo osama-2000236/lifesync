@@ -7,6 +7,7 @@ import HealthCorrelationChart from '../components/dashboard/HealthCorrelationCha
 import SpendingChart from '../components/dashboard/SpendingChart';
 import MoodActivityChart from '../components/dashboard/MoodActivityChart';
 import InsightCards from '../components/dashboard/InsightCards';
+import ReportsPanel from '../components/dashboard/ReportsPanel';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import {
   Footprints, Moon, SmilePlus, Droplets,
@@ -250,6 +251,7 @@ export default function DashboardPage() {
             <h2 className="font-display text-lg font-bold text-navy-800">Insights</h2>
           </div>
           <InsightCards insights={insights} loading={insightsLoading} error={insightsError} />
+          <ReportsPanel />
         </div>
       </div>
     </div>

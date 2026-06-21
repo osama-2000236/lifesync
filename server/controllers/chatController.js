@@ -10,7 +10,7 @@
 // ============================================
 
 const { body } = require('express-validator');
-const { Op } = require('sequelize');
+const { Op, fn, col } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 const { parseMessage } = require('../services/ai/nlpService');
 const HealthLog = require('../models/HealthLog');
@@ -20,6 +20,55 @@ const ChatLog = require('../models/ChatLog');
 const LinkedDomain = require('../models/LinkedDomain');
 const { getFirestore } = require('../config/firebase');
 const { success, error } = require('../utils/responseHelper');
+
+// ============================================
+// Cross-domain advice context (UR7-style personalization)
+// Only gathered when a message looks like an advice request, so normal
+// log messages stay on the fast path with no extra DB work.
+// ============================================
+
+const ADVICE_HINT = /\b(advice|advise|recommend|suggest|what should i|what (?:can|do|shall) i|what to (?:buy|eat|do)|help me|how (?:can|do) i|best (?:food|meal|way|thing)|save money|spend less)\b/i;
+
+const looksLikeAdvice = (message) => ADVICE_HINT.test(message || '');
+
+/** Lightweight 7-day health + finance summary used to personalize advice. */
+const gatherAdviceContext = async (userId) => {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const where = { user_id: userId, logged_at: { [Op.gte]: weekAgo } };
+  try {
+    const health = await HealthLog.findAll({
+      where,
+      attributes: [
+        'type',
+        [fn('AVG', col('value')), 'avg_value'],
+        [fn('SUM', col('value')), 'total_value'],
+      ],
+      group: ['type'],
+      raw: true,
+    });
+    const financeRows = await FinancialLog.findAll({
+      where,
+      include: [{ model: Category, as: 'category', attributes: ['name'] }],
+      attributes: [
+        'type', 'category_id',
+        [fn('SUM', col('amount')), 'total'],
+      ],
+      group: ['type', 'category_id', 'category.id'],
+      raw: true,
+      nest: true,
+    });
+    const income = financeRows.filter((f) => f.type === 'income').reduce((s, f) => s + Number(f.total || 0), 0);
+    const expenseRows = financeRows.filter((f) => f.type === 'expense');
+    const expenses = expenseRows.reduce((s, f) => s + Number(f.total || 0), 0);
+    const top = expenseRows.sort((a, b) => Number(b.total) - Number(a.total))[0];
+    return {
+      health,
+      finance: { income, expenses, top_category: top?.category?.name || null },
+    };
+  } catch {
+    return null; // never block chat on context gathering
+  }
+};
 
 // ============================================
 // Status Column Availability Probe
@@ -224,7 +273,7 @@ const sseWrite = (res, event, data) => {
 
 const resolveAIErrorMessage = (aiError) =>
   aiError?.userMessage
-  || 'Sorry, Local Gemma is temporarily unavailable. Your message was saved and you can try again shortly.';
+  || 'Sorry, the LifeSync model is temporarily unavailable. Your message was saved and you can try again shortly.';
 
 // ============================================
 // STREAMING ENDPOINT — POST /api/chat/stream
@@ -311,7 +360,8 @@ const processMessageStream = async (req, res) => {
       } else {
         // Fresh message — call HF Space (this is the slow part)
         sseWrite(res, 'status', { message: 'Processing your message...' });
-        nlpResult = await parseMessage(message);
+        const adviceContext = looksLikeAdvice(message) ? await gatherAdviceContext(userId) : null;
+        nlpResult = await parseMessage(message, null, adviceContext);
       }
     } catch (aiError) {
       clearInterval(heartbeat);
@@ -433,6 +483,8 @@ const processMessageStream = async (req, res) => {
       needs_clarification: false,
       confidence: nlpResult.confidence,
       is_cross_domain: nlpResult.is_cross_domain,
+      engine: nlpResult.engine || null,
+      model: nlpResult.model || null,
       entities_logged: {
         health: healthEntries.map((e) => ({
           id: e.id, type: e.type, value: e.getDataValue('value'),
@@ -522,7 +574,8 @@ const processMessage = async (req, res, next) => {
         });
         pendingClarifications.delete(userId);
       } else {
-        nlpResult = await parseMessage(message);
+        const adviceContext = looksLikeAdvice(message) ? await gatherAdviceContext(userId) : null;
+        nlpResult = await parseMessage(message, null, adviceContext);
       }
     } catch (aiError) {
       const errorMessage = resolveAIErrorMessage(aiError);
@@ -633,6 +686,8 @@ const processMessage = async (req, res, next) => {
       needs_clarification: false,
       confidence: nlpResult.confidence,
       is_cross_domain: nlpResult.is_cross_domain,
+      engine: nlpResult.engine || null,
+      model: nlpResult.model || null,
       entities_logged: {
         health: healthEntries.map((e) => ({
           id: e.id, type: e.type, value: e.getDataValue('value'),

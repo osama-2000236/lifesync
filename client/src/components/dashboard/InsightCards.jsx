@@ -1,6 +1,18 @@
 // src/components/dashboard/InsightCards.jsx
-import { Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, ArrowUpRight } from 'lucide-react';
+import { Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, ArrowUpRight, Cpu } from 'lucide-react';
 import { getInsightCardsViewModel } from './insightCardModel';
+
+const sentimentChip = {
+  positive: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30',
+  neutral: 'bg-navy-500/20 text-navy-200 border-navy-400/30',
+  concerning: 'bg-coral-500/20 text-coral-200 border-coral-400/30',
+};
+
+const behaviorChip = {
+  disciplined: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30',
+  balanced: 'bg-sky-500/20 text-sky-200 border-sky-400/30',
+  overspending: 'bg-coral-500/20 text-coral-200 border-coral-400/30',
+};
 
 const trendIcons = {
   improving: <TrendingUp className="w-4 h-4 text-emerald-500" />,
@@ -25,7 +37,7 @@ export default function InsightCards({ insights, loading, error }) {
         <div className="rounded-2xl border border-navy-100 bg-white/80 p-4 shadow-sm">
           <div className="flex items-center gap-2 text-navy-700">
             <Lightbulb className="w-4 h-4 text-amber-500" />
-            <p className="text-sm font-semibold">Preparing local Gemma insights...</p>
+            <p className="text-sm font-semibold">Preparing your BERT-powered insights...</p>
           </div>
           <p className="mt-1 text-xs text-navy-400">
             The dashboard stays usable while your device generates the cards.
@@ -51,7 +63,7 @@ export default function InsightCards({ insights, loading, error }) {
           {view.error}
         </p>
         <p className="text-xs text-amber-700/80">
-          Gemma-only insight cards are generated on your device. The dashboard will keep retrying automatically while everything else stays usable.
+          Insight cards are generated locally by the BERT model. The dashboard keeps retrying automatically while everything else stays usable.
         </p>
       </div>
     );
@@ -80,8 +92,33 @@ export default function InsightCards({ insights, loading, error }) {
         <div className="flex items-center gap-2 mb-3">
           <Lightbulb className="w-5 h-5 text-amber-400" />
           <h3 className="font-display font-semibold text-sm">AI Weekly Insight</h3>
+          {data.model_used && (
+            <span
+              className="ml-auto inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-200 font-semibold border border-purple-400/30"
+              title="Insights generated locally by the BERT model"
+            >
+              <Cpu className="w-2.5 h-2.5" /> {data.model_used}
+            </span>
+          )}
         </div>
+        {data.headline && <p className="text-white font-semibold text-sm mb-1.5">{data.headline}</p>}
         <p className="text-navy-200 text-sm leading-relaxed">{data.summary}</p>
+
+        {/* BERT sentiment chips */}
+        {(data.mood_sentiment || data.spending_behavior) && (
+          <div className="flex flex-wrap gap-2 mt-3">
+            {data.mood_sentiment && (
+              <span className={`text-[10px] px-2.5 py-1 rounded-full font-semibold border ${sentimentChip[data.mood_sentiment] || sentimentChip.neutral}`}>
+                Mood: {data.mood_sentiment}
+              </span>
+            )}
+            {data.spending_behavior && (
+              <span className={`text-[10px] px-2.5 py-1 rounded-full font-semibold border ${behaviorChip[data.spending_behavior] || behaviorChip.balanced}`}>
+                Spending: {data.spending_behavior}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Scores */}
         <div className="flex gap-4 mt-4">

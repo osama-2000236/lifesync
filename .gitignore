@@ -12,3 +12,12 @@ coverage/
 !.env.example
 
 .idea
+
+# Python / BERT service
+__pycache__/
+*.pyc
+.venv/
+venv/
+# Fine-tuned model artifacts are large (~270MB) — regenerate with bert_service/train.py
+bert_service/models/
+bert_service/data/*.jsonl

@@ -14,6 +14,8 @@ const ChatLog = require('./ChatLog');
 const UserGoal = require('./UserGoal');
 const LinkedDomain = require('./LinkedDomain');
 const SystemLog = require('./SystemLog');
+const Notification = require('./Notification');
+const Report = require('./Report');
 
 // ============================================
 // ASSOCIATIONS
@@ -59,6 +61,14 @@ LinkedDomain.belongsTo(FinancialLog, { foreignKey: 'financial_log_id', as: 'fina
 // --- SystemLog Associations ---
 SystemLog.belongsTo(User, { foreignKey: 'admin_id', as: 'admin' });
 
+// --- Notification Associations ---
+User.hasMany(Notification, { foreignKey: 'user_id', as: 'notifications' });
+Notification.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+// --- Report Associations ---
+User.hasMany(Report, { foreignKey: 'user_id', as: 'reports' });
+Report.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
 // ============================================
 // Export all models
 // ============================================
@@ -73,6 +83,8 @@ const db = {
   UserGoal,
   LinkedDomain,
   SystemLog,
+  Notification,
+  Report,
 };
 
 module.exports = db;

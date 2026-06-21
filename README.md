@@ -4,12 +4,38 @@ LifeSync is a full-stack health and finance tracking app with:
 
 - Express + Sequelize + MySQL backend
 - React + Vite frontend
-- Gemini-powered NLP chat for logging entries
+- **Local BERT NLP** for the chat assistant and dashboard insights (intent detection,
+  health/finance classification, entity extraction) — runs on your own CPU/GPU, no API keys.
+  Pluggable providers (`bert` default; `custom_hf`/Gemma, Gemini, Groq, Ollama also supported).
+- Weekly **reports** (JSON / CSV / printable HTML) and **notifications** (UR12 / UR9)
 - Optional Firebase sync for chat history
 - OTP-based registration flow via email
 - Public landing, privacy, and terms pages for Google-ready deployment
 
 For teammate onboarding and local machine setup, use [TEAM_LOCAL_SETUP.md](./TEAM_LOCAL_SETUP.md).
+
+## Local BERT NLP (default engine)
+
+The chat assistant and dashboard insights are powered by a local **DistilBERT** model
+served from [`bert_service/`](./bert_service/README.md). It implements the design-document
+NLP module (§3.4.5): **Intent Detection + Health/Finance Classification + Entity Extraction**.
+
+```bash
+# 1) start the BERT service (CPU works; GPU auto-detected)
+cd bert_service
+python -m pip install -r requirements.txt
+python train.py        # optional: fine-tune DistilBERT on the LifeSync intent dataset (~2 min CPU)
+python app.py          # serves http://127.0.0.1:8088   (zero-shot fallback if not trained)
+
+# 2) point the backend at it (.env)
+CHAT_AI_PROVIDER=bert
+INSIGHTS_AI_PROVIDER=bert
+BERT_SERVICE_URL=http://127.0.0.1:8088
+```
+
+If the BERT service is unreachable and a `GEMINI_API_KEY` is set, the backend auto-falls
+back to Gemini (set `BERT_STRICT=true` to disable the fallback). `docker compose up` starts
+the BERT service, MySQL, API, and frontend together.
 
 ## Verified Status
 

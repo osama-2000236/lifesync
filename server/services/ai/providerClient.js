@@ -4,7 +4,15 @@ require('dotenv').config();
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const HF_API_BASE_URL = 'https://api-inference.huggingface.co/v1';
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
-const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface', 'groq', 'custom_hf', 'ollama']);
+const SUPPORTED_PROVIDERS = new Set(['bert', 'gemini', 'huggingface', 'groq', 'custom_hf', 'ollama']);
+
+const resolveBertEndpoint = () =>
+  (process.env.BERT_SERVICE_URL || 'http://127.0.0.1:8088').replace(/\/+$/, '');
+const isStrictBertMode = () => isEnabled(process.env.BERT_STRICT);
+const getBertTimeoutMs = (feature) => parsePositiveInt(
+  feature === 'insights' ? process.env.BERT_INSIGHTS_TIMEOUT_MS : process.env.BERT_TIMEOUT_MS,
+  feature === 'insights' ? 60_000 : 20_000,
+);
 
 const normalizeProvider = (value) => value?.trim().toLowerCase() || '';
 const isEnabled = (value) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
@@ -44,6 +52,15 @@ const getProvider = (feature) => {
 
 const getProviderSettings = (providerOverride) => {
   const provider = providerOverride || resolveAIProvider();
+
+  if (provider === 'bert') {
+    return {
+      provider,
+      apiKey: '',
+      model: process.env.BERT_MODEL_NAME || 'distilbert (LifeSync NLP)',
+      endpoint: resolveBertEndpoint(),
+    };
+  }
 
   if (provider === 'huggingface') {
     return {
@@ -492,6 +509,78 @@ const normalizeEntities = (parsed) => {
   };
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// LOCAL BERT NLP SERVICE  (provider: 'bert')
+// Talks to the FastAPI service in bert_service/ over plain JSON HTTP.
+//   chat     → POST /nlp/parse     { message }
+//   insights → POST /nlp/insights  { health, finance, prev, notes }
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Pull the raw user message out of a chat prompt (handles clarification blocks). */
+const extractBertChatMessage = (userPrompt) => {
+  const text = String(userPrompt || '');
+  if (/USER'S RESPONSE:/i.test(text) || /Original message:/i.test(text)) {
+    const orig = text.match(/Original message:\s*"([^"]*)"/i)?.[1] || '';
+    const resp = text.match(/USER'S RESPONSE:\s*"([^"]*)"/i)?.[1] || '';
+    const combined = [orig, resp].filter(Boolean).join(' ').trim();
+    if (combined) return combined;
+  }
+  return text.trim();
+};
+
+/** Grab the first balanced {…} JSON object appearing after `label` in a prompt. */
+const grabJsonObjectAfter = (text, label) => {
+  const idx = text.indexOf(label);
+  if (idx === -1) return null;
+  const after = text.slice(idx + label.length);
+  const start = after.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  for (let i = start; i < after.length; i++) {
+    if (after[i] === '{') depth++;
+    else if (after[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        try { return JSON.parse(after.slice(start, i + 1)); } catch { return null; }
+      }
+    }
+  }
+  return null;
+};
+
+/** Best-effort extraction of structured insight inputs from the insights prompt. */
+const extractBertInsightsData = (userPrompt) => {
+  const text = String(userPrompt || '');
+  const healthObj = grabJsonObjectAfter(text, 'HEALTH DATA:') || {};
+  const financeObj = grabJsonObjectAfter(text, 'FINANCE DATA:') || {};
+  return {
+    health: Array.isArray(healthObj.metrics) ? healthObj.metrics : (Array.isArray(healthObj) ? healthObj : []),
+    finance: Array.isArray(financeObj.transactions) ? financeObj.transactions : (Array.isArray(financeObj) ? financeObj : []),
+  };
+};
+
+const callBertParse = async (message, feature = 'chat', context = null) => {
+  const endpoint = `${resolveBertEndpoint()}/nlp/parse`;
+  const body = context ? { message, context } : { message };
+  const { data } = await axios.post(
+    endpoint,
+    body,
+    { timeout: getBertTimeoutMs(feature), headers: { 'Content-Type': 'application/json' } },
+  );
+  return data;
+};
+
+/** Direct, structured insights call — used by the insights service. */
+const callBertInsights = async ({ health = [], finance = [], prev = {}, notes = [] } = {}) => {
+  const endpoint = `${resolveBertEndpoint()}/nlp/insights`;
+  const { data } = await axios.post(
+    endpoint,
+    { health, finance, prev, notes },
+    { timeout: getBertTimeoutMs('insights'), headers: { 'Content-Type': 'application/json' } },
+  );
+  return data;
+};
+
 // ─── Main exported function — provider-agnostic ───
 // When CUSTOM_HF_STRICT=true, custom_hf is the only allowed model path.
 const generateStructuredJson = async ({
@@ -501,8 +590,37 @@ const generateStructuredJson = async ({
   temperature = 0.1,
   maxOutputTokens = 1000,
   feature = 'chat',
+  context = null,
 }) => {
   const provider = getProvider(feature);
+
+  if (provider === 'bert') {
+    try {
+      const data = feature === 'insights'
+        ? await callBertInsights(extractBertInsightsData(userPrompt))
+        : await callBertParse(extractBertChatMessage(userPrompt), feature, context);
+      return {
+        provider: 'bert',
+        model: getProviderSettings('bert').model,
+        rawText: JSON.stringify(data),
+        data,
+        response: data,
+      };
+    } catch (bertError) {
+      if (isStrictBertMode()) throw bertError;
+
+      // Auto-fallback to Gemini if the local BERT service is down and a key exists
+      const geminiKey = process.env.GEMINI_API_KEY;
+      if (geminiKey && geminiKey.trim()) {
+        console.warn(`BERT service failed (${bertError.message}), falling back to Gemini`);
+        return callGemini({
+          systemInstruction, userPrompt, responseSchema, temperature, maxOutputTokens,
+          providerOverride: 'gemini',
+        });
+      }
+      throw bertError; // No fallback available — surfaces as AI_UNAVAILABLE
+    }
+  }
 
   if (provider === 'custom_hf') {
     try {
@@ -550,6 +668,7 @@ const generateStructuredJson = async ({
 module.exports = {
   generateStructuredJson,
   normalizeEntities,
+  callBertInsights,
   _resolveAIProvider: resolveAIProvider,
   _getProvider: getProvider,
   _getProviderSettings: getProviderSettings,
@@ -557,4 +676,8 @@ module.exports = {
   _parseModelTagOutput: parseModelTagOutput,
   _resolveCustomHFModelName: resolveCustomHFModelName,
   _isStrictCustomHFMode: isStrictCustomHFMode,
+  _resolveBertEndpoint: resolveBertEndpoint,
+  _isStrictBertMode: isStrictBertMode,
+  _extractBertChatMessage: extractBertChatMessage,
+  _extractBertInsightsData: extractBertInsightsData,
 };
