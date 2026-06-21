@@ -1,0 +1,62 @@
+[
+  {
+    "id": "ME-001",
+    "message": "I walked 8000 steps today.",
+    "expected": { "intent": "log_health", "domain": "health", "needs_clarification": false, "entities": [{ "domain": "health", "type": "steps", "value": 8000 }] }
+  },
+  {
+    "id": "ME-002",
+    "message": "I slept 7 hours last night.",
+    "expected": { "intent": "log_health", "domain": "health", "needs_clarification": false, "entities": [{ "domain": "health", "type": "sleep", "value": 7 }] }
+  },
+  {
+    "id": "ME-003",
+    "message": "I spent $15 on lunch.",
+    "expected": { "intent": "log_finance", "domain": "finance", "needs_clarification": false, "entities": [{ "domain": "finance", "type": "expense", "amount": 15 }] }
+  },
+  {
+    "id": "ME-004",
+    "message": "I earned $500 from freelance work.",
+    "expected": { "intent": "log_finance", "domain": "finance", "needs_clarification": false, "entities": [{ "domain": "finance", "type": "income", "amount": 500 }] }
+  },
+  {
+    "id": "ME-005",
+    "message": "I slept 7 hours and spent $15 on breakfast.",
+    "expected": { "intent": "log_both", "domain": "both", "needs_clarification": false, "entities": [{ "domain": "health", "type": "sleep", "value": 7 }, { "domain": "finance", "type": "expense", "amount": 15 }] }
+  },
+  {
+    "id": "ME-006",
+    "message": "I spent 10.",
+    "expected": { "intent": "unclear", "domain": "finance", "needs_clarification": true, "entities": [] }
+  },
+  {
+    "id": "ME-007",
+    "message": "50 for the gym.",
+    "expected": { "intent": "unclear", "domain": "both", "needs_clarification": true, "entities": [] }
+  },
+  {
+    "id": "ME-008",
+    "message": "I went running.",
+    "expected": { "intent": "unclear", "domain": "health", "needs_clarification": true, "entities": [] }
+  },
+  {
+    "id": "ME-009",
+    "message": "Hello, how are you?",
+    "expected": { "intent": "query_general", "domain": "general", "needs_clarification": false, "entities": [] }
+  },
+  {
+    "id": "ME-010",
+    "message": "How much did I spend this week?",
+    "expected": { "intent": "query_finance", "domain": "finance", "needs_clarification": false, "entities": [] }
+  },
+  {
+    "id": "ME-011",
+    "message": "I drank 500 ml of water.",
+    "expected": { "intent": "log_health", "domain": "health", "needs_clarification": false, "entities": [{ "domain": "health", "type": "water", "value": 0.5 }] }
+  },
+  {
+    "id": "ME-012",
+    "message": "My heart rate was 72 bpm.",
+    "expected": { "intent": "log_health", "domain": "health", "needs_clarification": false, "entities": [{ "domain": "health", "type": "heart_rate", "value": 72 }] }
+  }
+]

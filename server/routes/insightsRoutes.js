@@ -10,18 +10,18 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
-const { generateAndStoreInsights, getCurrentInsights, getLatestInsights, markAsRead } = require('../services/ai/insightsService');
+const {
+  buildDashboardInsights,
+  persistDashboardInsights,
+} = require('../services/ai/dashboardInsightsService');
+const { getLatestInsights, markAsRead } = require('../services/ai/insightsService');
 const { success, error, created } = require('../utils/responseHelper');
 
 // Get current insights (Gemma-backed, with short cache for dashboard refreshes)
 router.get('/', authenticate, async (req, res, next) => {
   try {
-    const insights = await getCurrentInsights(req.user.id);
-    success(
-      res,
-      { insights },
-      insights.stale ? 'Cached Gemma insights' : 'Insights generated'
-    );
+    const insights = await buildDashboardInsights(req.user.id);
+    success(res, { insights }, 'Insights generated');
   } catch (err) {
     next(err);
   }
@@ -41,7 +41,7 @@ router.get('/history', authenticate, async (req, res, next) => {
 // Force generate + persist
 router.post('/generate', authenticate, async (req, res, next) => {
   try {
-    const insights = await generateAndStoreInsights(req.user.id);
+    const insights = await persistDashboardInsights(req.user.id);
     created(res, { insights }, 'Insights generated and stored');
   } catch (err) {
     next(err);

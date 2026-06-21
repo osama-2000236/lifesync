@@ -1,0 +1,104 @@
+const AISummary = require('../../models/AISummary');
+const { runInsightEngine } = require('./insightEngine');
+const { generateWeeklyInsights } = require('./nlpService');
+
+const cache = new Map();
+
+const cacheTtlMs = () => parseInt(process.env.AI_INSIGHTS_CACHE_TTL_MS, 10) || 15 * 60 * 1000;
+const fallbackTtlMs = () => Math.min(cacheTtlMs(), 60 * 1000);
+
+const compactDeterministicInput = (insights) => ({
+  period: insights.period,
+  health_score: insights.health_score,
+  financial_health_score: insights.financial_health_score,
+  mood_trend: insights.mood_trend,
+  spending_trend: insights.spending_trend,
+  budget_summary: insights.budget_summary,
+  detected_patterns: insights.patterns,
+  deterministic_recommendations: insights.recommendations,
+});
+
+const mergeRecommendations = (modelRecommendations = [], deterministicRecommendations = []) => {
+  const seen = new Set();
+  return [...modelRecommendations, ...deterministicRecommendations]
+    .filter((item) => item && item.text)
+    .filter((item) => {
+      const key = item.text.trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 5);
+};
+
+const buildDashboardInsights = async (userId, { force = false } = {}) => {
+  const cached = cache.get(userId);
+  if (!force && cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const deterministic = await runInsightEngine(userId);
+  const modelInsights = await generateWeeklyInsights(
+    { deterministic_metrics: compactDeterministicInput(deterministic) },
+    { instruction: 'Use the deterministic metrics as facts. Do not recalculate or invent scores.' }
+  );
+  const modelReady = modelInsights?._model_runtime?.status === 'ready';
+  const classifierOnly = modelInsights?._model_runtime?.status === 'classifier_only';
+
+  const result = {
+    ...deterministic,
+    summary: modelReady && modelInsights.summary ? modelInsights.summary : deterministic.summary,
+    recommendations: modelReady
+      ? mergeRecommendations(modelInsights.recommendations, deterministic.recommendations)
+      : deterministic.recommendations,
+    cross_domain_insights: modelReady && modelInsights.cross_domain_insights
+      ? modelInsights.cross_domain_insights
+      : deterministic.cross_domain_insights,
+    model_runtime: {
+      ...(modelInsights?._model_runtime || { status: 'fallback' }),
+      operating_mode: modelReady
+        ? 'local_model_narrative_with_deterministic_metrics'
+        : classifierOnly
+          ? 'bert_classifier_with_deterministic_dashboard'
+          : 'deterministic_fallback',
+      cache_ttl_ms: cacheTtlMs(),
+      generated_at: new Date().toISOString(),
+    },
+  };
+
+  cache.set(userId, {
+    value: result,
+    expiresAt: Date.now() + ((modelReady || classifierOnly) ? cacheTtlMs() : fallbackTtlMs()),
+  });
+  return result;
+};
+
+const persistDashboardInsights = async (userId) => {
+  const insights = await buildDashboardInsights(userId, { force: true });
+  const summary = await AISummary.create({
+    user_id: userId,
+    type: 'combined',
+    period_start: insights.period.start.toISOString().split('T')[0],
+    period_end: insights.period.end.toISOString().split('T')[0],
+    summary: insights.summary,
+    patterns: insights.patterns,
+    recommendations: insights.recommendations,
+    metrics_snapshot: {
+      health_score: insights.health_score,
+      financial_health_score: insights.financial_health_score,
+      mood_trend: insights.mood_trend,
+      spending_trend: insights.spending_trend,
+      cross_domain: insights.cross_domain_insights,
+      budget: insights.budget_summary,
+      model_runtime: insights.model_runtime,
+    },
+    is_read: false,
+    generated_at: new Date(),
+  });
+
+  return { ...insights, id: summary.id };
+};
+
+module.exports = {
+  buildDashboardInsights,
+  persistDashboardInsights,
+  _clearCache: () => cache.clear(),
+};

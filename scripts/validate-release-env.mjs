@@ -8,7 +8,7 @@ const EXPECTED_API_URL =
   || 'https://lifesync-production-6f3e.up.railway.app/api';
 const EXPECTED_GOOGLE_CLIENT_ID =
   process.env.EXPECTED_VITE_GOOGLE_CLIENT_ID
-  || '123174641248-1grp7s1u20ad1d3olkpg28hfe723rkut.apps.googleusercontent.com';
+  || '190237143688-0ddtrdq3die8hnce0aqbti3jgc2eam4g.apps.googleusercontent.com';
 const GOOGLE_CLIENT_ID_PATTERN = /^[0-9]{12}-[a-z0-9-]+\.apps\.googleusercontent\.com$/i;
 const REQUIRE_BACKEND_ALIGNMENT = getBooleanEnv('REQUIRE_BACKEND_GOOGLE_ALIGNMENT');
 

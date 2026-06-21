@@ -1,9 +1,17 @@
 node_modules/
 .env
+client/.env.local
 *.log
 dist/
 coverage/
 .DS_Store
+__pycache__/
+*.pyc
+
+# Local model artifacts (large, machine-specific)
+bert_best_model_10pct/
+model_runtime/.venv/
+model_runtime/artifacts/
 
 # wrangler files
 .wrangler
@@ -12,3 +20,9 @@ coverage/
 !.env.example
 
 .idea
+
+# Local QA execution artifacts
+playwright-report/
+test-results/
+output/qa/playwright/
+.auth/

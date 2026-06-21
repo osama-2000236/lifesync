@@ -5,6 +5,8 @@ module.exports = {
   testEnvironment: 'node',
   verbose: true,
   forceExit: true,
+  // Playwright owns the TypeScript QA specs; keep runner discovery isolated.
+  testPathIgnorePatterns: ['/node_modules/', '/tests/qa/'],
   // Transform ESM packages that Jest can't handle natively
   transformIgnorePatterns: [
     'node_modules/(?!(uuid)/)',

@@ -13,6 +13,7 @@ const { body } = require('express-validator');
 const { Op } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 const { parseMessage } = require('../services/ai/nlpService');
+const { buildBertContext } = require('../services/ai/bertContextService');
 const HealthLog = require('../models/HealthLog');
 const FinancialLog = require('../models/FinancialLog');
 const Category = require('../models/Category');
@@ -293,6 +294,9 @@ const processMessageStream = async (req, res) => {
 
     // ─── Step 2: Check for pending clarification ───
     const pending = pendingClarifications.get(userId);
+    const nlpContext = await buildBertContext(userId, currentSessionId, {
+      excludeChatIds: [userChatLog.id, assistantChatLog.id],
+    });
     let nlpResult;
 
     // Heartbeat interval to keep the connection alive during HF inference
@@ -306,12 +310,12 @@ const processMessageStream = async (req, res) => {
           originalMessage: pending.originalMessage,
           clarificationQuestion: pending.clarificationQuestion,
           clarificationOptions: pending.clarificationOptions,
-        });
+        }, nlpContext);
         pendingClarifications.delete(userId);
       } else {
         // Fresh message — call HF Space (this is the slow part)
         sseWrite(res, 'status', { message: 'Processing your message...' });
-        nlpResult = await parseMessage(message);
+        nlpResult = await parseMessage(message, null, nlpContext);
       }
     } catch (aiError) {
       clearInterval(heartbeat);
@@ -374,6 +378,7 @@ const processMessageStream = async (req, res) => {
         confidence: nlpResult.confidence,
         is_cross_domain: false,
         entities_logged: { health: [], finance: [], linked: [] },
+        model_runtime: nlpResult.model_runtime || null,
         processing_time_ms: nlpResult.processing_time_ms,
       });
       sseWrite(res, 'done', {});
@@ -444,6 +449,7 @@ const processMessageStream = async (req, res) => {
           id: l.id, health_log_id: l.health_log_id, financial_log_id: l.financial_log_id,
         })),
       },
+      model_runtime: nlpResult.model_runtime || null,
       processing_time_ms: nlpResult.processing_time_ms,
     });
     sseWrite(res, 'done', {});
@@ -511,6 +517,9 @@ const processMessage = async (req, res, next) => {
 
     // ─── NLP Processing ───
     const pending = pendingClarifications.get(userId);
+    const nlpContext = await buildBertContext(userId, currentSessionId, {
+      excludeChatIds: [userChatLog.id, assistantChatLog.id],
+    });
     let nlpResult;
 
     try {
@@ -519,10 +528,10 @@ const processMessage = async (req, res, next) => {
           originalMessage: pending.originalMessage,
           clarificationQuestion: pending.clarificationQuestion,
           clarificationOptions: pending.clarificationOptions,
-        });
+        }, nlpContext);
         pendingClarifications.delete(userId);
       } else {
-        nlpResult = await parseMessage(message);
+        nlpResult = await parseMessage(message, null, nlpContext);
       }
     } catch (aiError) {
       const errorMessage = resolveAIErrorMessage(aiError);
@@ -583,6 +592,7 @@ const processMessage = async (req, res, next) => {
         clarification_options: nlpResult.clarification_options,
         confidence: nlpResult.confidence,
         entities_logged: { health: [], finance: [] },
+        model_runtime: nlpResult.model_runtime || null,
         processing_time_ms: nlpResult.processing_time_ms,
       });
     }
@@ -644,6 +654,7 @@ const processMessage = async (req, res, next) => {
           id: l.id, health_log_id: l.health_log_id, financial_log_id: l.financial_log_id,
         })),
       },
+      model_runtime: nlpResult.model_runtime || null,
       processing_time_ms: nlpResult.processing_time_ms,
     });
   } catch (err) {

@@ -19,6 +19,7 @@ COPY . .
 # Build-time environment variables
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
+ENV LIFESYNC_LOCAL_BUILD=true
 
 RUN npm run build
 

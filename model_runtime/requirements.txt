@@ -1,0 +1,6 @@
+# Create venv with --system-site-packages to reuse local PyTorch/Transformers.
+onnx==1.22.0
+onnxruntime-directml==1.24.4
+onnxscript==0.7.0
+transformers>=5.8,<6
+torch>=2.12

@@ -8,6 +8,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
+const { authLimiter, otpLimiter } = require('../middleware/rateLimiter');
 const {
   sendRegistrationOTP, sendOtpValidation,
   verifyRegistrationOTP, verifyOtpValidation,
@@ -25,19 +26,19 @@ const {
 } = require('../controllers/authController');
 
 // ─── Two-Step Registration ───
-router.post('/register/send-otp', sendOtpValidation, validate, sendRegistrationOTP);
-router.post('/register/verify-otp', verifyOtpValidation, validate, verifyRegistrationOTP);
-router.post('/register/complete', completeRegistrationValidation, validate, completeRegistration);
+router.post('/register/send-otp', otpLimiter, sendOtpValidation, validate, sendRegistrationOTP);
+router.post('/register/verify-otp', authLimiter, verifyOtpValidation, validate, verifyRegistrationOTP);
+router.post('/register/complete', authLimiter, completeRegistrationValidation, validate, completeRegistration);
 
 // ─── Login & Tokens ───
-router.post('/login', loginValidation, validate, login);
-router.post('/google', googleLoginValidation, validate, loginWithGoogle);
+router.post('/login', authLimiter, loginValidation, validate, login);
+router.post('/google', authLimiter, googleLoginValidation, validate, loginWithGoogle);
 router.post('/refresh', refreshToken);
 
 // ─── Forgot Password (public) ───
-router.post('/forgot-password/send-otp', forgotPasswordValidation, validate, forgotPasswordSendOTP);
-router.post('/forgot-password/verify-otp', verifyOtpValidation, validate, forgotPasswordVerifyOTP);
-router.post('/forgot-password/reset', resetPasswordValidation, validate, resetPassword);
+router.post('/forgot-password/send-otp', otpLimiter, forgotPasswordValidation, validate, forgotPasswordSendOTP);
+router.post('/forgot-password/verify-otp', authLimiter, verifyOtpValidation, validate, forgotPasswordVerifyOTP);
+router.post('/forgot-password/reset', authLimiter, resetPasswordValidation, validate, resetPassword);
 
 // ─── Profile (Protected) ───
 router.get('/me', authenticate, getProfile);

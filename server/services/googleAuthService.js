@@ -17,6 +17,19 @@ const getGoogleClient = () => {
   return googleClient;
 };
 
+// Read only the public OAuth audience for mismatch diagnostics. This payload is
+// never trusted until verifyIdToken succeeds, and the credential itself is not logged.
+const readUnverifiedAudience = (credential) => {
+  try {
+    const payloadSegment = String(credential || '').split('.')[1];
+    if (!payloadSegment) return null;
+    const payload = JSON.parse(Buffer.from(payloadSegment, 'base64url').toString('utf8'));
+    return typeof payload.aud === 'string' ? payload.aud : null;
+  } catch {
+    return null;
+  }
+};
+
 const normalizeGoogleVerifyError = (error) => {
   const message = error?.message || '';
 
@@ -46,6 +59,12 @@ const verifyGoogleCredential = async (credential) => {
       audience: audiences.length === 1 ? audiences[0] : audiences,
     });
   } catch (error) {
+    if (/wrong recipient/i.test(error?.message || '')) {
+      console.warn('[google-auth] audience mismatch', {
+        credentialAudience: readUnverifiedAudience(credential),
+        configuredAudiences: audiences,
+      });
+    }
     throw normalizeGoogleVerifyError(error);
   }
 
@@ -70,5 +89,6 @@ const verifyGoogleCredential = async (credential) => {
 module.exports = {
   verifyGoogleCredential,
   _parseGoogleClientIds: parseGoogleClientIds,
+  _readUnverifiedAudience: readUnverifiedAudience,
   _normalizeGoogleVerifyError: normalizeGoogleVerifyError,
 };
