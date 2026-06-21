@@ -63,7 +63,7 @@ export default function AppLayout() {
               <p className="text-[11px] text-navy-400 -mt-0.5 font-medium">Smart Life Management</p>
             </div>
           </Link>
-          <button onClick={() => setSidebarOpen(false)} className="ml-auto lg:hidden text-navy-400">
+          <button onClick={() => setSidebarOpen(false)} aria-label="Close navigation" className="ml-auto lg:hidden text-navy-400">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -131,7 +131,7 @@ export default function AppLayout() {
 
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="lg:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-navy-100">
-          <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-navy-50 text-navy-600">
+          <button onClick={() => setSidebarOpen(true)} aria-label="Open navigation" className="p-2 rounded-lg hover:bg-navy-50 text-navy-600">
             <Menu className="w-5 h-5" />
           </button>
           <Link to="/dashboard" className="flex items-center gap-2">

@@ -6,12 +6,14 @@
 // ============================================
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { chatAPI } from '../services/api';
+import { aiAPI, chatAPI } from '../services/api';
 import { subscribeToChatSession } from '../services/firebase';
 import {
   Send, Loader2, Sparkles, Plus, Clock, MessageCircle,
   Heart, Wallet, Link2, RotateCcw, AlertCircle, Zap,
   ArrowRight, TrendingUp, Activity,
+  BrainCircuit, ChevronDown, Play, RefreshCw, Cpu, ShieldCheck,
+  CheckCircle2, AlertTriangle,
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -285,6 +287,124 @@ function WelcomeScreen({ onSend }) {
   );
 }
 
+/** Compact, inspectable model state and activation menu. */
+function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRefresh, onStart }) {
+  const active = runtime?.active;
+  const activation = runtime?.activation;
+  const isClassifier = active?.capabilities?.classifier_only;
+  const isReady = ['ready', 'configured'].includes(active?.status);
+  const tone = starting ? 'amber' : isReady && !isClassifier ? 'emerald' : isClassifier ? 'amber' : 'red';
+  const label = starting ? 'Starting' : isReady && !isClassifier ? 'AI ready' : isClassifier ? 'Limited' : 'AI offline';
+  const toneClasses = {
+    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    amber: 'bg-amber-50 text-amber-700 border-amber-200',
+    red: 'bg-red-50 text-red-700 border-red-200',
+  };
+  const dotClasses = { emerald: 'bg-emerald-500', amber: 'bg-amber-400', red: 'bg-red-500' };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        className={`h-9 flex items-center gap-2 px-3 rounded-xl border text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${toneClasses[tone]}`}
+      >
+        <span className={`w-2 h-2 rounded-full ${dotClasses[tone]} ${starting ? 'animate-pulse' : ''}`} />
+        <span className="hidden sm:inline">{loading ? 'Checking AI' : label}</span>
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div
+          role="dialog"
+          aria-label="AI model state"
+          className="absolute right-0 top-11 z-40 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-navy-100 bg-white p-4 shadow-xl shadow-navy-900/10"
+        >
+          <div className="flex items-start gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${toneClasses[tone]}`}>
+              <BrainCircuit className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-bold text-navy-800">Model pulse</p>
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  disabled={loading}
+                  aria-label="Refresh AI status"
+                  className="p-1.5 rounded-lg text-navy-400 hover:text-navy-700 hover:bg-navy-50 disabled:opacity-40"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+              <p className="text-xs text-navy-500 mt-0.5 truncate">
+                {active?.configured_model || 'No model selected'} · {active?.provider || 'unknown'}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="rounded-xl bg-navy-50/70 p-3">
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400">Capability</p>
+              <p className="mt-1 text-xs font-semibold text-navy-700">
+                {isClassifier ? 'Intent classifier' : isReady ? 'Full conversation' : 'Unavailable'}
+              </p>
+            </div>
+            <div className="rounded-xl bg-navy-50/70 p-3">
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400">Execution</p>
+              <p className="mt-1 text-xs font-semibold text-navy-700 truncate">
+                {active?.execution_provider || (active?.local ? 'Local runtime' : 'Cloud API')}
+              </p>
+            </div>
+          </div>
+
+          {runtime?.hardware && (
+            <div className="mt-3 flex items-start gap-2 text-xs text-navy-500">
+              <Cpu className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-navy-400" />
+              <span>{runtime.hardware.logical_cores} CPU threads · {runtime.hardware.memory_gb} GB RAM · recommends {runtime.hardware.recommended_local_model_size}</span>
+            </div>
+          )}
+          <div className="mt-2 flex items-start gap-2 text-xs text-navy-500">
+            <ShieldCheck className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-emerald-500" />
+            <span>{runtime?.privacy || 'Only bounded LifeSync context is sent to the selected model.'}</span>
+          </div>
+
+          {(error || activation?.status === 'error') && (
+            <div className="mt-3 flex items-start gap-2 rounded-xl bg-red-50 p-3 text-xs text-red-700">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+              <span>{error || activation?.message}</span>
+            </div>
+          )}
+          {starting && (
+            <div className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
+              <Loader2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 animate-spin" />
+              <span>{activation?.message || 'Starting the best available model…'}</span>
+            </div>
+          )}
+          {activation?.status === 'ready' && !starting && (
+            <div className="mt-3 flex items-start gap-2 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-700">
+              <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+              <span>{activation.message}</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={onStart}
+            disabled={starting}
+            className="mt-4 w-full h-10 rounded-xl bg-navy-800 text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-navy-900 focus:outline-none focus:ring-2 focus:ring-navy-400/40 disabled:opacity-50 disabled:cursor-wait"
+          >
+            {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            {starting ? 'Starting model…' : isReady && !isClassifier ? 'Restart / choose best' : 'Start best model'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ============================================
 // MAIN CHAT PAGE
 // ============================================
@@ -298,10 +418,40 @@ export default function ChatPage() {
   const [sessions, setSessions] = useState([]);
   const [clarificationOptions, setClarificationOptions] = useState(null);
   const [showSessions, setShowSessions] = useState(false);
+  const [showModelPulse, setShowModelPulse] = useState(false);
+  const [modelRuntime, setModelRuntime] = useState(null);
+  const [modelLoading, setModelLoading] = useState(true);
+  const [modelError, setModelError] = useState(null);
   const [lastUserText, setLastUserText] = useState(''); // for retry
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(null);
+
+  const loadModelStatus = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setModelLoading(true);
+    try {
+      const { data } = await aiAPI.getStatus();
+      setModelRuntime(data.data?.runtime || null);
+      setModelError(null);
+    } catch (err) {
+      setModelError(err.response?.data?.error || 'Could not read the model state.');
+    } finally {
+      if (!quiet) setModelLoading(false);
+    }
+  }, []);
+
+  const startModel = useCallback(async () => {
+    setModelError(null);
+    try {
+      const { data } = await aiAPI.start('auto');
+      setModelRuntime((current) => ({
+        ...(current || {}),
+        activation: data.data?.activation,
+      }));
+    } catch (err) {
+      setModelError(err.response?.data?.error || 'The model could not be started.');
+    }
+  }, []);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -314,6 +464,17 @@ export default function ChatPage() {
       .then(({ data }) => setSessions(data.data?.sessions || []))
       .catch(() => {});
   }, []);
+
+  // Runtime status on entry, then short polling only while a model is starting.
+  useEffect(() => {
+    loadModelStatus();
+  }, [loadModelStatus]);
+
+  useEffect(() => {
+    if (modelRuntime?.activation?.status !== 'starting') return undefined;
+    const timer = setInterval(() => loadModelStatus({ quiet: true }), 2000);
+    return () => clearInterval(timer);
+  }, [modelRuntime?.activation?.status, loadModelStatus]);
 
   // Firebase real-time subscription
   useEffect(() => {
@@ -367,6 +528,18 @@ export default function ChatPage() {
           needsClarification: result.needs_clarification,
         };
         setMessages((prev) => [...prev, assistantMsg]);
+
+        if (result.model_runtime) {
+          setModelRuntime((current) => current ? ({
+            ...current,
+            active: {
+              ...current.active,
+              provider: result.model_runtime.provider || current.active?.provider,
+              configured_model: result.model_runtime.model || current.active?.configured_model,
+              status: result.model_runtime.status === 'deterministic_fallback' ? 'unreachable' : 'ready',
+            },
+          }) : current);
+        }
 
         if (result.needs_clarification && result.clarification_options) {
           setClarificationOptions(result.clarification_options);
@@ -500,10 +673,16 @@ export default function ChatPage() {
             <p className="text-[11px] text-navy-400">Track health &amp; finances through conversation</p>
           </div>
 
-          {/* Connection status indicator */}
-          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-            sending ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'
-          }`} title={sending ? 'Processing...' : 'Connected'} />
+          <ModelPulse
+            runtime={modelRuntime}
+            loading={modelLoading}
+            starting={modelRuntime?.activation?.status === 'starting'}
+            error={modelError}
+            isOpen={showModelPulse}
+            onToggle={() => setShowModelPulse((value) => !value)}
+            onRefresh={() => loadModelStatus()}
+            onStart={startModel}
+          />
         </div>
 
         {/* Messages Area */}
@@ -560,6 +739,7 @@ export default function ChatPage() {
             <button
               onClick={() => sendMessage()}
               disabled={!input.trim() || sending}
+              aria-label="Send message"
               className="w-11 h-11 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white flex items-center justify-center hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/20 flex-shrink-0"
             >
               {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

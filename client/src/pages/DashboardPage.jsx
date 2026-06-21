@@ -33,30 +33,37 @@ export default function DashboardPage() {
   const [financeSummary, setFinanceSummary] = useState(null);
   const [insights, setInsights] = useState(null);
   const [insightsError, setInsightsError] = useState('');
+  const [insightsLoading, setInsightsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [spendingView, setSpendingView] = useState('doughnut');
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [healthRes, financeRes, healthSummaryRes, financeSummaryRes, insightsRes] = await Promise.allSettled([
+        setInsightsLoading(true);
+        const insightsPromise = insightsAPI.getCurrent();
+        const [healthRes, financeRes, healthSummaryRes, financeSummaryRes] = await Promise.allSettled([
           healthAPI.getLogs({ limit: 100 }),
           financeAPI.getLogs({ limit: 100 }),
           healthAPI.getWeeklySummary(),
           financeAPI.getWeeklySummary(),
-          insightsAPI.getCurrent(),
         ]);
 
         if (healthRes.status === 'fulfilled') setHealthData(getPaginatedItems(healthRes.value.data, 'logs'));
         if (financeRes.status === 'fulfilled') setFinanceData(getPaginatedItems(financeRes.value.data, 'logs'));
         if (healthSummaryRes.status === 'fulfilled') setHealthSummary(healthSummaryRes.value.data.data);
         if (financeSummaryRes.status === 'fulfilled') setFinanceSummary(financeSummaryRes.value.data.data);
-        if (insightsRes.status === 'fulfilled') {
-          setInsights(insightsRes.value.data.data?.insights || null);
+        setLoading(false);
+
+        try {
+          const insightsRes = await insightsPromise;
+          setInsights(insightsRes.data.data?.insights || null);
           setInsightsError('');
-        } else {
+        } catch (insightsErr) {
           setInsights(null);
-          setInsightsError(getApiErrorMessage(insightsRes.reason, 'Unable to load insights right now.'));
+          setInsightsError(getApiErrorMessage(insightsErr, 'Unable to load insights right now.'));
+        } finally {
+          setInsightsLoading(false);
         }
       } catch (err) {
         console.warn('Dashboard data fetch error:', err);
@@ -197,7 +204,7 @@ export default function DashboardPage() {
             <BarChart3 className="w-5 h-5 text-navy-500" />
             <h2 className="font-display text-lg font-bold text-navy-800">Insights</h2>
           </div>
-          <InsightCards insights={insights} loading={loading} error={insightsError} />
+          <InsightCards insights={insights} loading={insightsLoading} error={insightsError} />
         </div>
       </div>
     </div>

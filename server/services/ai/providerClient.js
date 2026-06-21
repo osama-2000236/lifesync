@@ -4,7 +4,8 @@ require('dotenv').config();
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const HF_API_BASE_URL = 'https://api-inference.huggingface.co/v1';
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
-const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface', 'groq', 'custom_hf', 'ollama']);
+const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface', 'groq', 'custom_hf', 'ollama', 'lmstudio', 'bert_local']);
+const runtimeProviderOverrides = new Map();
 
 const normalizeProvider = (value) => value?.trim().toLowerCase() || '';
 
@@ -21,8 +22,24 @@ const resolveAIProvider = () => {
 /** Feature-scoped provider resolution. */
 const getProvider = (feature) => {
   const key = feature === 'chat' ? 'CHAT_AI_PROVIDER' : 'INSIGHTS_AI_PROVIDER';
-  return normalizeProvider(process.env[key]) || normalizeProvider(process.env.AI_PROVIDER) || 'gemini';
+  const provider = runtimeProviderOverrides.get(feature)
+    || normalizeProvider(process.env[key])
+    || normalizeProvider(process.env.AI_PROVIDER)
+    || 'gemini';
+  if (!SUPPORTED_PROVIDERS.has(provider)) {
+    throw new Error(`Unsupported AI provider for ${feature}: ${provider}`);
+  }
+  return provider;
 };
+
+const setRuntimeProvider = (feature, provider) => {
+  const normalized = normalizeProvider(provider);
+  if (!SUPPORTED_PROVIDERS.has(normalized)) throw new Error(`Unsupported AI provider: ${provider}`);
+  runtimeProviderOverrides.set(feature, normalized);
+  return normalized;
+};
+
+const clearRuntimeProvider = (feature) => runtimeProviderOverrides.delete(feature);
 
 const getProviderSettings = (providerOverride) => {
   const provider = providerOverride || resolveAIProvider();
@@ -58,7 +75,31 @@ const getProviderSettings = (providerOverride) => {
       provider,
       apiKey: 'ollama', // dummy key
       model: process.env.OLLAMA_MODEL || 'gemma',
-      endpoint: process.env.OLLAMA_API_BASE_URL || 'http://ollama:11434/v1/chat/completions',
+      endpoint: process.env.OLLAMA_API_BASE_URL || 'http://127.0.0.1:11434/v1/chat/completions',
+    };
+  }
+
+  if (provider === 'lmstudio') {
+    const baseUrl = (process.env.LM_STUDIO_API_BASE_URL || 'http://127.0.0.1:1234/v1').replace(/\/$/, '');
+    const serverUrl = baseUrl.replace(/\/v1$/, '');
+    return {
+      provider,
+      apiKey: process.env.LM_STUDIO_API_KEY || 'lm-studio',
+      model: process.env.LM_STUDIO_MODEL || 'lifesync-local',
+      endpoint: `${baseUrl}/chat/completions`,
+      modelsEndpoint: `${baseUrl}/models`,
+      statusEndpoint: `${serverUrl}/api/v0/models`,
+    };
+  }
+
+  if (provider === 'bert_local') {
+    const baseUrl = (process.env.BERT_RUNTIME_BASE_URL || 'http://127.0.0.1:1235').replace(/\/$/, '');
+    return {
+      provider,
+      apiKey: 'local-bert',
+      model: process.env.BERT_MODEL_NAME || 'bert_best_model_10pct',
+      endpoint: `${baseUrl}/v1/classify`,
+      statusEndpoint: `${baseUrl}/v1/status`,
     };
   }
 
@@ -157,11 +198,27 @@ const callGemini = async ({ systemInstruction, userPrompt, responseSchema, tempe
 };
 
 // ─── Call OpenAI-compatible endpoint (HuggingFace or Groq) ───
-const callOpenAICompatible = async ({ systemInstruction, userPrompt, temperature, maxOutputTokens, providerOverride }) => {
+const callOpenAICompatible = async ({
+  systemInstruction,
+  userPrompt,
+  responseSchema,
+  temperature,
+  maxOutputTokens,
+  feature,
+  providerOverride,
+}) => {
   const settings = getProviderSettings(providerOverride);
-  const providerLabel = settings.provider === 'groq' ? 'Groq' : (settings.provider === 'ollama' ? 'Ollama' : 'HuggingFace');
+  const providerLabel = settings.provider === 'groq'
+    ? 'Groq'
+    : settings.provider === 'ollama'
+      ? 'Ollama'
+      : settings.provider === 'lmstudio'
+        ? 'LM Studio'
+        : 'HuggingFace';
 
-  if (settings.provider !== 'ollama' && !settings.apiKey) throw new Error(`${providerLabel} API key is not configured.`);
+  if (!['ollama', 'lmstudio'].includes(settings.provider) && !settings.apiKey) {
+    throw new Error(`${providerLabel} API key is not configured.`);
+  }
 
   const messages = [];
   if (systemInstruction) {
@@ -169,17 +226,35 @@ const callOpenAICompatible = async ({ systemInstruction, userPrompt, temperature
   }
   messages.push({ role: 'user', content: userPrompt });
 
+  const payload = {
+    model: settings.model,
+    messages,
+    temperature: temperature ?? 0.1,
+    max_tokens: maxOutputTokens ?? 1000,
+    stream: false,
+  };
+
+  // LM Studio implements OpenAI-compatible structured output. Constraining the
+  // response here sharply reduces malformed JSON without coupling app code to
+  // a particular GGUF model or chat template.
+  if (['lmstudio', 'ollama'].includes(settings.provider) && responseSchema) {
+    payload.response_format = {
+      type: 'json_schema',
+      json_schema: {
+        name: feature === 'insights' ? 'lifesync_insights' : 'lifesync_nlp',
+        strict: true,
+        schema: responseSchema,
+      },
+    };
+  }
+
   const response = await axios.post(
     settings.endpoint,
+    payload,
     {
-      model: settings.model,
-      messages,
-      temperature: temperature ?? 0.1,
-      max_tokens: maxOutputTokens ?? 1000,
-      stream: false,
-    },
-    {
-      timeout: 60000,
+      timeout: settings.provider === 'lmstudio'
+        ? (parseInt(process.env.LM_STUDIO_REQUEST_TIMEOUT_MS, 10) || 180000)
+        : 60000,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${settings.apiKey}`,
@@ -199,8 +274,32 @@ const callOpenAICompatible = async ({ systemInstruction, userPrompt, temperature
       response: response.data,
     };
   } catch {
+    if (feature === 'chat' && cleaned.includes('[') && cleaned.includes(']')) {
+      const parsed = parseModelTagOutput(cleaned);
+      return {
+        provider: settings.provider,
+        model: settings.model,
+        rawText: cleaned,
+        data: parsed,
+        response: response.data,
+      };
+    }
     throw new Error(`${providerLabel} returned invalid JSON: ${cleaned.slice(0, 200)}`);
   }
+};
+
+/** Classify one message with the local BERT sequence-classification runtime. */
+const classifyText = async (text) => {
+  const settings = getProviderSettings('bert_local');
+  const response = await axios.post(
+    settings.endpoint,
+    { text },
+    {
+      timeout: parseInt(process.env.BERT_RUNTIME_TIMEOUT_MS, 10) || 5000,
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
+  return response.data;
 };
 
 // ─── Parse tagged model output into NLP response shape ───
@@ -445,6 +544,10 @@ const generateStructuredJson = async ({
 }) => {
   const provider = getProvider(feature);
 
+  if (provider === 'bert_local') {
+    throw new Error('bert_local is a sequence classifier, not a structured-text generator.');
+  }
+
   if (provider === 'custom_hf') {
     try {
       const parsed = await callCustomHF(systemInstruction || '', userPrompt);
@@ -473,19 +576,107 @@ const generateStructuredJson = async ({
     }
   }
 
-  if (provider === 'huggingface' || provider === 'groq' || provider === 'ollama') {
-    return callOpenAICompatible({ systemInstruction, userPrompt, temperature, maxOutputTokens, providerOverride: provider });
+  if (provider === 'huggingface' || provider === 'groq' || provider === 'ollama' || provider === 'lmstudio') {
+    return callOpenAICompatible({
+      systemInstruction,
+      userPrompt,
+      responseSchema,
+      temperature,
+      maxOutputTokens,
+      feature,
+      providerOverride: provider,
+    });
   }
 
   return callGemini({ systemInstruction, userPrompt, responseSchema, temperature, maxOutputTokens, providerOverride: provider });
 };
 
+/**
+ * Return a secret-free provider readiness snapshot for diagnostics and QA.
+ */
+const getAIProviderStatus = async (feature = 'chat', providerOverride = null) => {
+  const provider = providerOverride ? normalizeProvider(providerOverride) : getProvider(feature);
+  if (!SUPPORTED_PROVIDERS.has(provider)) throw new Error(`Unsupported AI provider: ${provider}`);
+  const settings = getProviderSettings(provider);
+  const base = {
+    feature,
+    provider,
+    configured_model: settings.model || null,
+    local: provider === 'lmstudio' || provider === 'ollama' || provider === 'bert_local',
+  };
+
+  if (provider === 'bert_local') {
+    try {
+      const response = await axios.get(settings.statusEndpoint, { timeout: 3000 });
+      return {
+        ...base,
+        status: response.data?.status === 'ready' ? 'ready' : 'unavailable',
+        architecture: response.data?.architecture || null,
+        task: response.data?.task || null,
+        execution_provider: response.data?.provider || null,
+        labels: response.data?.labels || [],
+        artifact_sha256: response.data?.artifact_sha256 || null,
+        long_context: {
+          strategy: response.data?.long_context_strategy || 'single_window',
+          sequence_length: response.data?.sequence_length || null,
+          chunk_stride: response.data?.chunk_stride || null,
+          max_chunks: response.data?.max_chunks || 1,
+          multi_label_threshold: response.data?.multi_label_threshold ?? null,
+        },
+        runtime_metrics: {
+          requests: response.data?.requests || 0,
+          mean_latency_ms: response.data?.mean_latency_ms ?? null,
+          p95_latency_ms: response.data?.p95_latency_ms ?? null,
+        },
+      };
+    } catch (error) {
+      return {
+        ...base,
+        status: 'unreachable',
+        error: error.code || error.message,
+      };
+    }
+  }
+
+  if (provider !== 'lmstudio' && provider !== 'ollama') {
+    const configured = provider === 'custom_hf' ? Boolean(settings.endpoint) : Boolean(settings.apiKey);
+    return { ...base, status: configured ? 'configured' : 'not_configured' };
+  }
+
+  const modelsEndpoint = settings.statusEndpoint || settings.modelsEndpoint
+    || settings.endpoint.replace(/\/chat\/completions\/?$/, '/models');
+  try {
+    const response = await axios.get(modelsEndpoint, { timeout: 3000 });
+    const models = response.data?.data || [];
+    const loadedModels = models
+      .filter((model) => !model.state || model.state === 'loaded')
+      .map((model) => model.id)
+      .filter(Boolean);
+    return {
+      ...base,
+      status: loadedModels.includes(settings.model) ? 'ready' : 'model_not_loaded',
+      loaded_models: loadedModels,
+    };
+  } catch (error) {
+    return {
+      ...base,
+      status: 'unreachable',
+      loaded_models: [],
+      error: error.code || error.message,
+    };
+  }
+};
+
 module.exports = {
   generateStructuredJson,
+  classifyText,
+  getAIProviderStatus,
   normalizeEntities,
   _resolveAIProvider: resolveAIProvider,
   _getProvider: getProvider,
   _getProviderSettings: getProviderSettings,
+  _setRuntimeProvider: setRuntimeProvider,
+  _clearRuntimeProvider: clearRuntimeProvider,
   _extractResponseText: extractGeminiText,
   _parseModelTagOutput: parseModelTagOutput,
 };

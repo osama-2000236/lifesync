@@ -22,9 +22,10 @@ const chatRoutes = require('./routes/chatRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const insightsRoutes = require('./routes/insightsRoutes');
 const externalRoutes = require('./routes/externalRoutes');
+const aiRoutes = require('./routes/aiRoutes');
 
 // Import granular rate limiters
-const { authLimiter, chatLimiter, insightLimiter, generalLimiter } = require('./middleware/rateLimiter');
+const { chatLimiter, insightLimiter, generalLimiter } = require('./middleware/rateLimiter');
 
 // ============================================
 // Initialize Express
@@ -85,13 +86,14 @@ app.get('/api/health', (req, res) => {
 });
 
 // Register route modules with granular rate limiters
-app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/health-logs', healthRoutes);
 app.use('/api/finance', financeRoutes);
 app.use('/api/chat', chatLimiter, chatRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/insights', insightLimiter, insightsRoutes);
 app.use('/api/external', externalRoutes);
+app.use('/api/ai', aiRoutes);
 
 // ============================================
 // Error Handling

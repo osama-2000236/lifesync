@@ -9,15 +9,32 @@ const EXPECTED = {
     || 'https://lifesync-production-6f3e.up.railway.app/api',
   VITE_GOOGLE_CLIENT_ID:
     process.env.EXPECTED_VITE_GOOGLE_CLIENT_ID
-    || '123174641248-1grp7s1u20ad1d3olkpg28hfe723rkut.apps.googleusercontent.com',
+    || '190237143688-0ddtrdq3die8hnce0aqbti3jgc2eam4g.apps.googleusercontent.com',
 };
 
 const GOOGLE_CLIENT_ID_PATTERN = /^[0-9]{12}-[a-z0-9-]+\.apps\.googleusercontent\.com$/i;
+const localContainerBuild = ['1', 'true', 'yes', 'on'].includes(
+  (process.env.LIFESYNC_LOCAL_BUILD || '').trim().toLowerCase()
+);
 
 const fail = (message) => {
   console.error(`[preflight] ${message}`);
   process.exitCode = 1;
 };
+
+if (localContainerBuild) {
+  const apiUrl = (process.env.VITE_API_URL || '').trim();
+  const googleClientId = (process.env.VITE_GOOGLE_CLIENT_ID || '').trim();
+  if (!apiUrl || !(apiUrl.startsWith('/') || /^https?:\/\//i.test(apiUrl))) {
+    fail('Local VITE_API_URL must be a relative /path or an absolute http(s) URL.');
+  }
+  if (googleClientId && !GOOGLE_CLIENT_ID_PATTERN.test(googleClientId)) {
+    fail(`VITE_GOOGLE_CLIENT_ID is not a valid Google web client ID: ${googleClientId}`);
+  }
+  if (process.exitCode) process.exit(process.exitCode);
+  console.log('[preflight] Local container build env validation passed.');
+  process.exit(0);
+}
 
 for (const key of REQUIRED) {
   const value = (process.env[key] || '').trim();

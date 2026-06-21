@@ -167,6 +167,12 @@ export const chatAPI = {
   getSessions: () => api.get('/chat/sessions'),
 };
 
+// ─── AI Runtime API ───
+export const aiAPI = {
+  getStatus: () => api.get('/ai/status'),
+  start: (provider = 'auto') => api.post('/ai/start', { provider }),
+};
+
 // ─── Health API ───
 export const healthAPI = {
   getLogs: (params) => api.get('/health-logs', { params }),

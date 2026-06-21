@@ -1,0 +1,703 @@
+{
+  "generated_at": "2026-06-20T06:29:16.375Z",
+  "input": "output\\model-eval\\bert-target-pytorch-cpu.json",
+  "disclosure": "Measures hybrid router on the 60-case acceptance set used to tune deterministic rules; report shadow-set results for less biased generalization evidence.",
+  "summary": {
+    "cases": 60,
+    "correct": 60,
+    "accuracy_pct": 100,
+    "macro_f1_pct": 100,
+    "rule_overrides": 19,
+    "raw_model_accuracy_pct": 68.33
+  },
+  "per_label": {
+    "general_chat": {
+      "support": 10,
+      "precision_pct": 100,
+      "recall_pct": 100,
+      "f1_pct": 100
+    },
+    "log_both": {
+      "support": 10,
+      "precision_pct": 100,
+      "recall_pct": 100,
+      "f1_pct": 100
+    },
+    "log_expense": {
+      "support": 10,
+      "precision_pct": 100,
+      "recall_pct": 100,
+      "f1_pct": 100
+    },
+    "log_health": {
+      "support": 10,
+      "precision_pct": 100,
+      "recall_pct": 100,
+      "f1_pct": 100
+    },
+    "query_summary": {
+      "support": 10,
+      "precision_pct": 100,
+      "recall_pct": 100,
+      "f1_pct": 100
+    },
+    "set_goal": {
+      "support": 10,
+      "precision_pct": 100,
+      "recall_pct": 100,
+      "f1_pct": 100
+    }
+  },
+  "confusion_matrix": {
+    "general_chat": {
+      "general_chat": 10,
+      "log_both": 0,
+      "log_expense": 0,
+      "log_health": 0,
+      "query_summary": 0,
+      "set_goal": 0
+    },
+    "log_both": {
+      "general_chat": 0,
+      "log_both": 10,
+      "log_expense": 0,
+      "log_health": 0,
+      "query_summary": 0,
+      "set_goal": 0
+    },
+    "log_expense": {
+      "general_chat": 0,
+      "log_both": 0,
+      "log_expense": 10,
+      "log_health": 0,
+      "query_summary": 0,
+      "set_goal": 0
+    },
+    "log_health": {
+      "general_chat": 0,
+      "log_both": 0,
+      "log_expense": 0,
+      "log_health": 10,
+      "query_summary": 0,
+      "set_goal": 0
+    },
+    "query_summary": {
+      "general_chat": 0,
+      "log_both": 0,
+      "log_expense": 0,
+      "log_health": 0,
+      "query_summary": 10,
+      "set_goal": 0
+    },
+    "set_goal": {
+      "general_chat": 0,
+      "log_both": 0,
+      "log_expense": 0,
+      "log_health": 0,
+      "query_summary": 0,
+      "set_goal": 10
+    }
+  },
+  "results": [
+    {
+      "id": "BI-001",
+      "text": "Hello",
+      "expected": "general_chat",
+      "raw_model_label": "general_chat",
+      "rule_label": "general_chat",
+      "routed_label": "general_chat",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-002",
+      "text": "Hi there, how are you?",
+      "expected": "general_chat",
+      "raw_model_label": "general_chat",
+      "rule_label": null,
+      "routed_label": "general_chat",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-003",
+      "text": "Good morning",
+      "expected": "general_chat",
+      "raw_model_label": "general_chat",
+      "rule_label": "general_chat",
+      "routed_label": "general_chat",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-004",
+      "text": "Thanks for your help",
+      "expected": "general_chat",
+      "raw_model_label": "general_chat",
+      "rule_label": null,
+      "routed_label": "general_chat",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-005",
+      "text": "What can you do?",
+      "expected": "general_chat",
+      "raw_model_label": "general_chat",
+      "rule_label": "general_chat",
+      "routed_label": "general_chat",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-006",
+      "text": "Help me use LifeSync",
+      "expected": "general_chat",
+      "raw_model_label": "query_summary",
+      "rule_label": "general_chat",
+      "routed_label": "general_chat",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-007",
+      "text": "Who are you?",
+      "expected": "general_chat",
+      "raw_model_label": "general_chat",
+      "rule_label": "general_chat",
+      "routed_label": "general_chat",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-008",
+      "text": "Tell me a joke",
+      "expected": "general_chat",
+      "raw_model_label": "general_chat",
+      "rule_label": null,
+      "routed_label": "general_chat",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-009",
+      "text": "Bye for now",
+      "expected": "general_chat",
+      "raw_model_label": "general_chat",
+      "rule_label": null,
+      "routed_label": "general_chat",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-010",
+      "text": "Nice to meet you",
+      "expected": "general_chat",
+      "raw_model_label": "general_chat",
+      "rule_label": null,
+      "routed_label": "general_chat",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-011",
+      "text": "I walked 8000 steps and spent $12 on lunch",
+      "expected": "log_both",
+      "raw_model_label": "set_goal",
+      "rule_label": "log_both",
+      "routed_label": "log_both",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-012",
+      "text": "I slept 7 hours and paid $20 for dinner",
+      "expected": "log_both",
+      "raw_model_label": "log_health",
+      "rule_label": "log_both",
+      "routed_label": "log_both",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-013",
+      "text": "I ran for 30 minutes and bought water for $3",
+      "expected": "log_both",
+      "raw_model_label": "set_goal",
+      "rule_label": "log_both",
+      "routed_label": "log_both",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-014",
+      "text": "My mood was 8 out of 10 and I spent $15 on coffee",
+      "expected": "log_both",
+      "raw_model_label": "set_goal",
+      "rule_label": "log_both",
+      "routed_label": "log_both",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-015",
+      "text": "I drank 2 liters of water and paid $40 for groceries",
+      "expected": "log_both",
+      "raw_model_label": "log_health",
+      "rule_label": "log_both",
+      "routed_label": "log_both",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-016",
+      "text": "Logged 6000 steps and a $25 transport expense",
+      "expected": "log_both",
+      "raw_model_label": "log_health",
+      "rule_label": "log_both",
+      "routed_label": "log_both",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-017",
+      "text": "I exercised 45 minutes and earned $100 freelance",
+      "expected": "log_both",
+      "raw_model_label": "log_health",
+      "rule_label": "log_both",
+      "routed_label": "log_both",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-018",
+      "text": "Heart rate was 72 bpm and medicine cost $9",
+      "expected": "log_both",
+      "raw_model_label": "log_health",
+      "rule_label": "log_both",
+      "routed_label": "log_both",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-019",
+      "text": "I ate 650 calories and spent $18 at the restaurant",
+      "expected": "log_both",
+      "raw_model_label": "set_goal",
+      "rule_label": "log_both",
+      "routed_label": "log_both",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-020",
+      "text": "I feel great today and paid $30 for the gym",
+      "expected": "log_both",
+      "raw_model_label": "log_health",
+      "rule_label": "log_both",
+      "routed_label": "log_both",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-021",
+      "text": "I spent $15 on lunch",
+      "expected": "log_expense",
+      "raw_model_label": "set_goal",
+      "rule_label": "log_expense",
+      "routed_label": "log_expense",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-022",
+      "text": "Paid 20 dollars for a taxi",
+      "expected": "log_expense",
+      "raw_model_label": "log_expense",
+      "rule_label": "log_expense",
+      "routed_label": "log_expense",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-023",
+      "text": "Bought groceries for $42.50",
+      "expected": "log_expense",
+      "raw_model_label": "set_goal",
+      "rule_label": "log_expense",
+      "routed_label": "log_expense",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-024",
+      "text": "Coffee cost me $4",
+      "expected": "log_expense",
+      "raw_model_label": "query_summary",
+      "rule_label": "log_expense",
+      "routed_label": "log_expense",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-025",
+      "text": "Add a 35 USD electricity expense",
+      "expected": "log_expense",
+      "raw_model_label": "log_expense",
+      "rule_label": "log_expense",
+      "routed_label": "log_expense",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-026",
+      "text": "I paid 12 shekels for the bus",
+      "expected": "log_expense",
+      "raw_model_label": "set_goal",
+      "rule_label": "log_expense",
+      "routed_label": "log_expense",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-027",
+      "text": "Spent €25 on a book",
+      "expected": "log_expense",
+      "raw_model_label": "log_health",
+      "rule_label": "log_expense",
+      "routed_label": "log_expense",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-028",
+      "text": "Record a $60 shopping purchase",
+      "expected": "log_expense",
+      "raw_model_label": "query_summary",
+      "rule_label": "log_expense",
+      "routed_label": "log_expense",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-029",
+      "text": "Dinner was 18 dollars",
+      "expected": "log_expense",
+      "raw_model_label": "log_health",
+      "rule_label": "log_expense",
+      "routed_label": "log_expense",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-030",
+      "text": "My phone bill was $30",
+      "expected": "log_expense",
+      "raw_model_label": "log_health",
+      "rule_label": "log_expense",
+      "routed_label": "log_expense",
+      "rule_override": true,
+      "correct": true
+    },
+    {
+      "id": "BI-031",
+      "text": "I walked 8000 steps today",
+      "expected": "log_health",
+      "raw_model_label": "log_health",
+      "rule_label": "log_health",
+      "routed_label": "log_health",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-032",
+      "text": "I slept 7.5 hours last night",
+      "expected": "log_health",
+      "raw_model_label": "log_health",
+      "rule_label": "log_health",
+      "routed_label": "log_health",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-033",
+      "text": "I drank 500 ml of water",
+      "expected": "log_health",
+      "raw_model_label": "log_health",
+      "rule_label": "log_health",
+      "routed_label": "log_health",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-034",
+      "text": "My heart rate was 72 bpm",
+      "expected": "log_health",
+      "raw_model_label": "log_health",
+      "rule_label": "log_health",
+      "routed_label": "log_health",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-035",
+      "text": "I ran for 30 minutes",
+      "expected": "log_health",
+      "raw_model_label": "log_health",
+      "rule_label": null,
+      "routed_label": "log_health",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-036",
+      "text": "My mood is 8 out of 10",
+      "expected": "log_health",
+      "raw_model_label": "log_health",
+      "rule_label": "log_health",
+      "routed_label": "log_health",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-037",
+      "text": "I ate 650 calories",
+      "expected": "log_health",
+      "raw_model_label": "log_health",
+      "rule_label": "log_health",
+      "routed_label": "log_health",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-038",
+      "text": "Completed a 45 minute workout",
+      "expected": "log_health",
+      "raw_model_label": "log_health",
+      "rule_label": "log_health",
+      "routed_label": "log_health",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-039",
+      "text": "I feel great today",
+      "expected": "log_health",
+      "raw_model_label": "log_health",
+      "rule_label": "log_health",
+      "routed_label": "log_health",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-040",
+      "text": "Log 10000 steps",
+      "expected": "log_health",
+      "raw_model_label": "log_health",
+      "rule_label": "log_health",
+      "routed_label": "log_health",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-041",
+      "text": "Show my weekly summary",
+      "expected": "query_summary",
+      "raw_model_label": "query_summary",
+      "rule_label": "query_summary",
+      "routed_label": "query_summary",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-042",
+      "text": "How did I do this week?",
+      "expected": "query_summary",
+      "raw_model_label": "query_summary",
+      "rule_label": "query_summary",
+      "routed_label": "query_summary",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-043",
+      "text": "What is my health summary?",
+      "expected": "query_summary",
+      "raw_model_label": "query_summary",
+      "rule_label": "query_summary",
+      "routed_label": "query_summary",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-044",
+      "text": "How much did I spend this week?",
+      "expected": "query_summary",
+      "raw_model_label": "query_summary",
+      "rule_label": "query_summary",
+      "routed_label": "query_summary",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-045",
+      "text": "Show my dashboard insights",
+      "expected": "query_summary",
+      "raw_model_label": "query_summary",
+      "rule_label": "query_summary",
+      "routed_label": "query_summary",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-046",
+      "text": "Give me my latest report",
+      "expected": "query_summary",
+      "raw_model_label": "query_summary",
+      "rule_label": null,
+      "routed_label": "query_summary",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-047",
+      "text": "Summarize my health and finances",
+      "expected": "query_summary",
+      "raw_model_label": "query_summary",
+      "rule_label": null,
+      "routed_label": "query_summary",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-048",
+      "text": "Am I improving this month?",
+      "expected": "query_summary",
+      "raw_model_label": "query_summary",
+      "rule_label": null,
+      "routed_label": "query_summary",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-049",
+      "text": "What are my spending trends?",
+      "expected": "query_summary",
+      "raw_model_label": "query_summary",
+      "rule_label": null,
+      "routed_label": "query_summary",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-050",
+      "text": "Review my recent activity",
+      "expected": "query_summary",
+      "raw_model_label": "query_summary",
+      "rule_label": null,
+      "routed_label": "query_summary",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-051",
+      "text": "Set a goal to walk 10000 steps",
+      "expected": "set_goal",
+      "raw_model_label": "set_goal",
+      "rule_label": "set_goal",
+      "routed_label": "set_goal",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-052",
+      "text": "I want to save $200 this month",
+      "expected": "set_goal",
+      "raw_model_label": "set_goal",
+      "rule_label": "set_goal",
+      "routed_label": "set_goal",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-053",
+      "text": "Create a sleep goal of 8 hours",
+      "expected": "set_goal",
+      "raw_model_label": "set_goal",
+      "rule_label": "set_goal",
+      "routed_label": "set_goal",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-054",
+      "text": "My target is to exercise three times a week",
+      "expected": "set_goal",
+      "raw_model_label": "set_goal",
+      "rule_label": "set_goal",
+      "routed_label": "set_goal",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-055",
+      "text": "Set my monthly food budget to $300",
+      "expected": "set_goal",
+      "raw_model_label": "set_goal",
+      "rule_label": "set_goal",
+      "routed_label": "set_goal",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-056",
+      "text": "I need a hydration goal of 2 liters daily",
+      "expected": "set_goal",
+      "raw_model_label": "set_goal",
+      "rule_label": "set_goal",
+      "routed_label": "set_goal",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-057",
+      "text": "Help me reduce spending by 10 percent",
+      "expected": "set_goal",
+      "raw_model_label": "set_goal",
+      "rule_label": null,
+      "routed_label": "set_goal",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-058",
+      "text": "Make a goal to sleep earlier",
+      "expected": "set_goal",
+      "raw_model_label": "set_goal",
+      "rule_label": "set_goal",
+      "routed_label": "set_goal",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-059",
+      "text": "I aim to run 20 kilometers this month",
+      "expected": "set_goal",
+      "raw_model_label": "set_goal",
+      "rule_label": "set_goal",
+      "routed_label": "set_goal",
+      "rule_override": false,
+      "correct": true
+    },
+    {
+      "id": "BI-060",
+      "text": "Add a savings target of $1000",
+      "expected": "set_goal",
+      "raw_model_label": "set_goal",
+      "rule_label": "set_goal",
+      "routed_label": "set_goal",
+      "rule_override": false,
+      "correct": true
+    }
+  ]
+}

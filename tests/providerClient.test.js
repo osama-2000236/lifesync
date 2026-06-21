@@ -5,12 +5,14 @@ jest.mock('axios', () => ({
 const axios = require('axios');
 const {
   generateStructuredJson,
+  classifyText,
   normalizeEntities,
   _resolveAIProvider,
   _getProvider,
   _getProviderSettings,
   _extractResponseText,
   _parseModelTagOutput,
+  getAIProviderStatus,
 } = require('../server/services/ai/providerClient');
 
 // Helper: build a mock SSE ReadableStream from lines
@@ -74,6 +76,11 @@ describe('providerClient', () => {
     CUSTOM_HF_ENDPOINT: process.env.CUSTOM_HF_ENDPOINT,
     CUSTOM_HF_TEMPERATURE: process.env.CUSTOM_HF_TEMPERATURE,
     CUSTOM_HF_MAX_TOKENS: process.env.CUSTOM_HF_MAX_TOKENS,
+    LM_STUDIO_API_BASE_URL: process.env.LM_STUDIO_API_BASE_URL,
+    LM_STUDIO_MODEL: process.env.LM_STUDIO_MODEL,
+    LM_STUDIO_API_KEY: process.env.LM_STUDIO_API_KEY,
+    BERT_RUNTIME_BASE_URL: process.env.BERT_RUNTIME_BASE_URL,
+    BERT_MODEL_NAME: process.env.BERT_MODEL_NAME,
   };
 
   afterEach(() => {
@@ -166,6 +173,19 @@ describe('providerClient', () => {
     expect(settings.apiKey).toBe('gem-key');
   });
 
+  test('resolves LM Studio settings for a local OpenAI-compatible server', () => {
+    process.env.AI_PROVIDER = 'lmstudio';
+    process.env.LM_STUDIO_API_BASE_URL = 'http://127.0.0.1:1234/v1/';
+    process.env.LM_STUDIO_MODEL = 'lifesync-local';
+
+    const settings = _getProviderSettings();
+    expect(settings.provider).toBe('lmstudio');
+    expect(settings.model).toBe('lifesync-local');
+    expect(settings.endpoint).toBe('http://127.0.0.1:1234/v1/chat/completions');
+    expect(settings.modelsEndpoint).toBe('http://127.0.0.1:1234/v1/models');
+    expect(settings.statusEndpoint).toBe('http://127.0.0.1:1234/api/v0/models');
+  });
+
   // ─── Gemini text extractor ───
 
   test('extracts text from Gemini candidates', () => {
@@ -239,6 +259,116 @@ describe('providerClient', () => {
       userPrompt: 'hello',
       responseSchema: { type: 'object', properties: {} },
     })).rejects.toThrow('Gemini API key is not configured.');
+  });
+
+  test('LM Studio receives a JSON schema and returns structured chat data', async () => {
+    process.env.CHAT_AI_PROVIDER = 'lmstudio';
+    process.env.LM_STUDIO_MODEL = 'lifesync-local';
+    process.env.LM_STUDIO_API_BASE_URL = 'http://127.0.0.1:1234/v1';
+    axios.post.mockResolvedValue({
+      data: {
+        choices: [{ message: { content: '{"intent":"query_general","entities":[]}' } }],
+      },
+    });
+
+    const schema = {
+      type: 'object',
+      properties: { intent: { type: 'string' }, entities: { type: 'array' } },
+      required: ['intent', 'entities'],
+    };
+    const result = await generateStructuredJson({
+      systemInstruction: 'JSON only.',
+      userPrompt: 'hello',
+      responseSchema: schema,
+      feature: 'chat',
+    });
+
+    const [, payload] = axios.post.mock.calls[0];
+    expect(payload.model).toBe('lifesync-local');
+    expect(payload.response_format.json_schema.schema).toBe(schema);
+    expect(result.provider).toBe('lmstudio');
+    expect(result.data.intent).toBe('query_general');
+  });
+
+  test('LM Studio chat accepts the fine-tuned tagged output format', async () => {
+    process.env.CHAT_AI_PROVIDER = 'lmstudio';
+    process.env.LM_STUDIO_MODEL = 'lifesync-local';
+    axios.post.mockResolvedValue({
+      data: {
+        choices: [{ message: { content: '[Category] Food [Amount] $12 [Response] Logged.' } }],
+      },
+    });
+
+    const result = await generateStructuredJson({
+      userPrompt: 'Spent $12 on food',
+      responseSchema: { type: 'object', properties: {} },
+      feature: 'chat',
+    });
+
+    expect(result.data.intent).toBe('log_finance');
+    expect(result.data.entities[0].amount).toBe(12);
+  });
+
+  test('reports LM Studio readiness without exposing credentials', async () => {
+    process.env.CHAT_AI_PROVIDER = 'lmstudio';
+    process.env.LM_STUDIO_MODEL = 'lifesync-local';
+    axios.get = jest.fn().mockResolvedValue({
+      data: { data: [{ id: 'lifesync-local', state: 'loaded' }, { id: 'other-model', state: 'not-loaded' }] },
+    });
+
+    const status = await getAIProviderStatus('chat');
+    expect(status).toMatchObject({
+      provider: 'lmstudio',
+      configured_model: 'lifesync-local',
+      status: 'ready',
+      local: true,
+    });
+    expect(status).not.toHaveProperty('apiKey');
+    expect(status.loaded_models).toEqual(['lifesync-local']);
+  });
+
+  test('classifies text through local BERT runtime', async () => {
+    process.env.BERT_RUNTIME_BASE_URL = 'http://127.0.0.1:1235';
+    axios.post.mockResolvedValue({
+      data: { label: 'log_health', confidence: 0.97, provider: 'pytorch_cpu' },
+    });
+
+    const result = await classifyText('I walked 5000 steps');
+    expect(result.label).toBe('log_health');
+    expect(axios.post).toHaveBeenCalledWith(
+      'http://127.0.0.1:1235/v1/classify',
+      { text: 'I walked 5000 steps' },
+      expect.objectContaining({ timeout: 5000 })
+    );
+  });
+
+  test('reports BERT architecture and execution provider without secrets', async () => {
+    process.env.CHAT_AI_PROVIDER = 'bert_local';
+    process.env.BERT_MODEL_NAME = 'bert_best_model_10pct';
+    axios.get = jest.fn().mockResolvedValue({
+      data: {
+        status: 'ready',
+        architecture: 'BertForSequenceClassification',
+        task: 'single_label_classification',
+        provider: 'pytorch_cpu',
+        labels: ['general_chat', 'log_health'],
+        artifact_sha256: 'abc123',
+        requests: 4,
+        mean_latency_ms: 40,
+        p95_latency_ms: 55,
+      },
+    });
+
+    const status = await getAIProviderStatus('chat');
+    expect(status).toMatchObject({
+      provider: 'bert_local',
+      configured_model: 'bert_best_model_10pct',
+      status: 'ready',
+      local: true,
+      architecture: 'BertForSequenceClassification',
+      execution_provider: 'pytorch_cpu',
+    });
+    expect(status).not.toHaveProperty('apiKey');
   });
 
   // ─── resolveAIProvider — custom_hf settings ───

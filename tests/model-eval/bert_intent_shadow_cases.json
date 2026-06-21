@@ -1,0 +1,37 @@
+[
+  {"id":"BS-001","text":"Good evening!","label":"general_chat"},
+  {"id":"BS-002","text":"Thank you","label":"general_chat"},
+  {"id":"BS-003","text":"Can you explain how this app works?","label":"general_chat"},
+  {"id":"BS-004","text":"I need assistance","label":"general_chat"},
+  {"id":"BS-005","text":"See you later","label":"general_chat"},
+
+  {"id":"BS-006","text":"Walked 4500 steps; breakfast cost $8","label":"log_both"},
+  {"id":"BS-007","text":"Paid $22 for dinner after a 25 minute run","label":"log_both"},
+  {"id":"BS-008","text":"Drank one liter of water and spent 6 dollars on coffee","label":"log_both"},
+  {"id":"BS-009","text":"Feeling happy today, and the bus fare was $3","label":"log_both"},
+  {"id":"BS-010","text":"Workout lasted 40 minutes; gym fee was $35","label":"log_both"},
+
+  {"id":"BS-011","text":"The supermarket charged me $27.40","label":"log_expense"},
+  {"id":"BS-012","text":"Add 9 USD for breakfast","label":"log_expense"},
+  {"id":"BS-013","text":"I bought shoes for 55 dollars","label":"log_expense"},
+  {"id":"BS-014","text":"Record my £12 train ticket","label":"log_expense"},
+  {"id":"BS-015","text":"Rent payment was $400","label":"log_expense"},
+
+  {"id":"BS-016","text":"Today I reached 7200 steps","label":"log_health"},
+  {"id":"BS-017","text":"Last night's sleep was 6 hours","label":"log_health"},
+  {"id":"BS-018","text":"Log a 35 minute cycling session","label":"log_health"},
+  {"id":"BS-019","text":"I feel awful today","label":"log_health"},
+  {"id":"BS-020","text":"Consumed 1800 kcal","label":"log_health"},
+
+  {"id":"BS-021","text":"Open my current insights","label":"query_summary"},
+  {"id":"BS-022","text":"How are my finances doing?","label":"query_summary"},
+  {"id":"BS-023","text":"Compare my health this week","label":"query_summary"},
+  {"id":"BS-024","text":"Give me a spending summary","label":"query_summary"},
+  {"id":"BS-025","text":"What trends do you see?","label":"query_summary"},
+
+  {"id":"BS-026","text":"Create a target to drink more water","label":"set_goal"},
+  {"id":"BS-027","text":"Plan to spend under $250 next month","label":"set_goal"},
+  {"id":"BS-028","text":"My goal is 9000 daily steps","label":"set_goal"},
+  {"id":"BS-029","text":"Set a weekly exercise target","label":"set_goal"},
+  {"id":"BS-030","text":"I aim to cut restaurant costs","label":"set_goal"}
+]

@@ -1,5 +1,8 @@
+const { OAuth2Client } = require('google-auth-library');
 const {
+  verifyGoogleCredential,
   _parseGoogleClientIds,
+  _readUnverifiedAudience,
   _normalizeGoogleVerifyError,
 } = require('../server/services/googleAuthService');
 
@@ -7,6 +10,7 @@ describe('googleAuthService', () => {
   const originalClientIds = process.env.GOOGLE_AUTH_CLIENT_IDS;
 
   afterEach(() => {
+    jest.restoreAllMocks();
     if (originalClientIds === undefined) {
       delete process.env.GOOGLE_AUTH_CLIENT_IDS;
       return;
@@ -28,6 +32,40 @@ describe('googleAuthService', () => {
     delete process.env.GOOGLE_AUTH_CLIENT_IDS;
 
     expect(_parseGoogleClientIds()).toEqual([]);
+  });
+
+  test('verifies credentials against the configured LifeSync web client', async () => {
+    const clientId = '190237143688-0ddtrdq3die8hnce0aqbti3jgc2eam4g.apps.googleusercontent.com';
+    process.env.GOOGLE_AUTH_CLIENT_IDS = clientId;
+    const verify = jest.spyOn(OAuth2Client.prototype, 'verifyIdToken').mockImplementation(async (options) => {
+      expect(options).toEqual({ idToken: 'signed-google-token', audience: clientId });
+      return {
+        getPayload: () => ({
+          sub: 'google-user-1',
+          email: 'person@example.com',
+          email_verified: true,
+          name: 'Test Person',
+          picture: 'https://example.com/avatar.png',
+        }),
+      };
+    });
+
+    await expect(verifyGoogleCredential('signed-google-token')).resolves.toEqual({
+      subject: 'google-user-1',
+      email: 'person@example.com',
+      name: 'Test Person',
+      avatarUrl: 'https://example.com/avatar.png',
+    });
+    expect(verify).toHaveBeenCalledTimes(1);
+  });
+
+  test('reads only the public audience claim for diagnostics', () => {
+    const payload = Buffer.from(JSON.stringify({ aud: 'web-client.apps.googleusercontent.com' }))
+      .toString('base64url');
+
+    expect(_readUnverifiedAudience(`header.${payload}.signature`))
+      .toBe('web-client.apps.googleusercontent.com');
+    expect(_readUnverifiedAudience('invalid-token')).toBeNull();
   });
 
   test('normalizes wrong-recipient errors to a user-facing message', () => {
