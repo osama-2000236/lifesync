@@ -93,7 +93,7 @@ app.use('/api/chat', chatLimiter, chatRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/insights', insightLimiter, insightsRoutes);
 app.use('/api/external', externalRoutes);
-app.use('/api/ai', aiRoutes);
+app.use('/api/ai', generalLimiter, aiRoutes);
 
 // ============================================
 // Error Handling

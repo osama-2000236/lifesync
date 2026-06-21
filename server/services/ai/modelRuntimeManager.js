@@ -9,15 +9,59 @@ const {
   _getProvider,
   _getProviderSettings,
   _setRuntimeProvider,
+  _setRuntimeModel,
+  _clearRuntimeModel,
 } = require('./providerClient');
 
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(__dirname, '../../..');
-const GENERATIVE_PROVIDERS = new Set(['gemini', 'huggingface', 'groq', 'custom_hf', 'ollama', 'lmstudio']);
 const READY_STATES = new Set(['ready', 'configured']);
+
+// ─── Selectable model menu (like a model picker). Default is local BERT. ───
+// Gemma versions run locally through the configured generative runtime
+// (Ollama by default). Model tags are env-overridable so partners can point
+// each entry at whatever they pulled on their machine.
+const gemmaRuntime = () => {
+  const value = (process.env.GEMMA_LOCAL_RUNTIME || 'ollama').trim().toLowerCase();
+  return ['ollama', 'lmstudio'].includes(value) ? value : 'ollama';
+};
+
+const MODEL_CATALOG = [
+  {
+    id: 'bert_local',
+    label: 'LifeSync BERT (local)',
+    kind: 'classifier',
+    is_default: true,
+    description: 'Private on-device intent classifier + deterministic engine. Fastest, fully offline.',
+    target: { provider: 'bert_local', model: null },
+    eta_ms: { gpu: 80, cpu: 300 },
+  },
+  {
+    id: 'gemma3_local',
+    label: 'Gemma 3 (local)',
+    kind: 'generative',
+    is_default: false,
+    description: 'Local generative chat. Richer prose, slower than the classifier.',
+    target: { provider: gemmaRuntime(), model: process.env.GEMMA3_MODEL || 'gemma3' },
+    eta_ms: { gpu: 4000, cpu: 16000 },
+  },
+  {
+    id: 'gemma4_local',
+    label: 'Gemma 4 (local)',
+    kind: 'generative',
+    is_default: false,
+    description: 'Local generative chat, newest Gemma. Set GEMMA4_MODEL to the tag you pulled.',
+    target: { provider: gemmaRuntime(), model: process.env.GEMMA4_MODEL || 'gemma3' },
+    eta_ms: { gpu: 5000, cpu: 20000 },
+  },
+];
+
+const DEFAULT_MODEL_ID = 'bert_local';
+const catalogEntry = (id) => MODEL_CATALOG.find((m) => m.id === id) || null;
 
 let activation = {
   status: 'idle',
+  model_id: null,
   provider: null,
   message: 'No activation has been requested in this server process.',
   started_at: null,
@@ -48,6 +92,23 @@ const capabilitiesFor = (provider) => ({
   user_context: true,
   classifier_only: provider === 'bert_local',
 });
+
+// Coarse expected-response-time estimate so the chat can tell the user how
+// long to wait. Uses the GPU figure only when the live runtime reports a GPU
+// execution provider; otherwise the CPU figure.
+const estimateEta = (entry, activeStatus) => {
+  if (!entry) return null;
+  const ep = String(activeStatus?.execution_provider || '').toLowerCase();
+  const onGpu = /dml|directml|cuda|gpu|metal|rocm/.test(ep);
+  const ms = onGpu ? entry.eta_ms.gpu : entry.eta_ms.cpu;
+  const seconds = ms / 1000;
+  const human = ms < 1000
+    ? 'usually under a second'
+    : seconds < 10
+      ? `about ${Math.round(seconds)} seconds`
+      : `roughly ${Math.round(seconds / 5) * 5} seconds`;
+  return { expected_ms: ms, on_gpu: onGpu, human };
+};
 
 const commandExists = async (command) => {
   const locator = process.platform === 'win32' ? 'where.exe' : 'which';
@@ -93,7 +154,7 @@ const startDetached = (command, args, cwd = projectRoot) => {
   return child;
 };
 
-const activateOllama = async () => {
+const activateOllama = async (model) => {
   const settings = _getProviderSettings('ollama');
   const root = rootFromEndpoint(settings.endpoint);
   const tagsUrl = `${root}/api/tags`;
@@ -119,15 +180,15 @@ const activateOllama = async () => {
 
   const tags = await axios.get(tagsUrl, { timeout: 5000 });
   const installed = (tags.data?.models || []).map((item) => item.name || item.model).filter(Boolean);
-  const hasModel = installed.some((name) => name === settings.model || name.startsWith(`${settings.model}:`));
+  const hasModel = installed.some((name) => name === model || name.startsWith(`${model}:`));
   if (!hasModel) {
-    activation.message = `Downloading ${settings.model}. This happens once and may take several minutes…`;
-    await axios.post(`${root}/api/pull`, { name: settings.model, stream: false }, { timeout: 30 * 60 * 1000 });
+    activation.message = `Downloading ${model}. This happens once and may take several minutes…`;
+    await axios.post(`${root}/api/pull`, { name: model, stream: false }, { timeout: 30 * 60 * 1000 });
   }
 
-  activation.message = `Warming ${settings.model}…`;
+  activation.message = `Warming ${model}…`;
   await axios.post(`${root}/api/generate`, {
-    model: settings.model,
+    model,
     prompt: 'Reply with OK.',
     stream: false,
     keep_alive: '30m',
@@ -137,8 +198,7 @@ const activateOllama = async () => {
   return getAIProviderStatus('chat', 'ollama');
 };
 
-const activateLMStudio = async () => {
-  const settings = _getProviderSettings('lmstudio');
+const activateLMStudio = async (model) => {
   let status = await getAIProviderStatus('chat', 'lmstudio');
   if (status.status === 'ready') {
     _setRuntimeProvider('chat', 'lmstudio');
@@ -151,8 +211,8 @@ const activateLMStudio = async () => {
     activation.message = 'Starting the LM Studio local server…';
     await execFileAsync('lms', ['server', 'start'], { timeout: 30_000, windowsHide: true });
   }
-  activation.message = `Loading ${settings.model} in LM Studio…`;
-  await execFileAsync('lms', ['load', settings.model, '--yes'], { timeout: 10 * 60 * 1000, windowsHide: true });
+  activation.message = `Loading ${model} in LM Studio…`;
+  await execFileAsync('lms', ['load', model, '--yes'], { timeout: 10 * 60 * 1000, windowsHide: true });
   status = await waitFor(async () => {
     const next = await getAIProviderStatus('chat', 'lmstudio');
     if (next.status !== 'ready') throw new Error(`LM Studio model state: ${next.status}`);
@@ -185,6 +245,7 @@ const findPython = async () => {
 const activateBert = async () => {
   const existing = await getAIProviderStatus('chat', 'bert_local');
   if (existing.status === 'ready') {
+    _clearRuntimeModel('bert_local');
     _setRuntimeProvider('chat', 'bert_local');
     return existing;
   }
@@ -210,76 +271,48 @@ const activateBert = async () => {
   return status;
 };
 
-const getAutoProviderCandidates = async () => {
-  const configured = _getProvider('chat');
-  const configuredStatus = await getAIProviderStatus('chat', configured);
-  const candidates = [];
-  const add = (provider) => {
-    if (provider && !candidates.includes(provider)) candidates.push(provider);
-  };
-  if (GENERATIVE_PROVIDERS.has(configured) && READY_STATES.has(configuredStatus.status)) add(configured);
+// Activate exactly the requested model. No silent fallback to another model:
+// if it fails, the failure is surfaced so the user/dev knows.
+const activate = async (entry) => {
+  activation.provider = entry.target.provider;
+  activation.message = `Checking ${entry.label}…`;
 
-  const [ollama, lmstudio] = await Promise.all([
-    getAIProviderStatus('chat', 'ollama'),
-    getAIProviderStatus('chat', 'lmstudio'),
-  ]);
-  if (ollama.status === 'ready') add('ollama');
-  if (lmstudio.status === 'ready') add('lmstudio');
-  if (await commandExists('ollama')) add('ollama');
-  const lmStudioModel = (process.env.LM_STUDIO_MODEL || '').trim();
-  if (lmStudioModel && lmStudioModel !== 'lifesync-local' && await commandExists('lms')) add('lmstudio');
-  if (GENERATIVE_PROVIDERS.has(configured)) add(configured);
-  if (configured === 'bert_local' || fs.existsSync(path.join(projectRoot, 'bert_best_model_10pct'))) add('bert_local');
-  return candidates;
+  if (entry.target.provider === 'bert_local') {
+    return activateBert();
+  }
+
+  // Generative local model (Gemma): pin the chosen model on its runtime first.
+  _setRuntimeModel(entry.target.provider, entry.target.model);
+  if (entry.target.provider === 'ollama') return activateOllama(entry.target.model);
+  if (entry.target.provider === 'lmstudio') return activateLMStudio(entry.target.model);
+
+  const status = await getAIProviderStatus('chat', entry.target.provider);
+  if (!READY_STATES.has(status.status)) {
+    throw new Error(`${entry.label} is ${status.status}. Configure it first.`);
+  }
+  _setRuntimeProvider('chat', entry.target.provider);
+  return status;
 };
 
-const activateProvider = async (provider) => {
-    activation.provider = provider;
-    activation.message = `Checking ${provider}…`;
-    if (provider === 'ollama') return activateOllama();
-    if (provider === 'lmstudio') return activateLMStudio();
-    if (provider === 'bert_local') return activateBert();
-    const status = await getAIProviderStatus('chat', provider);
-    if (!READY_STATES.has(status.status)) throw new Error(`${provider} is ${status.status}. Configure its API key first.`);
-    _setRuntimeProvider('chat', provider);
-    return status;
-};
-
-const runActivation = async (requestedProvider) => {
+const runActivation = async (entry) => {
   try {
-    const candidates = requestedProvider === 'auto'
-      ? await getAutoProviderCandidates()
-      : [requestedProvider];
-    if (!candidates.length) throw new Error('No configured or installed AI runtime was found.');
-    const failures = [];
-    let provider = null;
-    let status = null;
-    for (const candidate of candidates) {
-      try {
-        provider = candidate;
-        status = await activateProvider(candidate);
-        break;
-      } catch (error) {
-        failures.push(`${candidate}: ${error.message}`);
-        activation.message = `${candidate} was unavailable; trying the next runtime…`;
-      }
-    }
-    if (!status) throw new Error(failures.join(' | '));
+    const status = await activate(entry);
     activation = {
       ...activation,
       status: 'ready',
-      message: provider === 'bert_local'
-        ? 'Classifier ready. Connect Ollama, LM Studio, or a cloud provider for full conversation.'
-        : `${provider} is ready for conversation.`,
+      message: entry.kind === 'classifier'
+        ? 'Classifier ready. Pick Gemma 3 or 4 from the menu for full conversation.'
+        : `${entry.label} is ready for conversation.`,
       finished_at: new Date().toISOString(),
       error: null,
       runtime: status,
     };
   } catch (error) {
+    // Explicit failure — do not fall back to a different model.
     activation = {
       ...activation,
       status: 'error',
-      message: error.message,
+      message: `${entry.label} could not start: ${error.message}`,
       finished_at: new Date().toISOString(),
       error: error.message,
     };
@@ -288,28 +321,57 @@ const runActivation = async (requestedProvider) => {
   }
 };
 
-const startBestAvailableModel = async (requestedProvider = 'auto') => {
-  const allowed = new Set(['auto', ...GENERATIVE_PROVIDERS, 'bert_local']);
-  if (!allowed.has(requestedProvider)) throw new Error(`Unsupported provider: ${requestedProvider}`);
+const startModel = async (requestedId = DEFAULT_MODEL_ID) => {
+  // 'auto' resolves to the default model only — never hops between models.
+  const id = (!requestedId || requestedId === 'auto') ? DEFAULT_MODEL_ID : requestedId;
+  const entry = catalogEntry(id);
+  if (!entry) throw new Error(`Unknown model: ${requestedId}`);
   if (activationPromise) return activation;
   activation = {
     status: 'starting',
-    provider: requestedProvider === 'auto' ? null : requestedProvider,
-    message: 'Inspecting the available AI runtimes…',
+    model_id: entry.id,
+    provider: entry.target.provider,
+    message: `Starting ${entry.label}…`,
     started_at: new Date().toISOString(),
     finished_at: null,
     error: null,
   };
-  activationPromise = runActivation(requestedProvider);
+  activationPromise = runActivation(entry);
   return activation;
 };
+
+const activeModelId = (provider) => {
+  const direct = MODEL_CATALOG.find((m) => m.target.provider === provider);
+  return (activation.model_id) || (direct ? direct.id : null);
+};
+
+const getModelCatalog = () => MODEL_CATALOG.map((m) => ({
+  id: m.id,
+  label: m.label,
+  kind: m.kind,
+  is_default: m.is_default,
+  description: m.description,
+  provider: m.target.provider,
+  model: m.target.model,
+  eta_ms: m.eta_ms,
+  capabilities: capabilitiesFor(m.target.provider),
+}));
 
 const getRuntimeSnapshot = async () => {
   const activeProvider = _getProvider('chat');
   const active = await getAIProviderStatus('chat');
+  const currentId = activeModelId(activeProvider);
+  const entry = catalogEntry(currentId);
   return {
-    active: { ...active, capabilities: capabilitiesFor(active.provider) },
+    active: {
+      ...active,
+      model_id: currentId,
+      capabilities: capabilitiesFor(active.provider),
+      eta: estimateEta(entry, active),
+    },
     activation: { ...activation },
+    default_model: DEFAULT_MODEL_ID,
+    catalog: getModelCatalog(),
     hardware: hardwareSnapshot(),
     privacy: active.local
       ? 'Model inference stays on the configured local runtime; LifeSync context remains in your app database.'
@@ -319,7 +381,11 @@ const getRuntimeSnapshot = async () => {
 
 module.exports = {
   getRuntimeSnapshot,
-  startBestAvailableModel,
+  getModelCatalog,
+  startBestAvailableModel: startModel,
+  startModel,
   _hardwareSnapshot: hardwareSnapshot,
   _capabilitiesFor: capabilitiesFor,
+  _estimateEta: estimateEta,
+  _catalog: MODEL_CATALOG,
 };

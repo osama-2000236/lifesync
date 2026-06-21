@@ -12,7 +12,7 @@ import {
   Send, Loader2, Sparkles, Plus, Clock, MessageCircle,
   Heart, Wallet, Link2, RotateCcw, AlertCircle, Zap,
   ArrowRight, TrendingUp, Activity,
-  BrainCircuit, ChevronDown, Play, RefreshCw, Cpu, ShieldCheck,
+  BrainCircuit, ChevronDown, RefreshCw, Cpu, ShieldCheck,
   CheckCircle2, AlertTriangle,
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
@@ -390,15 +390,42 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={onStart}
-            disabled={starting}
-            className="mt-4 w-full h-10 rounded-xl bg-navy-800 text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-navy-900 focus:outline-none focus:ring-2 focus:ring-navy-400/40 disabled:opacity-50 disabled:cursor-wait"
-          >
-            {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {starting ? 'Starting model…' : isReady && !isClassifier ? 'Restart / choose best' : 'Start best model'}
-          </button>
+          <div className="mt-4">
+            <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400 mb-2">Choose a model</p>
+            <div className="space-y-2">
+              {(runtime?.catalog || []).map((m) => {
+                const isActive = active?.model_id === m.id;
+                const etaText = active?.eta?.human;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => onStart(m.id)}
+                    disabled={starting}
+                    className={`w-full text-left rounded-xl border p-3 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-400/40 disabled:opacity-50 disabled:cursor-wait ${
+                      isActive ? 'border-emerald-300 bg-emerald-50/60' : 'border-navy-100 hover:bg-navy-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-navy-800 flex items-center gap-1.5">
+                        {m.kind === 'classifier' ? <Cpu className="w-3.5 h-3.5" /> : <BrainCircuit className="w-3.5 h-3.5" />}
+                        {m.label}
+                        {m.is_default && <span className="text-[10px] font-medium text-navy-400">default</span>}
+                      </span>
+                      {isActive && (starting
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                        : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />)}
+                    </div>
+                    <p className="mt-1 text-xs text-navy-500">{m.description}</p>
+                    {isActive && etaText && (
+                      <p className="mt-1 text-[11px] font-medium text-navy-600">Replies {etaText}</p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[11px] text-navy-400">No automatic fallback — if a model can't start, you'll see the error above and stay on your current one.</p>
+          </div>
         </div>
       )}
     </div>
@@ -440,10 +467,10 @@ export default function ChatPage() {
     }
   }, []);
 
-  const startModel = useCallback(async () => {
+  const startModel = useCallback(async (modelId = 'bert_local') => {
     setModelError(null);
     try {
-      const { data } = await aiAPI.start('auto');
+      const { data } = await aiAPI.start(modelId);
       setModelRuntime((current) => ({
         ...(current || {}),
         activation: data.data?.activation,

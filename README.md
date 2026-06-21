@@ -43,15 +43,27 @@ For a quick local admin login, the development seed creates `admin@lifesync.app`
 
 ## The assistant model
 
-The chat header contains a **Model pulse** menu. It shows:
+The chat header contains a **Model pulse** menu — a model picker, like the model menu in editors such as Claude Code. It shows:
 
 - ready, starting, limited, or offline state
-- active provider and model
+- active model, provider, and expected reply time (ETA)
 - full conversation versus classifier-only capability
 - local/cloud execution and privacy behavior
 - CPU threads, memory, and recommended local model size
 
-Choose **Start best model** to inspect the current machine and activate the best available configured runtime. LifeSync prefers a ready conversational provider, can wake Ollama or LM Studio, and falls back to the bundled BERT classifier when no text-generating model is available. BERT is deliberately labeled **Limited** because it can classify and extract data but cannot generate rich conversation.
+### Choosing a model (no automatic fallback)
+
+The menu lists every model you can run:
+
+| Model | Kind | Default | Notes |
+|-------|------|---------|-------|
+| **LifeSync BERT (local)** | Intent classifier | ✅ | On-device, fully offline, fastest. Routes intents + extracts entries; does not generate prose. Labeled **Limited** for that reason. |
+| **Gemma 3 (local)** | Generative | — | Local conversation via your runtime (Ollama by default). |
+| **Gemma 4 (local)** | Generative | — | Newest Gemma; set `GEMMA4_MODEL` to the tag you pulled. |
+
+The **default is local BERT**. Pick a model to activate exactly that one. There is **no silent fallback**: if the model you pick cannot start (runtime not installed, model not pulled, GPU/driver issue), the menu shows the precise error and you stay on your current model — you are never quietly switched to something else. Each model reports its expected reply time so you know how long a turn should take (BERT replies in well under a second; local Gemma takes seconds depending on GPU/CPU).
+
+Gemma versions map to a local generative runtime via `GEMMA_LOCAL_RUNTIME` (`ollama` default, or `lmstudio`) and the model tags `GEMMA3_MODEL` / `GEMMA4_MODEL`.
 
 ### What “user-aware” means
 
@@ -137,26 +149,36 @@ GROQ_API_KEY=your_key
 GROQ_MODEL=llama-3.1-8b-instant
 ```
 
-### Bundled BERT classifier
+### LifeSync BERT classifier (default model — set up on a fresh device)
 
-BERT is useful for deterministic intent routing and offline extraction, but it is not a conversational LLM:
+BERT is the default. It does deterministic intent routing and offline extraction; it is not a conversational LLM. Set up on a new machine:
 
 ```env
 CHAT_AI_PROVIDER=bert_local
+INSIGHTS_AI_PROVIDER=bert_local
+AI_PROVIDER=bert_local
 BERT_RUNTIME_BASE_URL=http://127.0.0.1:1235
-BERT_RUNTIME_PROVIDER=auto
+BERT_MODEL_NAME=bert_best_model_10pct
 ```
 
-Install and start it:
+**1. Get the model weights.** The fine-tuned weights (`bert_best_model_10pct/`, ~440 MB) are **not** in Git. On a fresh device, place the model folder at the project root (ask a teammate for the archive, or copy it from another machine), then export the GPU graph:
 
 ```bash
 python -m venv model_runtime/.venv
 # Windows: model_runtime\.venv\Scripts\python -m pip install -r model_runtime\requirements.txt
 # macOS/Linux: model_runtime/.venv/bin/python -m pip install -r model_runtime/requirements.txt
-npm run model:serve:gpu
+npm run model:export            # produces model_runtime/artifacts/bert_intent_directml.onnx
 ```
 
-If DirectML is unavailable, run `npm run model:serve:cpu`. The Model pulse button can also start an already-prepared bundled runtime.
+**2. Serve it (GPU if available, else CPU).**
+
+```bash
+npm run model:serve:gpu         # ONNX Runtime DirectML / CUDA — auto-detects GPU
+# or, if no usable GPU / DirectML:
+npm run model:serve:cpu         # PyTorch CPU fallback
+```
+
+The Model pulse menu can also start an already-prepared runtime for you. If the ONNX graph is missing, the runtime falls back to the PyTorch CPU server automatically at startup (this is a runtime detail, not a model switch).
 
 ## Native developer setup
 
@@ -265,7 +287,7 @@ Important files:
 
 **Model pulse says AI offline**
 
-Open the menu and choose **Start best model**. For Docker, inspect `docker compose logs -f ollama server`. For native Ollama, verify `ollama serve` and `OLLAMA_API_BASE_URL`.
+Open the Model pulse menu and pick a model (start with **LifeSync BERT** — it has no external dependency). If a model fails to start, the menu shows the exact error; act on it rather than expecting an automatic switch. For Docker, inspect `docker compose logs -f ollama server`. For native Ollama, verify `ollama serve` and `OLLAMA_API_BASE_URL`.
 
 **The model is “Limited”**
 

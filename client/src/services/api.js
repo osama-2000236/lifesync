@@ -170,7 +170,8 @@ export const chatAPI = {
 // ─── AI Runtime API ───
 export const aiAPI = {
   getStatus: () => api.get('/ai/status'),
-  start: (provider = 'auto') => api.post('/ai/start', { provider }),
+  getModels: () => api.get('/ai/models'),
+  start: (model = 'bert_local') => api.post('/ai/start', { model }),
 };
 
 // ─── Health API ───

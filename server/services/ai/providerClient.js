@@ -41,7 +41,7 @@ const setRuntimeProvider = (feature, provider) => {
 
 const clearRuntimeProvider = (feature) => runtimeProviderOverrides.delete(feature);
 
-const getProviderSettings = (providerOverride) => {
+const baseProviderSettings = (providerOverride) => {
   const provider = providerOverride || resolveAIProvider();
 
   if (provider === 'huggingface') {
@@ -110,6 +110,24 @@ const getProviderSettings = (providerOverride) => {
     model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     endpoint: `${GEMINI_API_BASE_URL}/models/${process.env.GEMINI_MODEL || 'gemini-2.5-flash'}:generateContent`,
   };
+};
+
+// Runtime model overrides let the in-app model picker run a specific model
+// (e.g. Gemma 3 vs Gemma 4) on a provider without rewriting env config.
+const runtimeModelOverrides = new Map();
+const setRuntimeModel = (provider, model) => {
+  const normalized = normalizeProvider(provider);
+  if (model) runtimeModelOverrides.set(normalized, model);
+  else runtimeModelOverrides.delete(normalized);
+  return model || null;
+};
+const clearRuntimeModel = (provider) => runtimeModelOverrides.delete(normalizeProvider(provider));
+
+const getProviderSettings = (providerOverride) => {
+  const settings = baseProviderSettings(providerOverride);
+  const override = runtimeModelOverrides.get(normalizeProvider(settings.provider));
+  if (override && 'model' in settings) settings.model = override;
+  return settings;
 };
 
 // ─── Gemini response extractor ───
@@ -677,6 +695,8 @@ module.exports = {
   _getProviderSettings: getProviderSettings,
   _setRuntimeProvider: setRuntimeProvider,
   _clearRuntimeProvider: clearRuntimeProvider,
+  _setRuntimeModel: setRuntimeModel,
+  _clearRuntimeModel: clearRuntimeModel,
   _extractResponseText: extractGeminiText,
   _parseModelTagOutput: parseModelTagOutput,
 };
