@@ -120,12 +120,12 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-surface p-6">
       <div className="w-full max-w-md">
-        <div className="flex items-center gap-3 mb-8 justify-center">
+        <Link to="/" className="flex items-center gap-3 mb-8 justify-center">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-md">
             <Activity className="w-6 h-6 text-white" />
           </div>
           <span className="font-display text-2xl font-bold text-navy-900">LifeSync</span>
-        </div>
+        </Link>
 
         <div className="flex items-center justify-center gap-2 mb-8">
           {STEPS.map((_, i) => (
