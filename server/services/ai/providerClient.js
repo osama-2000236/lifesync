@@ -4,7 +4,19 @@ require('dotenv').config();
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const HF_API_BASE_URL = 'https://api-inference.huggingface.co/v1';
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
-const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface', 'groq', 'custom_hf', 'ollama', 'lmstudio', 'bert_local']);
+const OPENAI_API_BASE_URL = 'https://api.openai.com/v1';
+const ANTHROPIC_API_BASE_URL = 'https://api.anthropic.com/v1';
+const SUPPORTED_PROVIDERS = new Set([
+  'gemini',
+  'openai',
+  'anthropic',
+  'huggingface',
+  'groq',
+  'custom_hf',
+  'ollama',
+  'lmstudio',
+  'bert_local',
+]);
 const runtimeProviderOverrides = new Map();
 
 const normalizeProvider = (value) => value?.trim().toLowerCase() || '';
@@ -77,6 +89,26 @@ const baseProviderSettings = (providerOverride) => {
       apiKey: process.env.GROQ_API_KEY || '',
       model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
       endpoint: `${GROQ_API_BASE_URL}/chat/completions`,
+    };
+  }
+
+  if (provider === 'openai') {
+    const baseUrl = (process.env.OPENAI_API_BASE_URL || OPENAI_API_BASE_URL).replace(/\/$/, '');
+    return {
+      provider,
+      apiKey: process.env.OPENAI_API_KEY || '',
+      model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+      endpoint: `${baseUrl}/chat/completions`,
+    };
+  }
+
+  if (provider === 'anthropic') {
+    const baseUrl = (process.env.ANTHROPIC_API_BASE_URL || ANTHROPIC_API_BASE_URL).replace(/\/$/, '');
+    return {
+      provider,
+      apiKey: process.env.ANTHROPIC_API_KEY || '',
+      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+      endpoint: `${baseUrl}/messages`,
     };
   }
 
@@ -250,6 +282,8 @@ const callOpenAICompatible = async ({
   const settings = getProviderSettings(providerOverride);
   const providerLabel = settings.provider === 'groq'
     ? 'Groq'
+    : settings.provider === 'openai'
+      ? 'OpenAI'
     : settings.provider === 'ollama'
       ? 'Ollama'
       : settings.provider === 'lmstudio'
@@ -274,10 +308,10 @@ const callOpenAICompatible = async ({
     stream: false,
   };
 
-  // LM Studio implements OpenAI-compatible structured output. Constraining the
-  // response sharply reduces malformed JSON without coupling app code to a
-  // particular GGUF model or chat template.
-  if (settings.provider === 'lmstudio' && responseSchema) {
+  // OpenAI and LM Studio implement OpenAI-compatible structured output.
+  // Constraining the response sharply reduces malformed JSON without coupling
+  // app code to a particular hosted or local chat template.
+  if ((settings.provider === 'openai' || settings.provider === 'lmstudio') && responseSchema) {
     payload.response_format = {
       type: 'json_schema',
       json_schema: {
@@ -333,6 +367,63 @@ const callOpenAICompatible = async ({
       };
     }
     throw new Error(`${providerLabel} returned invalid JSON: ${cleaned.slice(0, 200)}`);
+  }
+};
+
+// ─── Call Anthropic Messages API ───
+const extractAnthropicText = (payload) => {
+  const text = (payload?.content || [])
+    .filter((part) => part?.type === 'text' && part.text)
+    .map((part) => part.text)
+    .join('\n')
+    .trim();
+  if (!text) throw new Error('Empty response from Anthropic');
+  return text;
+};
+
+const callAnthropic = async ({
+  systemInstruction,
+  userPrompt,
+  responseSchema,
+  temperature,
+  maxOutputTokens,
+}) => {
+  const settings = getProviderSettings('anthropic');
+  if (!settings.apiKey) throw new Error('Anthropic API key is not configured.');
+
+  const schemaInstruction = responseSchema
+    ? `\n\nReturn one JSON object that conforms to this JSON Schema:\n${JSON.stringify(responseSchema)}`
+    : '';
+  const payload = {
+    model: settings.model,
+    max_tokens: maxOutputTokens ?? 1000,
+    temperature: temperature ?? 0.1,
+    system: `${systemInstruction || ''}${schemaInstruction}`.trim(),
+    messages: [{ role: 'user', content: userPrompt }],
+  };
+
+  const response = await axios.post(settings.endpoint, payload, {
+    timeout: 60000,
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': settings.apiKey,
+      'anthropic-version': process.env.ANTHROPIC_VERSION || '2023-06-01',
+    },
+  });
+
+  const rawText = extractAnthropicText(response.data);
+  const cleaned = stripJsonFences(rawText);
+
+  try {
+    return {
+      provider: settings.provider,
+      model: settings.model,
+      rawText: cleaned,
+      data: JSON.parse(cleaned),
+      response: response.data,
+    };
+  } catch {
+    throw new Error(`Anthropic returned invalid JSON: ${cleaned.slice(0, 200)}`);
   }
 };
 
@@ -658,7 +749,18 @@ const generateStructuredJson = async ({
     }
   }
 
-  if (provider === 'huggingface' || provider === 'groq' || provider === 'ollama' || provider === 'lmstudio') {
+  if (provider === 'anthropic') {
+    return callAnthropic({
+      systemInstruction,
+      userPrompt,
+      responseSchema,
+      temperature,
+      maxOutputTokens,
+      feature,
+    });
+  }
+
+  if (provider === 'huggingface' || provider === 'groq' || provider === 'openai' || provider === 'ollama' || provider === 'lmstudio') {
     return callOpenAICompatible({
       systemInstruction,
       userPrompt,
@@ -762,6 +864,7 @@ module.exports = {
   _setRuntimeModel: setRuntimeModel,
   _clearRuntimeModel: clearRuntimeModel,
   _extractResponseText: extractGeminiText,
+  _extractAnthropicText: extractAnthropicText,
   _parseModelTagOutput: parseModelTagOutput,
   _resolveCustomHFModelName: resolveCustomHFModelName,
   _isStrictCustomHFMode: isStrictCustomHFMode,

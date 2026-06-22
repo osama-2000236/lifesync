@@ -86,6 +86,13 @@ describe('providerClient', () => {
     BERT_RUNTIME_BASE_URL: process.env.BERT_RUNTIME_BASE_URL,
     BERT_MODEL_NAME: process.env.BERT_MODEL_NAME,
     CUSTOM_HF_STRICT: process.env.CUSTOM_HF_STRICT,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_MODEL: process.env.OPENAI_MODEL,
+    OPENAI_API_BASE_URL: process.env.OPENAI_API_BASE_URL,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
+    ANTHROPIC_API_BASE_URL: process.env.ANTHROPIC_API_BASE_URL,
+    ANTHROPIC_VERSION: process.env.ANTHROPIC_VERSION,
   };
 
   afterEach(() => {
@@ -312,6 +319,61 @@ describe('providerClient', () => {
 
     expect(result.data.intent).toBe('log_finance');
     expect(result.data.entities[0].amount).toBe(12);
+  });
+
+  test('OpenAI provider receives shared structured-output chat payload', async () => {
+    process.env.CHAT_AI_PROVIDER = 'openai';
+    process.env.OPENAI_API_KEY = 'openai-test-key';
+    process.env.OPENAI_MODEL = 'gpt-5.4-mini';
+    axios.post.mockResolvedValue({
+      data: {
+        choices: [{ message: { content: '{"intent":"query_general","entities":[]}' } }],
+      },
+    });
+
+    const schema = {
+      type: 'object',
+      properties: { intent: { type: 'string' }, entities: { type: 'array' } },
+      required: ['intent', 'entities'],
+    };
+    const result = await generateStructuredJson({
+      systemInstruction: 'JSON only.',
+      userPrompt: 'hello',
+      responseSchema: schema,
+      feature: 'chat',
+    });
+
+    const [url, payload, config] = axios.post.mock.calls[0];
+    expect(url).toBe('https://api.openai.com/v1/chat/completions');
+    expect(payload.model).toBe('gpt-5.4-mini');
+    expect(payload.response_format.json_schema.schema).toBe(schema);
+    expect(config.headers.Authorization).toBe('Bearer openai-test-key');
+    expect(result.provider).toBe('openai');
+  });
+
+  test('Anthropic provider parses Messages API JSON text', async () => {
+    process.env.CHAT_AI_PROVIDER = 'anthropic';
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key';
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+    axios.post.mockResolvedValue({
+      data: {
+        content: [{ type: 'text', text: '{"intent":"query_general","entities":[]}' }],
+      },
+    });
+
+    const result = await generateStructuredJson({
+      systemInstruction: 'JSON only.',
+      userPrompt: 'hello',
+      responseSchema: { type: 'object', properties: {} },
+      feature: 'chat',
+    });
+
+    const [url, payload, config] = axios.post.mock.calls[0];
+    expect(url).toBe('https://api.anthropic.com/v1/messages');
+    expect(payload.model).toBe('claude-sonnet-4-6');
+    expect(config.headers['x-api-key']).toBe('anthropic-test-key');
+    expect(config.headers['anthropic-version']).toBe('2023-06-01');
+    expect(result.provider).toBe('anthropic');
   });
 
   test('reports LM Studio readiness without exposing credentials', async () => {
