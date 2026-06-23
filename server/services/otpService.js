@@ -232,16 +232,7 @@ const sendOTPEmail = async (email, code) => {
   }
 
   try {
-    const transporter = await createTransporter();
-    if (!transporter) {
-      return { success: true, message: 'OTP logged to console (no email transport).' };
-    }
-
-    const mailOptions = {
-      from: `"${process.env.SMTP_FROM_NAME || 'LifeSync'}" <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || 'noreply@lifesync.app'}>`,
-      to: email,
-      subject: 'LifeSync — Your Verification Code',
-      html: `
+    const html = `
         <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #f8fafc; border-radius: 12px;">
           <div style="text-align: center; margin-bottom: 24px;">
             <h1 style="color: #1e293b; font-size: 24px; margin: 0;">LifeSync</h1>
@@ -262,7 +253,41 @@ const sendOTPEmail = async (email, code) => {
             </p>
           </div>
         </div>
-      `,
+      `;
+    const subject = 'LifeSync — Your Verification Code';
+
+    // Prefer Resend's HTTP API when configured. It sends over HTTPS (443), so
+    // it works on hosts that block outbound SMTP ports — e.g. Railway, where
+    // the SMTP path fails with a connection timeout to smtp.gmail.com:587.
+    if (process.env.RESEND_API_KEY) {
+      const from = process.env.RESEND_FROM
+        || process.env.SMTP_FROM_EMAIL
+        || 'LifeSync <onboarding@resend.dev>';
+      const resendResp = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ from, to: [email], subject, html }),
+      });
+      if (!resendResp.ok) {
+        const detail = await resendResp.text().catch(() => '');
+        throw new Error(`Resend API ${resendResp.status}: ${detail.slice(0, 300)}`);
+      }
+      return { success: true, message: 'Verification email sent.' };
+    }
+
+    const transporter = await createTransporter();
+    if (!transporter) {
+      return { success: true, message: 'OTP logged to console (no email transport).' };
+    }
+
+    const mailOptions = {
+      from: `"${process.env.SMTP_FROM_NAME || 'LifeSync'}" <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || 'noreply@lifesync.app'}>`,
+      to: email,
+      subject,
+      html,
     };
 
     const info = await transporter.sendMail(mailOptions);
