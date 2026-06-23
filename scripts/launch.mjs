@@ -114,9 +114,15 @@ const findVenvPython = () => firstExisting([
 ]);
 
 const openBrowser = (url) => {
-  const cmd = IS_WIN ? 'start' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-  const args = IS_WIN ? ['', url] : [url];
-  try { spawn(cmd, args, { shell: true, detached: true, stdio: 'ignore' }).unref(); } catch { /* ignore */ }
+  try {
+    if (IS_WIN) {
+      // `start` is a cmd builtin; the empty "" is its title argument.
+      spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+      spawn(cmd, [url], { detached: true, stdio: 'ignore' }).unref();
+    }
+  } catch { /* ignore */ }
 };
 
 const shutdown = () => {
@@ -154,7 +160,8 @@ const main = async () => {
     // shell:false → the full path (which may contain spaces) is passed as-is.
     start('mysql', mysqld, ['--console'], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
     if (!await waitFor(() => portOpen(PORTS.db), 'MySQL', 30000)) {
-      warn(`Could not start MySQL automatically. Start it yourself, then re-run. (looked for: ${mysqld})`);
+      warn(`Could not start MySQL automatically (looked for: ${mysqld}).`);
+      warn('Likely not installed, or its data directory is not initialized. Install/start MySQL (e.g. as a service), then re-run.');
     }
   }
 
