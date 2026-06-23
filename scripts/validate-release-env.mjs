@@ -30,7 +30,7 @@ const REQUIRED = [
 
 const EXPECTED_API_URL =
   process.env.EXPECTED_VITE_API_URL
-  || 'https://lifesync-production-6f3e.up.railway.app/api';
+  || 'https://lifesync-production-fdf9.up.railway.app/api';
 const EXPECTED_GOOGLE_CLIENT_ID =
   process.env.EXPECTED_VITE_GOOGLE_CLIENT_ID
   || '190237143688-0ddtrdq3die8hnce0aqbti3jgc2eam4g.apps.googleusercontent.com';
