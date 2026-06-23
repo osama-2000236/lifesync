@@ -26,3 +26,11 @@ playwright-report/
 test-results/
 output/qa/playwright/
 .auth/
+
+# Agent runtime + local scratch (never commit — large binaries, DB data, env backups)
+.codex-runtime/
+tmp/
+output/
+
+# Misc personal/docs scratch (move real docs into docs/)
+osama/
