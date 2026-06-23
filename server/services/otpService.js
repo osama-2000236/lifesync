@@ -278,7 +278,16 @@ const sendOTPEmail = async (email, code) => {
       message: 'Verification email sent.',
     };
   } catch (error) {
-    console.error('Email send error:', error.message);
+    // Log the structured nodemailer fields — message alone is often empty or
+    // generic. code=EAUTH + responseCode=535 = bad SMTP_PASS (use a Gmail App
+    // Password); ETIMEDOUT/ECONNECTION = host can't reach the SMTP server.
+    console.error('Email send error:', {
+      message: error.message,
+      code: error.code,
+      responseCode: error.responseCode,
+      command: error.command,
+      response: error.response,
+    });
     if (error.message === 'SMTP is not configured.') {
       return {
         success: false,
