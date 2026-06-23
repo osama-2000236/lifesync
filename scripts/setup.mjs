@@ -27,6 +27,17 @@ const warn = (msg) => console.log(`${C.yellow}  ! ${msg}${C.reset}`);
 
 const run = (cmd, opts = {}) => execSync(cmd, { cwd: ROOT, stdio: 'inherit', shell: true, ...opts });
 
+// Prefer the lockfile-deterministic `npm ci`; fall back to `npm install` when
+// no/stale lockfile makes ci fail, so a fresh machine still gets dependencies.
+const installDeps = (label, ciCmd, installCmd) => {
+  try {
+    run(ciCmd);
+  } catch {
+    warn(`${label}: "npm ci" failed (missing/stale lockfile?) — falling back to "npm install".`);
+    run(installCmd);
+  }
+};
+
 console.log(`\n${C.green}${C.bold}  LifeSync setup${C.reset} ${C.gray}— one-time install${C.reset}`);
 
 // 0) .env
@@ -39,12 +50,12 @@ dotenv.config({ path: envPath });
 
 // 1) backend deps
 step(1, 'Installing backend dependencies');
-run('npm install');
+installDeps('backend', 'npm ci', 'npm install');
 ok('backend dependencies installed');
 
 // 2) frontend deps
 step(2, 'Installing frontend dependencies');
-run('npm --prefix client install');
+installDeps('frontend', 'npm --prefix client ci', 'npm --prefix client install');
 ok('frontend dependencies installed');
 
 // 3) Python model environment
