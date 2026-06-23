@@ -40,17 +40,27 @@ app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false);
 // Security headers
 app.use(helmet());
 
-// CORS — production-ready with configurable origins
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(s => s.trim());
+// CORS — production-ready with configurable origins.
+// Bake in the known frontends so the API works even if CORS_ORIGIN is unset or
+// misconfigured on the host; CORS_ORIGIN (comma-separated) extends this list.
+const DEFAULT_ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'https://lifesync.1202883.workers.dev',
+];
+const allowedOrigins = [
+  ...DEFAULT_ALLOWED_ORIGINS,
+  ...(process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean),
+];
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+      return callback(null, true);
     }
+    // Deny cleanly — no CORS headers — instead of throwing (which surfaced as
+    // a confusing 500 on every cross-origin request).
+    return callback(null, false);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
