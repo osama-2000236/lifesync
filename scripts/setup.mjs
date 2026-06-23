@@ -10,7 +10,7 @@
 // Then start the app any time with:  npm start
 // ============================================
 
-import { execSync, spawnSync, spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -97,15 +97,30 @@ if (!dbPortOpen) {
   warn('MySQL is not running and could not be started automatically. Start MySQL, then re-run: npm run setup');
 } else {
   const name = process.env.DB_NAME || 'lifesync_db';
-  const user = process.env.DB_USER || 'root';
-  const pass = process.env.DB_PASSWORD || '';
-  const sql = `CREATE DATABASE IF NOT EXISTS \\\`${name}\\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`;
-  const args = ['-h', process.env.DB_HOST || '127.0.0.1', '-P', String(process.env.DB_PORT || 3306), '-u', user];
-  if (pass) args.push(`-p${pass}`);
-  args.push('-e', sql);
-  const res = spawnSync('mysql', args, { stdio: 'inherit', shell: true });
-  if (res.status === 0) ok(`database "${name}" ready (tables are created automatically on first start)`);
-  else warn(`Could not create the database via the mysql CLI. Create it manually:  CREATE DATABASE ${name};`);
+
+  // Create the database with the mysql2 driver (already a dependency) rather
+  // than shelling out to the `mysql` CLI. Avoids PATH lookup and shell-quoting
+  // the SQL — the old CLI path double-escaped the backticks and split the
+  // -e argument on spaces, so it never actually created the database.
+  if (!/^[A-Za-z0-9_$]+$/.test(name)) {
+    warn(`DB_NAME "${name}" has unusual characters; create the database manually:  CREATE DATABASE \`${name}\`;`);
+  } else {
+    try {
+      const { createConnection } = await import('mysql2/promise');
+      const conn = await createConnection({
+        host: DB_HOST,
+        port: DB_PORT,
+        user: process.env.DB_USER || 'root',
+        password: process.env.DB_PASSWORD || '',
+      });
+      await conn.query(`CREATE DATABASE IF NOT EXISTS \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`);
+      await conn.end();
+      ok(`database "${name}" ready (tables are created automatically on first start)`);
+    } catch (err) {
+      warn(`Could not create the database "${name}" automatically: ${err.message}`);
+      warn(`Create it manually:  CREATE DATABASE \`${name}\`;`);
+    }
+  }
 }
 
 // 5) Done
