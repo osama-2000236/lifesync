@@ -1,7 +1,7 @@
 const WORKERS_BASE_URL =
   (process.env.WORKERS_BASE_URL || 'https://lifesync.1202883.workers.dev').replace(/\/+$/, '');
 const RAILWAY_HEALTH_URL =
-  process.env.RAILWAY_HEALTH_URL || 'https://lifesync-production-6f3e.up.railway.app/api/health';
+  process.env.RAILWAY_HEALTH_URL || 'https://lifesync-production-fdf9.up.railway.app/api/health';
 const ROUTES = ['/login', '/dashboard', '/chat', '/health', '/finance'];
 const REQUEST_TIMEOUT_MS = Number(process.env.SMOKE_TIMEOUT_MS || 30000);
 

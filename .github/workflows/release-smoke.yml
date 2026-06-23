@@ -8,6 +8,12 @@ on:
 jobs:
   release-smoke:
     runs-on: ubuntu-latest
+    env:
+      # Probe the live production services, not the localhost defaults.
+      BACKEND_HEALTH_URL: https://lifesync-production-fdf9.up.railway.app/api/health
+      RAILWAY_HEALTH_URL: https://lifesync-production-fdf9.up.railway.app/api/health
+      WORKERS_BASE_URL: https://lifesync.1202883.workers.dev
+      HF_SPACE_URL: https://os-1202883-lifesync-api.hf.space
 
     steps:
       - name: Checkout code

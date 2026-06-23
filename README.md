@@ -387,7 +387,7 @@ This repo now includes `wrangler.jsonc` with SPA fallback enabled for Cloudflare
 The `deploy` and `preview` scripts build the frontend before calling Wrangler, so Cloudflare does not need a separate build step.
 Those scripts also install the frontend dependencies inside `client/` before running Vite, because Workers Builds only installs the root package by default.
 Both scripts now run a strict release preflight that validates:
-- `VITE_API_URL=https://lifesync-production-6f3e.up.railway.app/api`
+- `VITE_API_URL=https://lifesync-production-fdf9.up.railway.app/api`
 - `VITE_GOOGLE_CLIENT_ID=190237143688-0ddtrdq3die8hnce0aqbti3jgc2eam4g.apps.googleusercontent.com` (must match the Cloudflare project env var of the same name)
 - if `GOOGLE_AUTH_CLIENT_IDS` is provided, it must include that same Google client ID
 
