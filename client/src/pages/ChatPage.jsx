@@ -8,12 +8,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { aiAPI, chatAPI } from '../services/api';
 import { subscribeToChatSession } from '../services/firebase';
+import { MODEL_OPTIONS } from '../config/models';
 import {
   Send, Loader2, Sparkles, Plus, Clock, MessageCircle,
   Heart, Wallet, Link2, RotateCcw, AlertCircle, Zap,
   ArrowRight, TrendingUp, Activity,
   BrainCircuit, ChevronDown, RefreshCw, Cpu, ShieldCheck,
-  CheckCircle2, AlertTriangle,
+  CheckCircle2, AlertTriangle, Upload, Info, HardDrive,
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -27,6 +28,25 @@ const DOMAIN_CONFIG = {
   both: { label: 'Cross-Domain', color: 'purple', icon: Link2, emoji: '🔗' },
   general: { label: 'General', color: 'navy', icon: MessageCircle, emoji: '💬' },
 };
+
+const MODEL_LABELS = Object.fromEntries(MODEL_OPTIONS.map((m) => [m.id, m.label]));
+
+/** Small badge under an assistant reply showing which model produced it. */
+function ModelReplyBadge({ modelId, runtime }) {
+  if (!modelId) return null;
+  const label = MODEL_LABELS[modelId] || modelId;
+  // A cloud model that couldn't run (no key) falls back to the on-device reply.
+  const fellBack = runtime?.responder === 'deterministic_fallback';
+  return (
+    <div className="flex items-center gap-1.5 mt-1 ml-9 text-[10px] text-navy-400">
+      <BrainCircuit className="w-3 h-3" />
+      <span>{label}</span>
+      {fellBack && (
+        <span className="text-amber-600">· needs an API key — replied on-device</span>
+      )}
+    </div>
+  );
+}
 
 // ============================================
 // SUB-COMPONENTS
@@ -298,13 +318,39 @@ function WelcomeScreen({ onSend }) {
 }
 
 /** Compact, inspectable model state and activation menu. */
-function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRefresh, onStart }) {
+function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRefresh, onStart, onRegisterCustom }) {
   const active = runtime?.active;
   const activation = runtime?.activation;
+  const customModel = runtime?.custom_model;
+  const fileInputRef = useRef(null);
+  const [customFile, setCustomFile] = useState('');
+  const [customEndpoint, setCustomEndpoint] = useState('');
+  const [customName, setCustomName] = useState('');
+  const [customBusy, setCustomBusy] = useState(false);
+  const [customMsg, setCustomMsg] = useState(null);
+
+  const submitCustom = async () => {
+    setCustomBusy(true);
+    setCustomMsg(null);
+    try {
+      await onRegisterCustom({
+        name: customName || customFile || undefined,
+        fileName: customFile || undefined,
+        endpoint: customEndpoint || undefined,
+      });
+      setCustomMsg('Registered — starting your custom model…');
+    } catch (e) {
+      setCustomMsg(e?.response?.data?.error || 'Could not register that model.');
+    } finally {
+      setCustomBusy(false);
+    }
+  };
   const isClassifier = active?.capabilities?.classifier_only;
   const isReady = ['ready', 'configured'].includes(active?.status);
-  const tone = starting ? 'amber' : isReady && !isClassifier ? 'emerald' : isClassifier ? 'amber' : 'red';
-  const label = starting ? 'Starting' : isReady && !isClassifier ? 'AI ready' : isClassifier ? 'Limited' : 'AI offline';
+  // The on-device BERT hybrid is a fully usable daily assistant — show it as
+  // ready (green), not "Limited".
+  const tone = starting ? 'amber' : isReady ? 'emerald' : 'red';
+  const label = starting ? 'Starting' : isReady ? 'AI ready' : 'AI offline';
   const toneClasses = {
     emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     amber: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -330,7 +376,7 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
         <div
           role="dialog"
           aria-label="AI model state"
-          className="absolute right-0 top-11 z-40 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-navy-100 bg-white p-4 shadow-xl shadow-navy-900/10"
+          className="absolute right-0 top-11 z-50 w-[min(22rem,calc(100vw-2rem))] max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-contain rounded-2xl border border-navy-100 bg-white p-4 shadow-xl shadow-navy-900/10"
         >
           <div className="flex items-start gap-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${toneClasses[tone]}`}>
@@ -359,7 +405,7 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
             <div className="rounded-xl bg-navy-50/70 p-3">
               <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400">Capability</p>
               <p className="mt-1 text-xs font-semibold text-navy-700">
-                {isClassifier ? 'Intent classifier' : isReady ? 'Full conversation' : 'Unavailable'}
+                {isClassifier ? 'On-device assistant' : isReady ? 'Full conversation' : 'Unavailable'}
               </p>
             </div>
             <div className="rounded-xl bg-navy-50/70 p-3">
@@ -401,10 +447,12 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
           )}
 
           <div className="mt-4">
-            <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400 mb-2">Choose a model</p>
+            <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400 mb-1">Choose a model</p>
+            <p className="text-[11px] text-navy-400 mb-2">Switch anytime — your memory, history and data carry over to the new model.</p>
             <div className="space-y-2">
               {(runtime?.catalog || []).map((m) => {
-                const isActive = active?.model_id === m.id;
+                const isSwitchingTo = runtime?.switching_to === m.id || (starting && activation?.model_id === m.id);
+                const isActive = active?.model_id === m.id && !isSwitchingTo;
                 const etaText = active?.eta?.human;
                 return (
                   <button
@@ -413,7 +461,7 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
                     onClick={() => onStart(m.id)}
                     disabled={starting}
                     className={`w-full text-left rounded-xl border p-3 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-400/40 disabled:opacity-50 disabled:cursor-wait ${
-                      isActive ? 'border-emerald-300 bg-emerald-50/60' : 'border-navy-100 hover:bg-navy-50'
+                      isSwitchingTo ? 'border-amber-300 bg-amber-50/70' : isActive ? 'border-emerald-300 bg-emerald-50/60' : 'border-navy-100 hover:bg-navy-50'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -422,11 +470,16 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
                         {m.label}
                         {m.is_default && <span className="text-[10px] font-medium text-navy-400">default</span>}
                       </span>
-                      {isActive && (starting
-                        ? <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
-                        : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />)}
+                      {isSwitchingTo ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                      ) : isActive ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                      ) : null}
                     </div>
                     <p className="mt-1 text-xs text-navy-500">{m.description}</p>
+                    {isSwitchingTo && (
+                      <p className="mt-1 text-[11px] font-medium text-amber-700">Switching before the next reply…</p>
+                    )}
                     {isActive && etaText && (
                       <p className="mt-1 text-[11px] font-medium text-navy-600">Replies {etaText}</p>
                     )}
@@ -434,6 +487,78 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
                 );
               })}
             </div>
+
+            {/* Custom model: upload from device or point to an endpoint */}
+            <div className="mt-3 rounded-xl border border-dashed border-navy-200 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-navy-700 flex items-center gap-1.5">
+                  <HardDrive className="w-3.5 h-3.5" /> Custom model
+                </p>
+                <span className="relative group">
+                  <Info className="w-3.5 h-3.5 text-navy-400 cursor-help" aria-hidden="true" />
+                  <span
+                    role="tooltip"
+                    className="pointer-events-none absolute right-0 top-5 z-50 hidden group-hover:block w-60 rounded-lg bg-navy-800 text-white text-[11px] leading-relaxed p-2.5 shadow-xl"
+                  >
+                    Pick a local model file (e.g. <strong>.gguf</strong>) or paste any OpenAI-compatible
+                    endpoint. LifeSync registers it with your local runtime, which loads it on your
+                    <strong> GPU automatically</strong> and falls back to CPU.
+                  </span>
+                </span>
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".gguf,.bin,.safetensors,.onnx,.pt"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setCustomFile(file.name);
+                    setCustomName(file.name.replace(/\.[^.]+$/, ''));
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="Upload a model file from your device (GGUF, safetensors, ONNX…)"
+                className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-navy-200 text-xs font-medium text-navy-700 hover:bg-navy-50 transition-colors truncate"
+              >
+                <Upload className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">{customFile || 'Upload model from device'}</span>
+              </button>
+
+              <p className="my-1.5 text-[10px] uppercase tracking-wider text-navy-300 text-center">or</p>
+              <input
+                value={customEndpoint}
+                onChange={(e) => setCustomEndpoint(e.target.value)}
+                placeholder="OpenAI-compatible endpoint URL"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-navy-200 text-xs focus:outline-none focus:ring-2 focus:ring-navy-400/30"
+              />
+              <input
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder="Model name (auto-filled from the file)"
+                className="mt-1.5 w-full px-2.5 py-1.5 rounded-lg border border-navy-200 text-xs focus:outline-none focus:ring-2 focus:ring-navy-400/30"
+              />
+              <button
+                type="button"
+                disabled={customBusy || (!customFile && !customEndpoint && !customName)}
+                onClick={submitCustom}
+                className="mt-2 w-full py-2 rounded-lg bg-navy-700 text-white text-xs font-semibold hover:bg-navy-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {customBusy ? 'Registering…' : 'Use this model'}
+              </button>
+              {customMsg && <p className="mt-1.5 text-[11px] text-navy-500">{customMsg}</p>}
+              {customModel?.configured && (
+                <p className="mt-1.5 text-[11px] text-emerald-600 truncate">
+                  Configured: {customModel.name || customModel.file_name} · {customModel.runtime}
+                </p>
+              )}
+            </div>
+
             <p className="mt-2 text-[11px] text-navy-400">No automatic fallback — if a model can't start, you'll see the error above and stay on your current one.</p>
           </div>
         </div>
@@ -490,11 +615,22 @@ export default function ChatPage() {
       setModelRuntime((current) => ({
         ...(current || {}),
         activation: data.data?.activation,
+        switching_to: data.data?.activation?.model_id || modelId,
       }));
+      loadModelStatus({ quiet: true });
     } catch (err) {
       setModelError(err.response?.data?.error || 'The model could not be started.');
     }
-  }, []);
+  }, [loadModelStatus]);
+
+  // Register a user-supplied custom model, then activate it. Throws on failure
+  // so the picker can surface the message inline.
+  const registerCustomModel = useCallback(async (payload) => {
+    const { data } = await aiAPI.registerCustomModel(payload);
+    await startModel('custom_local');
+    loadModelStatus({ quiet: true });
+    return data;
+  }, [startModel, loadModelStatus]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -536,11 +672,16 @@ export default function ChatPage() {
   // ─── Send Message via SSE ───
   const sendMessage = useCallback((text) => {
     const messageText = text || input.trim();
-    if (!messageText || sending) return;
+    if (!messageText || sending || modelRuntime?.activation?.status === 'starting') return;
+
+    // The model this turn runs on (switch target wins so a just-clicked model
+    // is used immediately, before the status poll catches up).
+    const activeModelId = modelRuntime?.switching_to || modelRuntime?.active?.model_id || 'bert_local';
 
     setInput('');
     setClarificationOptions(null);
     setStatusText(null);
+    setShowModelPulse(false); // close the model menu so it can't overlap the chat
     setLastUserText(messageText);
 
     // Add user message to UI immediately
@@ -587,8 +728,17 @@ export default function ChatPage() {
           domain: result.domain,
           isCrossDomain: result.is_cross_domain,
           needsClarification: result.needs_clarification,
+          // Which model produced this reply (for the per-message badge).
+          modelId: result.needs_clarification ? null : activeModelId,
+          modelRuntime: result.model_runtime || null,
         };
         setMessages((prev) => [...prev, assistantMsg]);
+
+        // Recorded an intent that changed data → refresh the dashboard now.
+        const logged = result.entities_logged || {};
+        if ((logged.health?.length || logged.finance?.length)) {
+          window.dispatchEvent(new CustomEvent('lifesync:data-changed', { detail: logged }));
+        }
 
         if (result.model_runtime) {
           setModelRuntime((current) => current ? ({
@@ -631,10 +781,10 @@ export default function ChatPage() {
         setStatusText(null);
         inputRef.current?.focus();
       },
-    });
+    }, { model: activeModelId });
 
     abortRef.current = abort;
-  }, [clearStatusTimers, input, sending, sessionId]);
+  }, [clearStatusTimers, input, modelRuntime?.activation?.status, modelRuntime?.active?.model_id, modelRuntime?.switching_to, sending, sessionId]);
 
   // Cleanup abort on unmount or session switch
   useEffect(() => {
@@ -692,6 +842,7 @@ export default function ChatPage() {
       sendMessage();
     }
   };
+  const modelSwitching = modelRuntime?.activation?.status === 'starting';
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -748,6 +899,7 @@ export default function ChatPage() {
             onToggle={() => setShowModelPulse((value) => !value)}
             onRefresh={() => loadModelStatus()}
             onStart={startModel}
+            onRegisterCustom={registerCustomModel}
           />
         </div>
 
@@ -760,6 +912,9 @@ export default function ChatPage() {
               {messages.map((msg) => (
                 <div key={msg.id}>
                   <ChatBubble message={msg} onRetry={handleRetry} />
+                  {msg.role === 'assistant' && !msg.isError && msg.modelId && (
+                    <ModelReplyBadge modelId={msg.modelId} runtime={msg.modelRuntime} />
+                  )}
                   {msg.entities && (
                     <div className="mt-2">
                       <EntitiesBadge entities={msg.entities} />
@@ -792,9 +947,10 @@ export default function ChatPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Tell me about your day..."
+                disabled={modelSwitching}
+                placeholder={modelSwitching ? 'Switching models...' : 'Tell me about your day...'}
                 rows={1}
-                className="w-full px-4 py-3 pr-12 rounded-2xl border border-navy-200 bg-surface text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 resize-none text-sm transition-all"
+                className="w-full px-4 py-3 pr-12 rounded-2xl border border-navy-200 bg-surface text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 resize-none text-sm transition-all disabled:opacity-60 disabled:cursor-wait"
                 style={{ minHeight: '44px', maxHeight: '120px' }}
                 onInput={(e) => {
                   e.target.style.height = 'auto';
@@ -804,7 +960,7 @@ export default function ChatPage() {
             </div>
             <button
               onClick={() => sendMessage()}
-              disabled={!input.trim() || sending}
+              disabled={!input.trim() || sending || modelSwitching}
               aria-label="Send message"
               className="w-11 h-11 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white flex items-center justify-center hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/20 flex-shrink-0"
             >

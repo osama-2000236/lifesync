@@ -117,10 +117,23 @@ export default function DashboardPage() {
     const dashboardInterval = setInterval(() => fetchDashboardData(), DASHBOARD_REFRESH_INTERVAL_MS);
     const insightsInterval = setInterval(() => fetchInsights(), INSIGHTS_REFRESH_INTERVAL_MS);
 
+    // Instant refresh when the assistant logs something in chat (records an
+    // intent → the dashboard reflects it right away instead of waiting 30s).
+    const onDataChanged = () => {
+      fetchDashboardData();
+      fetchInsights();
+    };
+    window.addEventListener('lifesync:data-changed', onDataChanged);
+
     return () => {
       isMounted = false;
+      // Reset in-flight guards so a remount (e.g. React StrictMode's
+      // mount→unmount→remount in dev) can fetch again instead of deadlocking.
+      dashboardFetchInFlightRef.current = false;
+      insightsFetchInFlightRef.current = false;
       clearInterval(dashboardInterval);
       clearInterval(insightsInterval);
+      window.removeEventListener('lifesync:data-changed', onDataChanged);
     };
   }, []);
 

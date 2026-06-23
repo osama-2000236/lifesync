@@ -64,16 +64,18 @@ export default function AdminPage() {
     }
   };
 
-  // Use demo data when no real data
-  const stats = dashboard || {
-    total_users: 0,
-    active_users_24h: 0,
-    new_users_7d: 0,
-    health_logs_24h: 0,
-    finance_logs_24h: 0,
-    error_count_24h: 0,
-    nlp_avg_processing_ms: 0,
-    nlp_max_processing_ms: 0,
+  // Map the API response (nested: users / activity_24h / system) into the flat
+  // shape the cards use. Falls back to flat keys + 0 so nothing renders as NaN.
+  const d = dashboard || {};
+  const stats = {
+    total_users: d.users?.total ?? d.total_users ?? 0,
+    active_users_24h: d.users?.active ?? d.active_users_24h ?? 0,
+    new_users_7d: d.users?.new_this_week ?? d.new_users_7d ?? 0,
+    health_logs_24h: d.activity_24h?.health_logs ?? d.health_logs_24h ?? 0,
+    finance_logs_24h: d.activity_24h?.finance_logs ?? d.finance_logs_24h ?? 0,
+    error_count_24h: d.system?.errors_24h ?? d.error_count_24h ?? 0,
+    nlp_avg_processing_ms: d.system?.nlp_avg_ms ?? d.nlp_avg_processing_ms ?? 0,
+    nlp_max_processing_ms: d.system?.nlp_max_ms ?? d.nlp_max_processing_ms ?? 0,
   };
 
   const filteredLogs = logFilter === 'all' ? logs : logs.filter((l) => l.log_type === logFilter);

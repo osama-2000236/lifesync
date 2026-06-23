@@ -70,6 +70,12 @@ const User = sequelize.define('users', {
     allowNull: false,
     defaultValue: true,
   },
+  preferred_model: {
+    type: DataTypes.STRING(60),
+    allowNull: false,
+    defaultValue: 'bert_local',
+    comment: 'Model the user picked at signup / in settings. The chat + dashboard run on this single model.',
+  },
 }, {
   tableName: 'users',
   timestamps: true,

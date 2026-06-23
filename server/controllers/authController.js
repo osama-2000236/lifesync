@@ -399,12 +399,28 @@ const getProfile = async (req, res) => {
   return success(res, { user: req.user.toSafeJSON() }, 'Profile retrieved.');
 };
 
+const ALLOWED_MODELS = new Set([
+  'bert_local',
+  'gemma4_local',
+  'gemma3_local',
+  'openai_chat',
+  'anthropic_opus',
+  'anthropic_sonnet',
+  'custom_local',
+]);
+
 const updateProfile = async (req, res, next) => {
   try {
-    const { name, avatar_url } = req.body;
+    const { name, avatar_url, preferred_model } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name || null;
     if (avatar_url !== undefined) updates.avatar_url = avatar_url || null;
+    if (preferred_model !== undefined) {
+      if (!ALLOWED_MODELS.has(preferred_model)) {
+        return error(res, 'Unknown model selection.', 400, 'INVALID_MODEL');
+      }
+      updates.preferred_model = preferred_model;
+    }
 
     await req.user.update(updates);
     return success(res, { user: req.user.toSafeJSON() }, 'Profile updated.');

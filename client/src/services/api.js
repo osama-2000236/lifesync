@@ -87,7 +87,7 @@ export const chatAPI = {
    * @param {Object} callbacks - { onAck, onStatus, onComplete, onError }
    * @returns {function} abort - call to cancel the request
    */
-  sendMessageStream: (message, session_id, callbacks = {}) => {
+  sendMessageStream: (message, session_id, callbacks = {}, options = {}) => {
     const controller = new AbortController();
     const token = localStorage.getItem('accessToken');
 
@@ -100,7 +100,8 @@ export const chatAPI = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ message, session_id }),
+      // `model` = the picker selection, so each turn uses the chosen model.
+      body: JSON.stringify({ message, session_id, model: options.model }),
       signal: controller.signal,
     })
       .then(async (response) => {
@@ -176,6 +177,8 @@ export const aiAPI = {
   getStatus: () => api.get('/ai/status'),
   getModels: () => api.get('/ai/models'),
   start: (model = 'bert_local') => api.post('/ai/start', { model }),
+  registerCustomModel: (payload) => api.post('/ai/custom-model', payload),
+  getCustomModel: () => api.get('/ai/custom-model'),
 };
 
 // ─── Health API ───

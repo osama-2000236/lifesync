@@ -14,6 +14,8 @@ const { Op } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 const { parseMessage } = require('../services/ai/nlpService');
 const { buildBertContext } = require('../services/ai/bertContextService');
+const { recordTurnMemories } = require('../services/ai/memoryService');
+const { resolveModel } = require('../services/ai/modelRuntimeManager');
 const HealthLog = require('../models/HealthLog');
 const FinancialLog = require('../models/FinancialLog');
 const Category = require('../models/Category');
@@ -92,7 +94,16 @@ const chatValidation = [
   body('session_id')
     .optional()
     .isString(),
+  body('model')
+    .optional()
+    .isString(),
 ];
+
+/** Per-request chat model → { provider, model } options for parseMessage. */
+const resolveChatOptions = (modelId) => {
+  const resolved = modelId ? resolveModel(modelId) : null;
+  return resolved ? { provider: resolved.provider, model: resolved.model } : {};
+};
 
 // ============================================
 // HELPERS
@@ -245,6 +256,7 @@ const processMessageStream = async (req, res) => {
   const { message, session_id } = req.body;
   const userId = req.user.id;
   const currentSessionId = session_id || uuidv4();
+  const aiOptions = resolveChatOptions(req.body?.model);
 
   // ─── Set up SSE headers ───
   res.writeHead(200, {
@@ -310,12 +322,12 @@ const processMessageStream = async (req, res) => {
           originalMessage: pending.originalMessage,
           clarificationQuestion: pending.clarificationQuestion,
           clarificationOptions: pending.clarificationOptions,
-        }, nlpContext);
+        }, nlpContext, aiOptions);
         pendingClarifications.delete(userId);
       } else {
-        // Fresh message — call HF Space (this is the slow part)
+        // Fresh message — run the two-track pipeline (extract + converse).
         sseWrite(res, 'status', { message: 'Processing your message...' });
-        nlpResult = await parseMessage(message, null, nlpContext);
+        nlpResult = await parseMessage(message, null, nlpContext, aiOptions);
       }
     } catch (aiError) {
       clearInterval(heartbeat);
@@ -340,6 +352,10 @@ const processMessageStream = async (req, res) => {
     }
 
     clearInterval(heartbeat);
+
+    // Remember durable facts the user stated this turn (non-blocking).
+    // Memory lives in the DB, so it persists across model switches.
+    recordTurnMemories(userId, message, nlpResult).catch(() => {});
 
     // ─── Step 3: Handle clarification needed ───
     if (nlpResult.needs_clarification) {
@@ -492,6 +508,7 @@ const processMessage = async (req, res, next) => {
     const { message, session_id } = req.body;
     const userId = req.user.id;
     const currentSessionId = session_id || uuidv4();
+    const aiOptions = resolveChatOptions(req.body?.model);
 
     // ─── Optimistic write: persist user message immediately ───
     const userChatLog = await ChatLog.create(await safeFields({
@@ -528,10 +545,10 @@ const processMessage = async (req, res, next) => {
           originalMessage: pending.originalMessage,
           clarificationQuestion: pending.clarificationQuestion,
           clarificationOptions: pending.clarificationOptions,
-        }, nlpContext);
+        }, nlpContext, aiOptions);
         pendingClarifications.delete(userId);
       } else {
-        nlpResult = await parseMessage(message, null, nlpContext);
+        nlpResult = await parseMessage(message, null, nlpContext, aiOptions);
       }
     } catch (aiError) {
       const errorMessage = resolveAIErrorMessage(aiError);
@@ -549,6 +566,7 @@ const processMessage = async (req, res, next) => {
         intent: 'error',
         domain: 'general',
         response: errorMessage,
+        // (memory not recorded on AI failure)
         needs_clarification: false,
         confidence: 0,
         entities_logged: { health: [], finance: [], linked: [] },
@@ -557,6 +575,9 @@ const processMessage = async (req, res, next) => {
         retryable: aiError?.retryable !== false,
       });
     }
+
+    // Remember durable facts stated this turn (non-blocking, DB-backed).
+    recordTurnMemories(userId, message, nlpResult).catch(() => {});
 
     // ─── Handle clarification ───
     if (nlpResult.needs_clarification) {

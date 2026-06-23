@@ -4,6 +4,7 @@ const HealthLog = require('../../models/HealthLog');
 const FinancialLog = require('../../models/FinancialLog');
 const User = require('../../models/User');
 const UserGoal = require('../../models/UserGoal');
+const { buildMemoryContext } = require('./memoryService');
 
 const numeric = (value) => {
   const parsed = Number(value);
@@ -62,6 +63,8 @@ const emptyContext = () => ({
   recent_finance_entries: [],
   health: {},
   finance: {},
+  memory: { items: [], summary: '', count: 0 },
+  conversation: [],
   source_counts: { messages: 0, health_logs: 0, finance_logs: 0, goals: 0 },
 });
 
@@ -76,7 +79,7 @@ const buildBertContext = async (
   if (excludedIds.length) chatWhere.id = { [Op.notIn]: excludedIds };
 
   try {
-    const [user, goals, chatRows, healthRows, financeRows] = await Promise.all([
+    const [user, goals, chatRows, healthRows, financeRows, memory] = await Promise.all([
       User.findByPk(userId, {
         attributes: ['id', 'name', 'username', 'created_at'],
       }),
@@ -107,6 +110,7 @@ const buildBertContext = async (
         limit: 100,
         attributes: ['type', 'amount', 'currency', 'description', 'logged_at'],
       }),
+      buildMemoryContext(userId),
     ]);
 
     const userPlain = plain(user);
@@ -134,6 +138,13 @@ const buildBertContext = async (
         message: String(row.message || '').slice(0, 500),
         intent: row.intent || null,
       })),
+      // Proper multi-turn conversation (oldest→newest) for real chat models.
+      conversation: chatRows.map(plain).reverse()
+        .filter((row) => row.message && String(row.message).trim())
+        .map((row) => ({
+          role: row.role === 'assistant' ? 'assistant' : 'user',
+          content: String(row.message).slice(0, 2000),
+        })),
       recent_health_entries: healthPlain.slice(0, 12).map((row) => ({
         type: row.type,
         value: numeric(row.value),
@@ -152,6 +163,7 @@ const buildBertContext = async (
       })),
       health: summarizeHealth(healthPlain),
       finance: summarizeFinance(financePlain),
+      memory: memory || { items: [], summary: '', count: 0 },
       source_counts: {
         messages: chatRows.length,
         health_logs: healthRows.length,

@@ -26,6 +26,23 @@ const gemmaRuntime = () => {
   return ['ollama', 'lmstudio'].includes(value) ? value : 'ollama';
 };
 
+// The runtime used for a user-supplied custom model. LM Studio loads arbitrary
+// GGUF files with automatic GPU offload; Ollama and any OpenAI-compatible
+// endpoint are also supported.
+const customRuntime = () => {
+  const value = (process.env.CUSTOM_LOCAL_RUNTIME || 'lmstudio').trim().toLowerCase();
+  return ['lmstudio', 'ollama', 'custom_hf'].includes(value) ? value : 'lmstudio';
+};
+
+// User-registered custom model (set via the upload button / endpoint field).
+const customModelState = {
+  name: process.env.CUSTOM_LOCAL_MODEL || null,
+  runtime: customRuntime(),
+  endpoint: process.env.CUSTOM_HF_ENDPOINT || null,
+  source: null, // 'upload' | 'endpoint'
+  file_name: null,
+};
+
 const MODEL_CATALOG = [
   {
     id: 'bert_local',
@@ -37,6 +54,15 @@ const MODEL_CATALOG = [
     eta_ms: { gpu: 80, cpu: 300 },
   },
   {
+    id: 'gemma4_local',
+    label: 'Gemma 4 (local)',
+    kind: 'generative',
+    is_default: false,
+    description: 'Local generative chat, newest Gemma. Set GEMMA4_MODEL to the tag you pulled.',
+    target: { provider: gemmaRuntime(), model: process.env.GEMMA4_MODEL || 'gemma3' },
+    eta_ms: { gpu: 5000, cpu: 20000 },
+  },
+  {
     id: 'gemma3_local',
     label: 'Gemma 3 (local)',
     kind: 'generative',
@@ -46,18 +72,80 @@ const MODEL_CATALOG = [
     eta_ms: { gpu: 4000, cpu: 16000 },
   },
   {
-    id: 'gemma4_local',
-    label: 'Gemma 4 (local)',
+    id: 'openai_chat',
+    label: 'OpenAI GPT',
     kind: 'generative',
     is_default: false,
-    description: 'Local generative chat, newest Gemma. Set GEMMA4_MODEL to the tag you pulled.',
-    target: { provider: gemmaRuntime(), model: process.env.GEMMA4_MODEL || 'gemma3' },
-    eta_ms: { gpu: 5000, cpu: 20000 },
+    description: 'Cloud conversational model via OpenAI. Uses the same LifeSync memory, history, and data context.',
+    target: { provider: 'openai', model: process.env.OPENAI_MODEL || 'gpt-5.4-mini' },
+    eta_ms: { gpu: 1800, cpu: 1800 },
+  },
+  {
+    id: 'anthropic_opus',
+    label: 'Claude Opus',
+    kind: 'generative',
+    is_default: false,
+    description: 'Anthropic Opus tier for deeper reasoning. Context transfers from the current chat and LifeSync memory.',
+    target: { provider: 'anthropic', model: process.env.ANTHROPIC_OPUS_MODEL || 'claude-opus-4-8' },
+    eta_ms: { gpu: 3500, cpu: 3500 },
+  },
+  {
+    id: 'anthropic_sonnet',
+    label: 'Claude Sonnet',
+    kind: 'generative',
+    is_default: false,
+    description: 'Anthropic Sonnet tier for fast daily conversation. Shares the same LifeSync context as every model.',
+    target: { provider: 'anthropic', model: process.env.ANTHROPIC_SONNET_MODEL || 'claude-sonnet-4-6' },
+    eta_ms: { gpu: 2200, cpu: 2200 },
+  },
+  {
+    id: 'custom_local',
+    label: 'Custom model',
+    kind: 'generative',
+    is_default: false,
+    uploadable: true,
+    description: 'Bring your own model. Upload a local file (e.g. GGUF) or point to any OpenAI-compatible endpoint. Loads on your GPU automatically and falls back to CPU.',
+    target: { provider: customRuntime(), model: null },
+    eta_ms: { gpu: 6000, cpu: 24000 },
   },
 ];
 
 const DEFAULT_MODEL_ID = 'bert_local';
 const catalogEntry = (id) => MODEL_CATALOG.find((m) => m.id === id) || null;
+
+// Register a custom model from the upload button or endpoint field.
+const registerCustomModel = ({ name, runtime, endpoint, fileName } = {}) => {
+  const validRuntimes = ['lmstudio', 'ollama', 'custom_hf'];
+  if (endpoint) {
+    customModelState.endpoint = String(endpoint).trim();
+    customModelState.runtime = 'custom_hf';
+    customModelState.source = 'endpoint';
+    process.env.CUSTOM_HF_ENDPOINT = customModelState.endpoint;
+  } else if (runtime && validRuntimes.includes(runtime)) {
+    customModelState.runtime = runtime;
+  }
+  if (fileName) {
+    customModelState.file_name = String(fileName).trim();
+    customModelState.source = customModelState.source || 'upload';
+  }
+  if (name) {
+    customModelState.name = String(name).trim();
+    if (customModelState.runtime === 'custom_hf') process.env.CUSTOM_HF_MODEL = customModelState.name;
+  }
+  if (!customModelState.name && !customModelState.endpoint) {
+    throw new Error('Provide a model name (from your uploaded file) or an OpenAI-compatible endpoint.');
+  }
+  return getCustomModelState();
+};
+
+const getCustomModelState = () => ({
+  name: customModelState.name,
+  runtime: customModelState.runtime,
+  endpoint: customModelState.endpoint,
+  source: customModelState.source,
+  file_name: customModelState.file_name,
+  configured: Boolean(customModelState.name || customModelState.endpoint),
+});
 
 let activation = {
   status: 'idle',
@@ -92,6 +180,39 @@ const capabilitiesFor = (provider) => ({
   user_context: true,
   classifier_only: provider === 'bert_local',
 });
+
+// Providers whose chat path needs an API key (cloud / hosted).
+const KEYED_PROVIDERS = new Set(['openai', 'anthropic', 'gemini', 'groq', 'huggingface', 'custom_hf']);
+
+/**
+ * Resolve a picker model id → { provider, model, conversational, requiresKey }
+ * for per-request chat routing (so each turn uses the chosen model without
+ * mutating global state).
+ */
+const resolveModel = (modelId) => {
+  const entry = catalogEntry(String(modelId || '').trim().toLowerCase());
+  if (!entry) return null;
+  if (entry.id === 'custom_local') {
+    const runtime = customModelState.runtime || customRuntime();
+    return {
+      id: entry.id,
+      provider: runtime,
+      model: customModelState.name || null,
+      conversational: true,
+      requiresKey: KEYED_PROVIDERS.has(runtime),
+      configured: Boolean(customModelState.name || customModelState.endpoint),
+    };
+  }
+  const provider = entry.target.provider;
+  return {
+    id: entry.id,
+    provider,
+    model: entry.target.model,
+    conversational: !capabilitiesFor(provider).classifier_only,
+    requiresKey: KEYED_PROVIDERS.has(provider),
+    configured: true,
+  };
+};
 
 // Coarse expected-response-time estimate so the chat can tell the user how
 // long to wait. Uses the GPU figure only when the live runtime reports a GPU
@@ -281,6 +402,30 @@ const activate = async (entry) => {
     return activateBert();
   }
 
+  // Custom user-supplied model: resolve its runtime + name at activation time.
+  if (entry.id === 'custom_local') {
+    if (!customModelState.name && !customModelState.endpoint) {
+      throw new Error('No custom model registered yet. Upload a model file or set an endpoint first.');
+    }
+    const runtime = customModelState.runtime || customRuntime();
+    if (runtime === 'ollama') {
+      _setRuntimeModel('ollama', customModelState.name);
+      return activateOllama(customModelState.name);
+    }
+    if (runtime === 'lmstudio') {
+      _setRuntimeModel('lmstudio', customModelState.name);
+      return activateLMStudio(customModelState.name);
+    }
+    // OpenAI-compatible endpoint (custom_hf)
+    if (customModelState.name) _setRuntimeModel('custom_hf', customModelState.name);
+    const customStatus = await getAIProviderStatus('chat', runtime);
+    if (!READY_STATES.has(customStatus.status)) {
+      throw new Error(`Custom model is ${customStatus.status}. Check the endpoint and model name.`);
+    }
+    _setRuntimeProvider('chat', runtime);
+    return customStatus;
+  }
+
   // Generative local model (Gemma): pin the chosen model on its runtime first.
   _setRuntimeModel(entry.target.provider, entry.target.model);
   if (entry.target.provider === 'ollama') return activateOllama(entry.target.model);
@@ -301,7 +446,7 @@ const runActivation = async (entry) => {
       ...activation,
       status: 'ready',
       message: entry.kind === 'classifier'
-        ? 'Classifier ready. Pick Gemma 3 or 4 from the menu for full conversation.'
+        ? 'LifeSync BERT is ready — your private on-device daily assistant.'
         : `${entry.label} is ready for conversation.`,
       finished_at: new Date().toISOString(),
       error: null,
@@ -340,9 +485,20 @@ const startModel = async (requestedId = DEFAULT_MODEL_ID) => {
   return activation;
 };
 
-const activeModelId = (provider) => {
+const activeModelId = (provider, activeStatus = {}) => {
+  if (activation.status === 'ready' && activation.provider === provider && activation.model_id) {
+    return activation.model_id;
+  }
+  const configuredModel = activeStatus.configured_model || null;
+  const exact = MODEL_CATALOG.find((m) => (
+    m.target.provider === provider
+    && (m.id === 'custom_local'
+      ? configuredModel && [customModelState.name, customModelState.file_name].filter(Boolean).includes(configuredModel)
+      : (!m.target.model || m.target.model === configuredModel))
+  ));
+  if (exact) return exact.id;
   const direct = MODEL_CATALOG.find((m) => m.target.provider === provider);
-  return (activation.model_id) || (direct ? direct.id : null);
+  return direct ? direct.id : null;
 };
 
 const getModelCatalog = () => MODEL_CATALOG.map((m) => ({
@@ -350,17 +506,19 @@ const getModelCatalog = () => MODEL_CATALOG.map((m) => ({
   label: m.label,
   kind: m.kind,
   is_default: m.is_default,
+  uploadable: Boolean(m.uploadable),
   description: m.description,
-  provider: m.target.provider,
-  model: m.target.model,
+  provider: m.id === 'custom_local' ? customModelState.runtime : m.target.provider,
+  model: m.id === 'custom_local' ? (customModelState.name || customModelState.file_name || null) : m.target.model,
+  configured: m.id === 'custom_local' ? Boolean(customModelState.name || customModelState.endpoint) : true,
   eta_ms: m.eta_ms,
-  capabilities: capabilitiesFor(m.target.provider),
+  capabilities: capabilitiesFor(m.id === 'custom_local' ? customModelState.runtime : m.target.provider),
 }));
 
 const getRuntimeSnapshot = async () => {
   const activeProvider = _getProvider('chat');
   const active = await getAIProviderStatus('chat');
-  const currentId = activeModelId(activeProvider);
+  const currentId = activeModelId(activeProvider, active);
   const entry = catalogEntry(currentId);
   return {
     active: {
@@ -370,8 +528,10 @@ const getRuntimeSnapshot = async () => {
       eta: estimateEta(entry, active),
     },
     activation: { ...activation },
+    switching_to: activation.status === 'starting' ? activation.model_id : null,
     default_model: DEFAULT_MODEL_ID,
     catalog: getModelCatalog(),
+    custom_model: getCustomModelState(),
     hardware: hardwareSnapshot(),
     privacy: active.local
       ? 'Model inference stays on the configured local runtime; LifeSync context remains in your app database.'
@@ -382,6 +542,9 @@ const getRuntimeSnapshot = async () => {
 module.exports = {
   getRuntimeSnapshot,
   getModelCatalog,
+  registerCustomModel,
+  getCustomModelState,
+  resolveModel,
   startBestAvailableModel: startModel,
   startModel,
   _hardwareSnapshot: hardwareSnapshot,

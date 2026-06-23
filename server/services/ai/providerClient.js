@@ -4,7 +4,19 @@ require('dotenv').config();
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const HF_API_BASE_URL = 'https://api-inference.huggingface.co/v1';
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
-const SUPPORTED_PROVIDERS = new Set(['gemini', 'huggingface', 'groq', 'custom_hf', 'ollama', 'lmstudio', 'bert_local']);
+const OPENAI_API_BASE_URL = 'https://api.openai.com/v1';
+const ANTHROPIC_API_BASE_URL = 'https://api.anthropic.com/v1';
+const SUPPORTED_PROVIDERS = new Set([
+  'gemini',
+  'openai',
+  'anthropic',
+  'huggingface',
+  'groq',
+  'custom_hf',
+  'ollama',
+  'lmstudio',
+  'bert_local',
+]);
 const runtimeProviderOverrides = new Map();
 
 const normalizeProvider = (value) => value?.trim().toLowerCase() || '';
@@ -77,6 +89,26 @@ const baseProviderSettings = (providerOverride) => {
       apiKey: process.env.GROQ_API_KEY || '',
       model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
       endpoint: `${GROQ_API_BASE_URL}/chat/completions`,
+    };
+  }
+
+  if (provider === 'openai') {
+    const baseUrl = (process.env.OPENAI_API_BASE_URL || OPENAI_API_BASE_URL).replace(/\/$/, '');
+    return {
+      provider,
+      apiKey: process.env.OPENAI_API_KEY || '',
+      model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+      endpoint: `${baseUrl}/chat/completions`,
+    };
+  }
+
+  if (provider === 'anthropic') {
+    const baseUrl = (process.env.ANTHROPIC_API_BASE_URL || ANTHROPIC_API_BASE_URL).replace(/\/$/, '');
+    return {
+      provider,
+      apiKey: process.env.ANTHROPIC_API_KEY || '',
+      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+      endpoint: `${baseUrl}/messages`,
     };
   }
 
@@ -250,6 +282,8 @@ const callOpenAICompatible = async ({
   const settings = getProviderSettings(providerOverride);
   const providerLabel = settings.provider === 'groq'
     ? 'Groq'
+    : settings.provider === 'openai'
+      ? 'OpenAI'
     : settings.provider === 'ollama'
       ? 'Ollama'
       : settings.provider === 'lmstudio'
@@ -274,10 +308,10 @@ const callOpenAICompatible = async ({
     stream: false,
   };
 
-  // LM Studio implements OpenAI-compatible structured output. Constraining the
-  // response sharply reduces malformed JSON without coupling app code to a
-  // particular GGUF model or chat template.
-  if (settings.provider === 'lmstudio' && responseSchema) {
+  // OpenAI and LM Studio implement OpenAI-compatible structured output.
+  // Constraining the response sharply reduces malformed JSON without coupling
+  // app code to a particular hosted or local chat template.
+  if ((settings.provider === 'openai' || settings.provider === 'lmstudio') && responseSchema) {
     payload.response_format = {
       type: 'json_schema',
       json_schema: {
@@ -334,6 +368,151 @@ const callOpenAICompatible = async ({
     }
     throw new Error(`${providerLabel} returned invalid JSON: ${cleaned.slice(0, 200)}`);
   }
+};
+
+// ─── Call Anthropic Messages API ───
+const extractAnthropicText = (payload) => {
+  const text = (payload?.content || [])
+    .filter((part) => part?.type === 'text' && part.text)
+    .map((part) => part.text)
+    .join('\n')
+    .trim();
+  if (!text) throw new Error('Empty response from Anthropic');
+  return text;
+};
+
+const callAnthropic = async ({
+  systemInstruction,
+  userPrompt,
+  responseSchema,
+  temperature,
+  maxOutputTokens,
+}) => {
+  const settings = getProviderSettings('anthropic');
+  if (!settings.apiKey) throw new Error('Anthropic API key is not configured.');
+
+  const schemaInstruction = responseSchema
+    ? `\n\nReturn one JSON object that conforms to this JSON Schema:\n${JSON.stringify(responseSchema)}`
+    : '';
+  const payload = {
+    model: settings.model,
+    max_tokens: maxOutputTokens ?? 1000,
+    temperature: temperature ?? 0.1,
+    system: `${systemInstruction || ''}${schemaInstruction}`.trim(),
+    messages: [{ role: 'user', content: userPrompt }],
+  };
+
+  const response = await axios.post(settings.endpoint, payload, {
+    timeout: 60000,
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': settings.apiKey,
+      'anthropic-version': process.env.ANTHROPIC_VERSION || '2023-06-01',
+    },
+  });
+
+  const rawText = extractAnthropicText(response.data);
+  const cleaned = stripJsonFences(rawText);
+
+  try {
+    return {
+      provider: settings.provider,
+      model: settings.model,
+      rawText: cleaned,
+      data: JSON.parse(cleaned),
+      response: response.data,
+    };
+  } catch {
+    throw new Error(`Anthropic returned invalid JSON: ${cleaned.slice(0, 200)}`);
+  }
+};
+
+// ─── Conversational generation (multi-turn, free prose, no schema) ───
+// Powers the "chat like any provider" experience: full conversation history is
+// sent as a real messages array, the model replies in natural prose, and
+// switching the model mid-conversation just changes which model produces the
+// next turn. Logging/actions are handled separately (deterministic extractor),
+// so this path is purely the conversation.
+const sanitizeTurns = (messages = []) => {
+  const turns = (Array.isArray(messages) ? messages : [])
+    .filter((m) => m && m.content && (m.role === 'user' || m.role === 'assistant'))
+    .map((m) => ({ role: m.role, content: String(m.content).slice(0, 4000) }));
+  // Most providers require the first turn to be the user.
+  while (turns.length && turns[0].role === 'assistant') turns.shift();
+  return turns;
+};
+
+const generateChat = async ({ system, messages, temperature = 0.4, maxTokens = 600, providerOverride, model } = {}) => {
+  const provider = providerOverride ? normalizeProvider(providerOverride) : getProvider('chat');
+  if (provider === 'bert_local') throw new Error('bert_local is a classifier, not a conversational generator.');
+  if (!SUPPORTED_PROVIDERS.has(provider)) throw new Error(`Unsupported chat provider: ${provider}`);
+
+  const settings = getProviderSettings(provider);
+  if (model) settings.model = model;
+  const turns = sanitizeTurns(messages);
+  if (!turns.length) turns.push({ role: 'user', content: 'Hello' });
+
+  if (provider === 'anthropic') {
+    if (!settings.apiKey) throw new Error('Anthropic API key is not configured.');
+    const response = await axios.post(settings.endpoint, {
+      model: settings.model,
+      max_tokens: maxTokens,
+      temperature,
+      ...(system ? { system } : {}),
+      messages: turns,
+    }, {
+      timeout: 60000,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': settings.apiKey,
+        'anthropic-version': process.env.ANTHROPIC_VERSION || '2023-06-01',
+      },
+    });
+    return { provider, model: settings.model, text: extractAnthropicText(response.data) };
+  }
+
+  if (provider === 'gemini') {
+    if (!settings.apiKey) throw new Error('Gemini API key is not configured.');
+    const payload = {
+      contents: turns.map((t) => ({ role: t.role === 'assistant' ? 'model' : 'user', parts: [{ text: t.content }] })),
+      generationConfig: { temperature, maxOutputTokens: maxTokens },
+    };
+    if (system) payload.systemInstruction = { parts: [{ text: system }] };
+    const response = await axios.post(settings.endpoint, payload, {
+      timeout: 30000,
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': settings.apiKey },
+    });
+    return { provider, model: settings.model, text: extractGeminiText(response.data) };
+  }
+
+  if (['openai', 'lmstudio', 'ollama', 'groq', 'huggingface'].includes(provider)) {
+    if (!['ollama', 'lmstudio'].includes(provider) && !settings.apiKey) {
+      throw new Error(`${provider} API key is not configured.`);
+    }
+    const msgs = system ? [{ role: 'system', content: system }, ...turns] : turns;
+    const response = await axios.post(settings.endpoint, {
+      model: settings.model,
+      messages: msgs,
+      temperature,
+      max_tokens: maxTokens,
+      stream: false,
+    }, {
+      timeout: provider === 'lmstudio'
+        ? (parseInt(process.env.LM_STUDIO_REQUEST_TIMEOUT_MS, 10) || 180000)
+        : 60000,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
+    });
+    return { provider, model: settings.model, text: extractOpenAIText(response.data, provider) };
+  }
+
+  if (provider === 'custom_hf') {
+    const flat = turns.map((t) => `${t.role === 'assistant' ? 'Assistant' : 'User'}: ${t.content}`).join('\n');
+    const parsed = await callCustomHF(system || '', flat, { feature: 'chat' });
+    const text = typeof parsed === 'string' ? parsed : (parsed?.response || JSON.stringify(parsed));
+    return { provider, model: resolveCustomHFModelName(), text };
+  }
+
+  throw new Error(`Unsupported chat provider: ${provider}`);
 };
 
 /** Classify one message with the local BERT sequence-classification runtime. */
@@ -658,7 +837,18 @@ const generateStructuredJson = async ({
     }
   }
 
-  if (provider === 'huggingface' || provider === 'groq' || provider === 'ollama' || provider === 'lmstudio') {
+  if (provider === 'anthropic') {
+    return callAnthropic({
+      systemInstruction,
+      userPrompt,
+      responseSchema,
+      temperature,
+      maxOutputTokens,
+      feature,
+    });
+  }
+
+  if (provider === 'huggingface' || provider === 'groq' || provider === 'openai' || provider === 'ollama' || provider === 'lmstudio') {
     return callOpenAICompatible({
       systemInstruction,
       userPrompt,
@@ -751,6 +941,7 @@ const getAIProviderStatus = async (feature = 'chat', providerOverride = null) =>
 
 module.exports = {
   generateStructuredJson,
+  generateChat,
   classifyText,
   getAIProviderStatus,
   normalizeEntities,
@@ -762,6 +953,7 @@ module.exports = {
   _setRuntimeModel: setRuntimeModel,
   _clearRuntimeModel: clearRuntimeModel,
   _extractResponseText: extractGeminiText,
+  _extractAnthropicText: extractAnthropicText,
   _parseModelTagOutput: parseModelTagOutput,
   _resolveCustomHFModelName: resolveCustomHFModelName,
   _isStrictCustomHFMode: isStrictCustomHFMode,
