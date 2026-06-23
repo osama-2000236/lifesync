@@ -46,11 +46,27 @@ const sequelize = new Sequelize(
  * Test the database connection
  */
 const testConnection = async () => {
+  if (dialect === 'mysql' && !process.env.DB_HOST) {
+    console.error(
+      '❌ DB_HOST is not set. On a host like Railway, map the MySQL plugin ' +
+      'variables to the DB_* names this app expects, e.g. ' +
+      'DB_HOST=${{MySQL.MYSQLHOST}}, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT.'
+    );
+    process.exit(1);
+  }
+
   try {
     await sequelize.authenticate();
     console.log(`✅ ${dialect.toUpperCase()} connection established successfully.`);
   } catch (error) {
-    console.error(`❌ Unable to connect to ${dialect}:`, error.message);
+    // Surface the real cause — message is often empty for a bad/undefined host.
+    console.error(`❌ Unable to connect to ${dialect}: ${error.message || error.code || error}`);
+    if (dialect === 'mysql') {
+      console.error(
+        `   tried host=${process.env.DB_HOST} port=${process.env.DB_PORT || 3306} ` +
+        `db=${process.env.DB_NAME} user=${process.env.DB_USER}`
+      );
+    }
     process.exit(1);
   }
 };
