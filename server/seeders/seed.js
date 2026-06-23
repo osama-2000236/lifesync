@@ -52,19 +52,43 @@ const seed = async () => {
 
     // Seed admin user (skip if already exists)
     const existingAdmin = await db.User.findOne({ where: { role: 'admin' } });
-    if (!existingAdmin) {
-      await db.User.create({
-        username: 'admin',
-        email: 'admin@lifesync.app',
-        hashed_password: 'Admin@123456', // Will be hashed by beforeCreate hook
-        name: 'System Admin',
-        role: 'admin',
-        verified_email: true,
-        is_active: true,
-      });
-      console.log('✅ Seeded admin user (admin@lifesync.app / Admin@123456).');
-    } else {
+    if (existingAdmin) {
       console.log('⏭️  Admin user already exists. Skipping.');
+    } else {
+      const adminEmail = process.env.SEED_ADMIN_EMAIL;
+      const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+      const isProduction = process.env.NODE_ENV === 'production';
+
+      // In production, refuse to create an admin with the built-in known
+      // password. Require explicit credentials via env instead.
+      if (isProduction && (!adminEmail || !adminPassword)) {
+        console.warn(
+          '⚠️  Skipping admin seed: set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD ' +
+          'to create the initial admin in production. Refusing to seed a default ' +
+          'admin with a known password.'
+        );
+      } else {
+        const email = adminEmail || 'admin@lifesync.app';
+        const password = adminPassword || 'Admin@123456';
+
+        if (!adminPassword) {
+          console.warn(
+            '⚠️  Seeding admin with the built-in development password. Override ' +
+            'with SEED_ADMIN_PASSWORD before any shared or deployed instance.'
+          );
+        }
+
+        await db.User.create({
+          username: 'admin',
+          email,
+          hashed_password: password, // Will be hashed by beforeCreate hook
+          name: 'System Admin',
+          role: 'admin',
+          verified_email: true,
+          is_active: true,
+        });
+        console.log(`✅ Seeded admin user (${email}).`);
+      }
     }
 
     console.log('\n🎉 Seeding complete!\n');
