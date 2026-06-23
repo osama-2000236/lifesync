@@ -8,7 +8,35 @@
 const CryptoJS = require('crypto-js');
 require('dotenv').config();
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET;
+// Resolve the field-encryption key.
+// Prefer the dedicated ENCRYPTION_KEY. Falling back to JWT_SECRET couples two
+// unrelated secrets and blocks key rotation, so it is only tolerated outside
+// production — and even then it warns. In production a missing ENCRYPTION_KEY
+// is a hard failure: better to crash on boot than to encrypt data at rest with
+// the JWT signing secret.
+const resolveEncryptionKey = () => {
+  if (process.env.ENCRYPTION_KEY) return process.env.ENCRYPTION_KEY;
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'ENCRYPTION_KEY is not set. Refusing to fall back to JWT_SECRET for ' +
+      'field-level encryption in production. Set a dedicated ENCRYPTION_KEY ' +
+      '(min 32 chars).'
+    );
+  }
+
+  if (process.env.JWT_SECRET) {
+    console.warn(
+      '⚠️  ENCRYPTION_KEY is not set; falling back to JWT_SECRET for field ' +
+      'encryption. This is for local/dev only — set a dedicated ENCRYPTION_KEY.'
+    );
+    return process.env.JWT_SECRET;
+  }
+
+  throw new Error('Neither ENCRYPTION_KEY nor JWT_SECRET is set; cannot encrypt fields.');
+};
+
+const ENCRYPTION_KEY = resolveEncryptionKey();
 
 /**
  * Encrypt a value for storage
