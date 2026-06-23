@@ -157,9 +157,9 @@ jobs:
         working-directory: ./client
         run: npm run build
         env:
-          VITE_API_URL: https://lifesync-production-6f3e.up.railway.app/api
+          VITE_API_URL: https://lifesync-production-fdf9.up.railway.app/api
           VITE_GOOGLE_CLIENT_ID: 190237143688-0ddtrdq3die8hnce0aqbti3jgc2eam4g.apps.googleusercontent.com
-          EXPECTED_VITE_API_URL: https://lifesync-production-6f3e.up.railway.app/api
+          EXPECTED_VITE_API_URL: https://lifesync-production-fdf9.up.railway.app/api
           EXPECTED_VITE_GOOGLE_CLIENT_ID: 190237143688-0ddtrdq3die8hnce0aqbti3jgc2eam4g.apps.googleusercontent.com
 
       - name: Verify build output
