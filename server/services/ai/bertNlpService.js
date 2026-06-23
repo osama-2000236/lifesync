@@ -17,6 +17,113 @@ const FINANCE_SIGNAL = /(?:[$€£₪]|\b(?:spent|spend|paid|pay|bought|purchase
 const ADVICE_SIGNAL = /\b(advice|advise|recommend(?:ation|ed|s)?|suggest(?:ion|ed|s)?|what\s+(?:can|should|could)\s+i|what\s+to\s+(?:buy|eat|do)|how\s+(?:can|should|do)\s+i|best\s+(?:food|choice|option)|help\s+me\s+(?:choose|plan|improve))\b/i;
 const HEALTH_LOG_EVENT = /\b(?:slept|walked|ran|jogged|exercised|worked\s*out|drank|my\s+mood\s+(?:was|is)|my\s+heart\s*rate|ate)\b/i;
 const FINANCE_LOG_EVENT = /\b(?:spent|paid|bought|purchased|earned|received|salary\s+was|cost\s+me)\b/i;
+// Food/meal context — lets a food expense double as a nutrition entry so
+// "spent $50 on a healthy dinner" logs cross-domain without a clarification.
+const FOOD_CONTEXT = /\b(food|meal|breakfast|lunch|dinner|snack|brunch|restaurant|cafe|coffee|grocer(?:y|ies)|healthy\s+(?:meal|dinner|lunch|breakfast|food|eat)|salad|fruit|vegetable)\b/i;
+
+// ─── Cross-domain "outing" follow-up ───────────────────────────────
+// Turns an everyday plan ("I'm going to town") into a daily-assistant
+// follow-up that asks HOW the user will travel, then connects the answer to
+// both finance (cost) and health (movement) — the core "creates cross-domain
+// info from a daily sample conversation" behaviour.
+const OUTING_VERB = /\b(go(?:ing)?|head(?:ing|ed)?|drive|driving|walk(?:ing)?|travel(?:ing|ling)?|commut(?:e|ing)|pop(?:ping)?\s+(?:over|out)|run(?:ning)?\s+(?:out|to))\b/i;
+const OUTING_DEST = /\b(?:to|towards?|for|into)\s+(?:the\s+|my\s+|downtown\s+)?(town|downtown|city|city\s*center|market|mall|work|office|uni(?:versity)?|college|school|campus|store|shop|supermarket|grocery|groceries|pharmacy|bank|park)\b/i;
+const TRANSPORT_MODE_PRESENT = /\b(by car|by bus|by train|by bike|on foot|walking|driving|cycling|taxi|uber|metro)\b/i;
+
+const prettyPlace = (place) => {
+  const p = String(place || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (p === 'uni') return 'university';
+  if (p === 'city center' || p === 'downtown' || p === 'city') return 'city';
+  return p;
+};
+
+const transportModeFromText = (text) => {
+  const t = normalize(text);
+  if (/\b(walk|walking|on foot|by foot|stroll)\b/.test(t)) return 'walk';
+  if (/\b(bus|train|metro|tram|public\s*transport|公交)\b/.test(t)) return 'bus';
+  if (/\b(car|driv(?:e|ing)|taxi|uber|ride)\b/.test(t)) return 'car';
+  return null;
+};
+
+/** Detect an everyday outing with no logged metric. Returns {place, modeAlready} or null. */
+const detectOuting = (message) => {
+  const text = normalize(message);
+  if (!text) return null;
+  // If the user already gave money/health facts, let normal logging handle it.
+  if (FINANCE_SIGNAL.test(text) || HEALTH_LOG_EVENT.test(text) || FINANCE_LOG_EVENT.test(text)) return null;
+  if (!OUTING_VERB.test(text)) return null;
+  const dest = text.match(OUTING_DEST);
+  if (!dest) return null;
+  return { place: prettyPlace(dest[1]), modeAlready: TRANSPORT_MODE_PRESENT.test(text) };
+};
+
+const outingRuntime = (routedLabel, started, classification = {}) => ({
+  status: 'ready',
+  provider: 'bert_local',
+  model: classification.model || 'bert_best_model_10pct',
+  execution_provider: classification.provider || null,
+  raw_label: classification.label || null,
+  routed_label: routedLabel,
+  rule_override: true,
+  feature: 'cross_domain_followup',
+  model_latency_ms: classification.latency_ms || null,
+});
+
+const buildOutingClarification = (message, outing, started, classification) => ({
+  success: false,
+  intent: 'unclear',
+  candidate_intent: 'log_both',
+  domain: 'general',
+  entities: [],
+  response: `Heading to the ${outing.place}? Nice. Are you going by car, by bus, or on foot? Knowing how you travel lets me keep an eye on both the cost and the movement.`,
+  is_cross_domain: false,
+  needs_clarification: true,
+  clarification_question: `How are you getting to the ${outing.place}?`,
+  clarification_options: ['By car', 'By bus', 'Walking'],
+  confidence: 0.4,
+  processing_time_ms: Date.now() - started,
+  original_message: message,
+  model_runtime: outingRuntime('outing_ask_mode', started, classification),
+});
+
+const buildOutingResolution = (originalMessage, outing, mode, context, started, classification) => {
+  const name = context?.profile?.name ? `, ${context.profile.name}` : '';
+  let response;
+  if (mode === 'walk') {
+    response = `Walking to the ${outing.place} is a free win${name} — zero cost for your wallet and real activity for your body. Want me to log the walk? Just tell me the minutes or steps (e.g. "walked 20 minutes"). And how's your mood today on a 1–10 scale?`;
+  } else if (mode === 'bus') {
+    response = `Taking the bus to the ${outing.place} keeps the cost low and still adds a short walk at each end${name}. Want me to log the fare? Tell me the amount (e.g. "spent $2 on the bus"). How are you feeling about the day ahead?`;
+  } else {
+    response = `Got it${name} — driving to the ${outing.place}. That usually means a little fuel or parking, so tell me the amount and I'll log it (e.g. "spent $6 on fuel"). Since the car skips the steps, maybe a short walk later to balance it out? What's your energy like today, 1–10?`;
+  }
+
+  const memKey = `routine.commute.${outing.place.replace(/\s+/g, '_')}`;
+  const modeLabel = mode === 'walk' ? 'on foot' : mode === 'bus' ? 'by bus' : 'by car';
+
+  return {
+    success: true,
+    intent: 'query_general',
+    candidate_intent: 'log_both',
+    domain: 'both',
+    entities: [],
+    response,
+    is_cross_domain: true,
+    needs_clarification: false,
+    clarification_question: null,
+    clarification_options: null,
+    confidence: 0.8,
+    processing_time_ms: Date.now() - started,
+    original_message: originalMessage,
+    model_runtime: outingRuntime('outing_resolved', started, classification),
+    _memory_writes: [{
+      mem_key: memKey,
+      category: 'routine',
+      value: `usually travels to the ${outing.place} ${modeLabel}`,
+      confidence: 0.85,
+      salience: 3,
+    }],
+  };
+};
 
 const detectRuleLabel = (message) => {
   const text = normalize(message);
@@ -178,15 +285,27 @@ const extractHealth = (message, { allowBareExercise = false } = {}) => {
 
   match = text.match(/\b(?:mood\s*(?:was|is)?\s*)?(10|[1-9])\s*\/\s*10\b/);
   const moodWords = [
-    [/\b(terrible|awful)\b/, 2], [/\b(bad|poor)\b/, 3], [/\b(okay|neutral)\b/, 5],
-    [/\b(good|fine)\b/, 6], [/\b(great|happy)\b/, 8], [/\b(amazing|excellent)\b/, 10],
+    [/\b(terrible|awful|exhausted|depressed|miserable|overwhelmed)\b/, 2],
+    [/\b(bad|poor|sad|stressed|anxious|worried|upset|unwell)\b/, 3],
+    [/\b(tired|sleepy|low|down|drained)\b/, 4],
+    [/\b(okay|neutral|meh|alright)\b/, 5],
+    [/\b(good|fine|nice|well|calm|relaxed)\b/, 6],
+    [/\b(great|happy)\b/, 8], [/\b(amazing|excellent|fantastic|wonderful)\b/, 10],
   ];
   let mood = match ? numberValue(match[1]) : null;
   let moodText = match?.[0] || null;
   if (mood === null && /\b(mood|feel|feeling)\b/.test(text)) {
-    for (const [pattern, value] of moodWords) {
-      const word = text.match(pattern);
-      if (word) { mood = value; moodText = word[1]; break; }
+    // "feeling 7", "mood is 8", "I feel a 6" — a 1–10 rating without the /10.
+    const bare = text.match(/\b(?:mood|feel(?:ing)?)\s*(?:is|was|like|at|of|a|an)?\s*(10|[1-9])\b/)
+      || text.match(/\b(10|[1-9])\s*(?:out of)\s*10\b/);
+    if (bare) {
+      mood = numberValue(bare[1]);
+      moodText = bare[0];
+    } else {
+      for (const [pattern, value] of moodWords) {
+        const word = text.match(pattern);
+        if (word) { mood = value; moodText = word[1]; break; }
+      }
     }
   }
   if (mood !== null) pushHealth(entities, {
@@ -308,26 +427,221 @@ const buildAdviceResponse = (message, context, entities) => {
   return parts.join(' ');
 };
 
+// One line of what the assistant remembers, if anything.
+const memoryLine = (context) => {
+  const summary = context?.memory?.summary;
+  return summary ? ` I remember ${summary}.` : '';
+};
+
+// Human, specific description of what was just logged.
+const describeLogged = (entities) => {
+  const parts = entities.map((e) => {
+    if (e.domain === 'finance') {
+      const label = e.type === 'income' ? 'income' : 'expense';
+      const tail = e.description ? ` for ${e.description}` : (e.category ? ` (${e.category})` : '');
+      return `${e.currency || 'USD'} ${e.amount} ${label}${tail}`;
+    }
+    if (e.type === 'sleep') return `${e.value} hours of sleep`;
+    if (e.type === 'steps') return `${Number(e.value).toLocaleString()} steps`;
+    if (e.type === 'water') return `${e.value} L of water`;
+    if (e.type === 'exercise') return `${e.value} minutes of ${e.activity || 'exercise'}`;
+    if (e.type === 'mood') return `mood ${e.value}/10`;
+    if (e.type === 'heart_rate') return `heart rate ${e.value} bpm`;
+    if (e.type === 'nutrition') return e.value ? `${e.value} kcal` : 'a meal';
+    return e.activity || e.type;
+  });
+  if (parts.length <= 1) return parts.join('');
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+};
+
+// Deterministic mood / creative follow-up so every reply feels like a daily
+// assistant. If the user just logged a mood, ask something creative instead.
+const CREATIVE_NUDGES = [
+  "What's one small win you're hoping for today?",
+  'Want a quick tip to make tomorrow a little easier?',
+  'Anything else you want to plan for the rest of the day?',
+  'Want me to check how this fits your weekly goals?',
+];
+const moodOrCreativeNudge = (entities, message) => {
+  const loggedMood = entities.some((entity) => entity.type === 'mood');
+  if (!loggedMood) return "By the way, how's your mood today on a 1–10 scale?";
+  const idx = (String(message || '').length + entities.length) % CREATIVE_NUDGES.length;
+  return CREATIVE_NUDGES[idx];
+};
+
+const crossDomainHint = (entities) => {
+  const hasFinance = entities.some((e) => e.domain === 'finance' && e.type === 'expense');
+  const hasHealth = entities.some((e) => e.domain === 'health');
+  if (hasFinance && hasHealth) return ' I linked the health and money sides of this so your insights can spot patterns.';
+  if (hasFinance) return ' Tip: small daily expenses add up — want a weekly view?';
+  return '';
+};
+
+// Smarter on-device "small talk" so the default BERT assistant feels
+// conversational, not like a bare classifier. Deterministic + memory-aware.
+const GENERAL_PATTERNS = {
+  thanks: /\b(thanks|thank you|thx|appreciate(d)?|cheers)\b/i,
+  who: /\b(who are you|what are you|your name|are you (a )?(bot|ai|robot))\b/i,
+  capabilities: /\b(what can you do|how (do|can) i use|what do you do|your features?|help me (use|with)|how does this work)\b/i,
+  howareyou: /\b(how are you|how'?re you|how is it going|how'?s it going|what'?s up|sup)\b/i,
+  bye: /\b(bye|goodbye|see you|good ?night|talk later|that'?s all)\b/i,
+  positiveMood: /\b(i'?m|i am|feeling|feel)\s+(great|good|fine|ok(ay)?|happy|amazing|fantastic|excellent|relaxed|calm)\b/i,
+  negativeMood: /\b(i'?m|i am|feeling|feel)\s+(tired|sad|stressed|anxious|bad|terrible|awful|exhausted|sick|down|low|depressed|overwhelmed|burnt? ?out)\b/i,
+};
+
+const buildGeneralResponse = (message, context = {}) => {
+  const text = normalize(message);
+  const name = context?.profile?.name ? ` ${context.profile.name}` : '';
+  const mem = memoryLine(context);
+  const health = context?.health || {};
+
+  if (GENERAL_PATTERNS.thanks.test(text)) {
+    return `You're welcome${name}! Want me to log something, or show this week's health and money trends?`;
+  }
+  if (GENERAL_PATTERNS.who.test(text)) {
+    return `I'm LifeSync — your private, on-device daily assistant${name}. I track your health and money together, remember what matters to you, and connect the dots between them.${mem} What would you like to do?`;
+  }
+  if (GENERAL_PATTERNS.capabilities.test(text)) {
+    return `Here's what I can do${name}: log health (steps, sleep, mood, water, exercise) and money (income/expenses) from plain language, answer questions about your data, spot cross-domain patterns (e.g. poor sleep → higher spending), and track goals. Try: "walked 6000 steps", "spent $12 on lunch", or "how did I sleep this week?".`;
+  }
+  if (GENERAL_PATTERNS.bye.test(text)) {
+    return `Take care${name}! I'll keep everything ready for next time. Even a quick log before you go helps your weekly insights.`;
+  }
+  if (GENERAL_PATTERNS.negativeMood.test(text)) {
+    const sleepHint = health.sleep?.average && health.sleep.average < 7
+      ? ` Your logged sleep is averaging ${health.sleep.average}h — a steadier sleep routine often helps.`
+      : '';
+    return `I'm sorry you're feeling that way${name}.${sleepHint} Want to log your mood (1–10) so we can watch the pattern? Small steps — water, a short walk, a little daylight — can help.`;
+  }
+  if (GENERAL_PATTERNS.positiveMood.test(text)) {
+    return `Love to hear that${name}! Want me to log your mood so it shows on your dashboard? Anything good you did today worth tracking — a walk, a healthy meal?`;
+  }
+  if (GENERAL_PATTERNS.howareyou.test(text)) {
+    return `I'm here and ready${name}. More importantly — how are you doing today (1–10)? Tell me about your day and I'll keep track of the health and money side.`;
+  }
+
+  const greeting = name ? `Hi${name}!` : 'Hi!';
+  return `${greeting} I'm your LifeSync daily assistant — I track health and money together and remember what matters to you.${mem} How are you feeling today (1–10), and what's on your plate?`;
+};
+
 const buildResponse = (intent, entities, message, context = {}, adviceRequested = false) => {
   if (adviceRequested) return buildAdviceResponse(message, context, entities);
   if (intent === 'query_general') {
-    const name = context.profile?.name;
-    return `${name ? `Hi ${name}!` : 'Hi!'} I remember your LifeSync history, can discuss health and finances together, log updates, summarize trends, and help with goals.`;
+    return buildGeneralResponse(message, context);
   }
-  if (['get_insight', 'query_finance', 'query_health'].includes(intent)) return buildContextSummary(context);
-  if (intent === 'set_goal') return 'I understood this as a goal request. Open Goals to set the target and schedule.';
+  if (['get_insight', 'query_finance', 'query_health'].includes(intent)) {
+    return `${buildContextSummary(context)}${memoryLine(context)}`;
+  }
+  if (intent === 'set_goal') {
+    return `Love that you're setting a goal.${memoryLine(context)} Open Goals to set the target and timeline, and I'll track your progress and nudge you along the way.`;
+  }
   const health = entities.filter((entity) => entity.domain === 'health');
   const finance = entities.filter((entity) => entity.domain === 'finance');
-  if (health.length && finance.length) return `Logged ${health.length} health item(s) and ${finance.length} financial item(s).`;
-  if (health.length) return `Logged ${health.length} health item(s).`;
-  if (finance.length) return `Logged ${finance[0].currency} ${finance[0].amount} ${finance[0].type}.`;
-  return 'I understood the request, but found no complete record to save.';
+  if (health.length || finance.length) {
+    const detail = describeLogged(entities);
+    return `Done — logged ${detail}. Your dashboard just refreshed with it.${crossDomainHint(entities)} ${moodOrCreativeNudge(entities, message)}`.replace(/\s+/g, ' ').trim();
+  }
+  return 'I understood the request, but found no complete record to save. Tell me a number and what it was for, like "spent $8 on lunch" or "walked 4000 steps".';
+};
+
+// Sentiment small-talk: "I'm tired", "I'm great today" → log a mood AND reply
+// with empathy/encouragement instead of asking for a numeric value.
+const FEELING_TRIGGER = /\b(i'?m|i am|im|i feel|feeling|feel)\b/i;
+const FEELING_SCORES = [
+  [/\b(amazing|fantastic|excellent|wonderful|awesome)\b/, 10],
+  [/\b(great|happy|good|nice|well|calm|relaxed)\b/, 8],
+  [/\b(ok|okay|alright|fine|meh|neutral)\b/, 5],
+  [/\b(tired|sleepy|low|down|bored|drained)\b/, 4],
+  [/\b(sad|stressed|anxious|worried|bad|unwell|sick|nervous|upset)\b/, 3],
+  [/\b(terrible|awful|exhausted|depressed|miserable|overwhelmed|burnt\s?out)\b/, 2],
+];
+const detectFeeling = (message) => {
+  const text = normalize(message);
+  if (!FEELING_TRIGGER.test(text) || /\d/.test(text)) return null;
+  for (const [re, score] of FEELING_SCORES) {
+    const m = text.match(re);
+    if (m) return { score, negative: score <= 4, word: m[1] };
+  }
+  return null;
+};
+const buildFeelingResult = (message, feeling, context, started) => {
+  const name = context?.profile?.name ? ` ${context.profile.name}` : '';
+  const health = context?.health || {};
+  const entity = {
+    domain: 'health', activity: 'mood', type: 'mood', value: feeling.score,
+    value_text: feeling.word, unit: 'rating', duration: null, category: 'Mood',
+  };
+  let response;
+  if (feeling.negative) {
+    const sleepHint = health.sleep?.average && health.sleep.average < 7
+      ? ` Your sleep is averaging ${health.sleep.average}h lately, which can drag energy down.`
+      : '';
+    response = `Sorry you're feeling that way${name} — I've noted your mood as ${feeling.score}/10.${sleepHint} A little water, a short walk, or some daylight can help. Want to talk through your day?`;
+  } else {
+    response = `Glad you're feeling good${name}! Logged your mood as ${feeling.score}/10. Anything worth tracking today — a walk, a healthy meal, or some savings?`;
+  }
+  return {
+    success: true,
+    intent: 'log_health',
+    candidate_intent: 'log_health',
+    domain: 'health',
+    entities: [entity],
+    response,
+    is_cross_domain: false,
+    needs_clarification: false,
+    clarification_question: null,
+    clarification_options: null,
+    confidence: 0.7,
+    processing_time_ms: Date.now() - started,
+    original_message: message,
+    model_runtime: {
+      status: 'ready', provider: 'bert_local',
+      model: process.env.BERT_MODEL_NAME || 'bert_best_model_10pct',
+      feature: 'sentiment', routed_label: 'log_mood',
+    },
+  };
 };
 
 const parseMessageWithBert = async (message, pendingClarification = null, context = {}) => {
   const started = Date.now();
+
+  // If the user clearly started a NEW loggable statement (e.g. "earned $500
+  // from freelance") instead of answering, abandon the stale clarification so
+  // it isn't mistakenly consumed as the answer.
+  if (pendingClarification) {
+    const fresh = normalize(message);
+    const isOption = (pendingClarification.clarificationOptions || [])
+      .some((opt) => normalize(opt) === fresh);
+    if (!isOption && (HEALTH_LOG_EVENT.test(fresh) || FINANCE_LOG_EVENT.test(fresh))) {
+      pendingClarification = null;
+    }
+  }
+
   const original = pendingClarification?.originalMessage || message;
   const forcedLabel = pendingClarification ? forcedLabelFromAnswer(message) : null;
+
+  // Cross-domain daily-assistant follow-up: an everyday plan ("going to town")
+  // becomes a question about HOW the user travels, then links the answer to
+  // finance (cost) and health (movement).
+  const outing = detectOuting(original);
+  if (outing && !ADVICE_SIGNAL.test(original)) {
+    if (pendingClarification) {
+      const mode = transportModeFromText(message);
+      if (mode) return buildOutingResolution(original, outing, mode, context, started);
+    } else if (outing.modeAlready) {
+      const mode = transportModeFromText(original);
+      if (mode) return buildOutingResolution(original, outing, mode, context, started);
+    } else {
+      return buildOutingClarification(original, outing, started);
+    }
+  }
+
+  // Sentiment small-talk ("I'm tired", "I'm great today") → log mood + reply.
+  if (!pendingClarification && !FINANCE_SIGNAL.test(original) && !HEALTH_LOG_EVENT.test(original)) {
+    const feeling = detectFeeling(original);
+    if (feeling) return buildFeelingResult(original, feeling, context, started);
+  }
+
   let classification;
   let runtimeError = null;
   try {
@@ -403,9 +717,23 @@ const parseMessageWithBert = async (message, pendingClarification = null, contex
       ['Add duration', 'Add steps', 'Add health value']
     );
   } else if (!adviceRequested && routedLabel === 'log_both') {
-    const hasHealth = entities.some((entity) => entity.domain === 'health');
-    const hasFinance = entities.some((entity) => entity.domain === 'finance');
-    if (!hasHealth || !hasFinance) {
+    let hasHealth = entities.some((entity) => entity.domain === 'health');
+    const financeEntity = entities.find((entity) => entity.domain === 'finance');
+    // "$50 on a healthy dinner" → finance expense + a qualitative nutrition log.
+    if (!hasHealth && financeEntity && FOOD_CONTEXT.test(original)) {
+      entities.push({
+        domain: 'health',
+        activity: 'nutrition',
+        type: 'nutrition',
+        value: 0,
+        value_text: financeEntity.description || financeEntity.activity || 'meal',
+        unit: 'kcal',
+        duration: null,
+        category: 'Nutrition',
+      });
+      hasHealth = true;
+    }
+    if (!hasHealth || !financeEntity) {
       clarificationResult = clarification(
         'I need both a measurable health value and a financial amount. What is missing?',
         ['Add health value', 'Add financial amount', 'Log one domain only']
@@ -484,4 +812,7 @@ module.exports = {
   _extractHealth: extractHealth,
   _extractBudget: extractBudget,
   _buildContextSummary: buildContextSummary,
+  _detectOuting: detectOuting,
+  _transportModeFromText: transportModeFromText,
+  _buildResponse: buildResponse,
 };

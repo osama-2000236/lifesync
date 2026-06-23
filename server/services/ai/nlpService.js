@@ -16,6 +16,7 @@ const {
   _isStrictCustomHFMode,
 } = require('./providerClient');
 const { parseMessageWithBert } = require('./bertNlpService');
+const { generateAssistantReply } = require('./conversationService');
 
 const AI_SERVICE_ERROR_PATTERNS = [
   /timeout/i,
@@ -697,80 +698,66 @@ const currentRuntimeMetadata = () => {
  * @param {Object} context - Local structured chat/health/finance memory
  * @returns {Object} Parsed result
  */
-const parseMessage = async (message, pendingClarification = null, context = {}) => {
-  if (_getProvider('chat') === 'bert_local') {
-    return parseMessageWithBert(message, pendingClarification, context);
+/**
+ * Hybrid two-track chat:
+ *   Track A — deterministic extractor (BERT hybrid) always finds loggable
+ *             entities + clarifications. Provider-agnostic, so logging stays
+ *             reliable on every model.
+ *   Track B — the user's SELECTED model writes the conversational reply with the
+ *             full multi-turn history + memory + just-logged facts. Switching the
+ *             model mid-conversation just changes Track B → seamless continuity.
+ *
+ * @param {string} message
+ * @param {Object|null} pendingClarification
+ * @param {Object} context  (must include `conversation` for real history)
+ * @param {Object} options  { provider, model } per-request override
+ */
+const parseMessage = async (message, pendingClarification = null, context = {}, options = {}) => {
+  const provider = options.provider || _getProvider('chat');
+
+  // Track A — deterministic actions + a safe baseline reply.
+  const actions = await parseMessageWithBert(message, pendingClarification, context);
+
+  // BERT default, or a clarification turn → keep the deterministic reply as-is.
+  if (provider === 'bert_local' || actions.needs_clarification) {
+    return actions;
   }
-  const startTime = Date.now();
 
-  try {
-    const fastPathResult = tryFastPathParse(message, pendingClarification);
-    if (fastPathResult) {
-      return {
-        ...fastPathResult,
-        model_runtime: currentRuntimeMetadata(),
-      };
-    }
+  // Track B — conversational reply from the chosen model (history + memory).
+  const reply = await generateAssistantReply({
+    provider,
+    model: options.model,
+    context,
+    loggedEntities: actions.entities,
+    message: actions.original_message || message,
+  });
 
-    const turnPrompt = pendingClarification
-      ? buildClarificationContext(pendingClarification, message)
-      : message;
-    const userPrompt = buildContextAwarePrompt(turnPrompt, context);
-
-    const completion = await generateStructuredJson({
-      systemInstruction: SYSTEM_PROMPT,
-      userPrompt,
-      responseSchema: NLP_RESPONSE_SCHEMA,
-      temperature: 0,
-      maxOutputTokens: 300,
-      feature: 'chat',
-    });
-
-    const rawResponse = completion.rawText;
-    const processingTime = Date.now() - startTime;
-
-    if (!rawResponse) throw new Error('Empty response from AI provider');
-
-    const parsed = completion.data;
-
+  if (reply && reply.text) {
     return {
-      ...normalizeNLPResponse(parsed, message, processingTime),
+      ...actions,
+      response: reply.text,
       model_runtime: {
-        provider: completion.provider,
-        model: completion.model,
+        ...(actions.model_runtime || {}),
+        provider: reply.provider,
+        model: reply.model,
+        conversational: true,
+        responder: 'generative',
       },
     };
-  } catch (error) {
-    const processingTime = Date.now() - startTime;
-    console.error('NLP Service Error:', error.message);
-
-    if (isAIServiceFailure(error)) {
-      if (isAITimeoutFailure(error)) {
-        return createModelDelayClarification(message, processingTime, error);
-      }
-
-      throw createAIUnavailableError(processingTime, error);
-    }
-
-    return {
-      success: false,
-      intent: 'unclear',
-      domain: 'general',
-      entities: [],
-      response: "I had trouble understanding that. Could you try rephrasing? For example: 'Spent $10 on lunch' or 'Walked 5000 steps'.",
-      is_cross_domain: false,
-      needs_clarification: true,
-      clarification_question: 'Could you rephrase your message?',
-      clarification_options: [
-        'Log an expense (e.g., "Spent $20 on food")',
-        'Log health data (e.g., "Slept 7 hours")',
-        'Ask about my data',
-      ],
-      confidence: 0.0,
-      processing_time_ms: processingTime,
-      error: error.message,
-    };
   }
+
+  // Missing API key / model unavailable → keep the deterministic reply so the
+  // chat never breaks (cloud models stay "needs a key" but local logging works).
+  return {
+    ...actions,
+    model_runtime: {
+      ...(actions.model_runtime || {}),
+      conversational: false,
+      responder: 'deterministic_fallback',
+      chat_provider: provider,
+      chat_error: reply?.error || null,
+    },
+  };
 };
 
 /**

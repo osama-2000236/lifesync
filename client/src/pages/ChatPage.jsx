@@ -8,6 +8,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { aiAPI, chatAPI } from '../services/api';
 import { subscribeToChatSession } from '../services/firebase';
+import { MODEL_OPTIONS } from '../config/models';
 import {
   Send, Loader2, Sparkles, Plus, Clock, MessageCircle,
   Heart, Wallet, Link2, RotateCcw, AlertCircle, Zap,
@@ -27,6 +28,25 @@ const DOMAIN_CONFIG = {
   both: { label: 'Cross-Domain', color: 'purple', icon: Link2, emoji: '🔗' },
   general: { label: 'General', color: 'navy', icon: MessageCircle, emoji: '💬' },
 };
+
+const MODEL_LABELS = Object.fromEntries(MODEL_OPTIONS.map((m) => [m.id, m.label]));
+
+/** Small badge under an assistant reply showing which model produced it. */
+function ModelReplyBadge({ modelId, runtime }) {
+  if (!modelId) return null;
+  const label = MODEL_LABELS[modelId] || modelId;
+  // A cloud model that couldn't run (no key) falls back to the on-device reply.
+  const fellBack = runtime?.responder === 'deterministic_fallback';
+  return (
+    <div className="flex items-center gap-1.5 mt-1 ml-9 text-[10px] text-navy-400">
+      <BrainCircuit className="w-3 h-3" />
+      <span>{label}</span>
+      {fellBack && (
+        <span className="text-amber-600">· needs an API key — replied on-device</span>
+      )}
+    </div>
+  );
+}
 
 // ============================================
 // SUB-COMPONENTS
@@ -654,6 +674,10 @@ export default function ChatPage() {
     const messageText = text || input.trim();
     if (!messageText || sending || modelRuntime?.activation?.status === 'starting') return;
 
+    // The model this turn runs on (switch target wins so a just-clicked model
+    // is used immediately, before the status poll catches up).
+    const activeModelId = modelRuntime?.switching_to || modelRuntime?.active?.model_id || 'bert_local';
+
     setInput('');
     setClarificationOptions(null);
     setStatusText(null);
@@ -704,6 +728,9 @@ export default function ChatPage() {
           domain: result.domain,
           isCrossDomain: result.is_cross_domain,
           needsClarification: result.needs_clarification,
+          // Which model produced this reply (for the per-message badge).
+          modelId: result.needs_clarification ? null : activeModelId,
+          modelRuntime: result.model_runtime || null,
         };
         setMessages((prev) => [...prev, assistantMsg]);
 
@@ -754,10 +781,10 @@ export default function ChatPage() {
         setStatusText(null);
         inputRef.current?.focus();
       },
-    });
+    }, { model: activeModelId });
 
     abortRef.current = abort;
-  }, [clearStatusTimers, input, modelRuntime?.activation?.status, sending, sessionId]);
+  }, [clearStatusTimers, input, modelRuntime?.activation?.status, modelRuntime?.active?.model_id, modelRuntime?.switching_to, sending, sessionId]);
 
   // Cleanup abort on unmount or session switch
   useEffect(() => {
@@ -885,6 +912,9 @@ export default function ChatPage() {
               {messages.map((msg) => (
                 <div key={msg.id}>
                   <ChatBubble message={msg} onRetry={handleRetry} />
+                  {msg.role === 'assistant' && !msg.isError && msg.modelId && (
+                    <ModelReplyBadge modelId={msg.modelId} runtime={msg.modelRuntime} />
+                  )}
                   {msg.entities && (
                     <div className="mt-2">
                       <EntitiesBadge entities={msg.entities} />

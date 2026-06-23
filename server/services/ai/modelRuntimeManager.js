@@ -181,6 +181,39 @@ const capabilitiesFor = (provider) => ({
   classifier_only: provider === 'bert_local',
 });
 
+// Providers whose chat path needs an API key (cloud / hosted).
+const KEYED_PROVIDERS = new Set(['openai', 'anthropic', 'gemini', 'groq', 'huggingface', 'custom_hf']);
+
+/**
+ * Resolve a picker model id → { provider, model, conversational, requiresKey }
+ * for per-request chat routing (so each turn uses the chosen model without
+ * mutating global state).
+ */
+const resolveModel = (modelId) => {
+  const entry = catalogEntry(String(modelId || '').trim().toLowerCase());
+  if (!entry) return null;
+  if (entry.id === 'custom_local') {
+    const runtime = customModelState.runtime || customRuntime();
+    return {
+      id: entry.id,
+      provider: runtime,
+      model: customModelState.name || null,
+      conversational: true,
+      requiresKey: KEYED_PROVIDERS.has(runtime),
+      configured: Boolean(customModelState.name || customModelState.endpoint),
+    };
+  }
+  const provider = entry.target.provider;
+  return {
+    id: entry.id,
+    provider,
+    model: entry.target.model,
+    conversational: !capabilitiesFor(provider).classifier_only,
+    requiresKey: KEYED_PROVIDERS.has(provider),
+    configured: true,
+  };
+};
+
 // Coarse expected-response-time estimate so the chat can tell the user how
 // long to wait. Uses the GPU figure only when the live runtime reports a GPU
 // execution provider; otherwise the CPU figure.
@@ -511,6 +544,7 @@ module.exports = {
   getModelCatalog,
   registerCustomModel,
   getCustomModelState,
+  resolveModel,
   startBestAvailableModel: startModel,
   startModel,
   _hardwareSnapshot: hardwareSnapshot,

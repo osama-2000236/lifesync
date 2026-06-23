@@ -1,7 +1,14 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { authAPI } from '../services/api';
+import { authAPI, aiAPI } from '../services/api';
 import { getGoogleClientId } from '../config/runtime';
+
+// One model at a time: make the server run the model this user chose at signup
+// / in settings, so both chat and the dashboard use it. Fire-and-forget.
+const activatePreferredModel = (user) => {
+  const model = user?.preferred_model || 'bert_local';
+  aiAPI.start(model).catch(() => {});
+};
 
 const AuthContext = createContext(null);
 const ONBOARDING_EXEMPT_PATHS = new Set(['/landing', '/privacy', '/terms']);
@@ -31,6 +38,7 @@ export function AuthProvider({ children }) {
     localStorage.setItem('accessToken', payload.accessToken);
     localStorage.setItem('refreshToken', payload.refreshToken);
     setUser(payload.user);
+    activatePreferredModel(payload.user);
     return payload;
   }, []);
 
@@ -43,7 +51,10 @@ export function AuthProvider({ children }) {
     const token = localStorage.getItem('accessToken');
     if (token) {
       authAPI.getProfile()
-        .then(({ data }) => setUser(data.data.user))
+        .then(({ data }) => {
+          setUser(data.data.user);
+          activatePreferredModel(data.data.user);
+        })
         .catch(() => clearSession())
         .finally(() => setLoading(false));
     } else {

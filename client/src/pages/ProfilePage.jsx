@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { authAPI } from '../services/api';
+import { authAPI, aiAPI } from '../services/api';
 import { getApiErrorMessage } from '../utils/apiErrors';
+import { MODEL_OPTIONS } from '../config/models';
 import {
   User, Mail, Lock, Trash2, Save, Eye, EyeOff, Loader2,
   CheckCircle, AlertTriangle, LogOut, ArrowLeft, Shield,
+  BrainCircuit, Cpu,
 } from 'lucide-react';
 
 function Card({ title, icon: Icon, iconColor = 'text-emerald-600', iconBg = 'bg-emerald-50', children }) {
@@ -159,6 +161,74 @@ function ProfileInfoSection({ user, onUpdate }) {
           Save changes
         </button>
       </form>
+    </Card>
+  );
+}
+
+function AssistantModelSection({ user, onUpdate }) {
+  const [selected, setSelected] = useState(user?.preferred_model || 'bert_local');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [ok, setOk] = useState('');
+
+  useEffect(() => {
+    setSelected(user?.preferred_model || 'bert_local');
+  }, [user]);
+
+  const save = async (modelId) => {
+    if (loading) return;
+    setSelected(modelId);
+    setError('');
+    setOk('');
+    setLoading(true);
+    try {
+      const { data } = await authAPI.updateProfile({ preferred_model: modelId });
+      onUpdate(data.data.user);
+      aiAPI.start(modelId).catch(() => {});
+      setOk('Default model updated. Your chat and dashboard now use it.');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Could not update your model.'));
+      setSelected(user?.preferred_model || 'bert_local');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card title="Assistant Model" icon={BrainCircuit} iconColor="text-navy-600" iconBg="bg-navy-50">
+      <div className="space-y-3">
+        <Alert type="error" message={error} onClose={() => setError('')} />
+        <Alert type="success" message={ok} onClose={() => setOk('')} />
+        <p className="text-sm text-navy-500 flex items-start gap-2">
+          <Cpu className="w-4 h-4 mt-0.5 flex-shrink-0 text-navy-400" />
+          LifeSync runs one model at a time, on your GPU automatically (CPU fallback). Your memory, history and data carry over when you switch.
+        </p>
+        {MODEL_OPTIONS.map((m) => {
+          const active = selected === m.id;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              disabled={loading}
+              onClick={() => save(m.id)}
+              className={`w-full text-left p-4 rounded-xl border-2 transition-all disabled:opacity-60 ${
+                active ? 'border-emerald-500 bg-emerald-50/60' : 'border-navy-100 bg-white hover:border-navy-200'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-navy-800 flex items-center gap-2">
+                  {m.label}
+                  {m.tag && <span className="text-[10px] font-medium text-navy-400 uppercase tracking-wider">{m.tag}</span>}
+                </span>
+                {active && (loading
+                  ? <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
+                  : <CheckCircle className="w-4 h-4 text-emerald-500" />)}
+              </div>
+              <p className="text-xs text-navy-500 mt-1">{m.desc}</p>
+            </button>
+          );
+        })}
+      </div>
     </Card>
   );
 }
@@ -511,6 +581,7 @@ export default function ProfilePage() {
 
       <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
         <ProfileInfoSection user={currentUser} onUpdate={handleUpdate} />
+        <AssistantModelSection user={currentUser} onUpdate={handleUpdate} />
         <EmailChangeSection user={currentUser} isGoogleUser={isGoogleUser} onUpdate={handleUpdate} />
         <ChangePasswordSection isGoogleUser={isGoogleUser} />
         <DangerZoneSection onDeleteAccount={handleDeleteAccount} />

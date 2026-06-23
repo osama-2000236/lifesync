@@ -427,6 +427,94 @@ const callAnthropic = async ({
   }
 };
 
+// ─── Conversational generation (multi-turn, free prose, no schema) ───
+// Powers the "chat like any provider" experience: full conversation history is
+// sent as a real messages array, the model replies in natural prose, and
+// switching the model mid-conversation just changes which model produces the
+// next turn. Logging/actions are handled separately (deterministic extractor),
+// so this path is purely the conversation.
+const sanitizeTurns = (messages = []) => {
+  const turns = (Array.isArray(messages) ? messages : [])
+    .filter((m) => m && m.content && (m.role === 'user' || m.role === 'assistant'))
+    .map((m) => ({ role: m.role, content: String(m.content).slice(0, 4000) }));
+  // Most providers require the first turn to be the user.
+  while (turns.length && turns[0].role === 'assistant') turns.shift();
+  return turns;
+};
+
+const generateChat = async ({ system, messages, temperature = 0.4, maxTokens = 600, providerOverride, model } = {}) => {
+  const provider = providerOverride ? normalizeProvider(providerOverride) : getProvider('chat');
+  if (provider === 'bert_local') throw new Error('bert_local is a classifier, not a conversational generator.');
+  if (!SUPPORTED_PROVIDERS.has(provider)) throw new Error(`Unsupported chat provider: ${provider}`);
+
+  const settings = getProviderSettings(provider);
+  if (model) settings.model = model;
+  const turns = sanitizeTurns(messages);
+  if (!turns.length) turns.push({ role: 'user', content: 'Hello' });
+
+  if (provider === 'anthropic') {
+    if (!settings.apiKey) throw new Error('Anthropic API key is not configured.');
+    const response = await axios.post(settings.endpoint, {
+      model: settings.model,
+      max_tokens: maxTokens,
+      temperature,
+      ...(system ? { system } : {}),
+      messages: turns,
+    }, {
+      timeout: 60000,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': settings.apiKey,
+        'anthropic-version': process.env.ANTHROPIC_VERSION || '2023-06-01',
+      },
+    });
+    return { provider, model: settings.model, text: extractAnthropicText(response.data) };
+  }
+
+  if (provider === 'gemini') {
+    if (!settings.apiKey) throw new Error('Gemini API key is not configured.');
+    const payload = {
+      contents: turns.map((t) => ({ role: t.role === 'assistant' ? 'model' : 'user', parts: [{ text: t.content }] })),
+      generationConfig: { temperature, maxOutputTokens: maxTokens },
+    };
+    if (system) payload.systemInstruction = { parts: [{ text: system }] };
+    const response = await axios.post(settings.endpoint, payload, {
+      timeout: 30000,
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': settings.apiKey },
+    });
+    return { provider, model: settings.model, text: extractGeminiText(response.data) };
+  }
+
+  if (['openai', 'lmstudio', 'ollama', 'groq', 'huggingface'].includes(provider)) {
+    if (!['ollama', 'lmstudio'].includes(provider) && !settings.apiKey) {
+      throw new Error(`${provider} API key is not configured.`);
+    }
+    const msgs = system ? [{ role: 'system', content: system }, ...turns] : turns;
+    const response = await axios.post(settings.endpoint, {
+      model: settings.model,
+      messages: msgs,
+      temperature,
+      max_tokens: maxTokens,
+      stream: false,
+    }, {
+      timeout: provider === 'lmstudio'
+        ? (parseInt(process.env.LM_STUDIO_REQUEST_TIMEOUT_MS, 10) || 180000)
+        : 60000,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
+    });
+    return { provider, model: settings.model, text: extractOpenAIText(response.data, provider) };
+  }
+
+  if (provider === 'custom_hf') {
+    const flat = turns.map((t) => `${t.role === 'assistant' ? 'Assistant' : 'User'}: ${t.content}`).join('\n');
+    const parsed = await callCustomHF(system || '', flat, { feature: 'chat' });
+    const text = typeof parsed === 'string' ? parsed : (parsed?.response || JSON.stringify(parsed));
+    return { provider, model: resolveCustomHFModelName(), text };
+  }
+
+  throw new Error(`Unsupported chat provider: ${provider}`);
+};
+
 /** Classify one message with the local BERT sequence-classification runtime. */
 const classifyText = async (text) => {
   const settings = getProviderSettings('bert_local');
@@ -853,6 +941,7 @@ const getAIProviderStatus = async (feature = 'chat', providerOverride = null) =>
 
 module.exports = {
   generateStructuredJson,
+  generateChat,
   classifyText,
   getAIProviderStatus,
   normalizeEntities,

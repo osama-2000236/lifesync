@@ -14,6 +14,7 @@ const ChatLog = require('./ChatLog');
 const UserGoal = require('./UserGoal');
 const LinkedDomain = require('./LinkedDomain');
 const SystemLog = require('./SystemLog');
+const UserMemory = require('./UserMemory');
 
 // ============================================
 // ASSOCIATIONS
@@ -27,6 +28,7 @@ User.hasMany(AISummary, { foreignKey: 'user_id', as: 'aiSummaries' });
 User.hasMany(ChatLog, { foreignKey: 'user_id', as: 'chatLogs' });
 User.hasMany(UserGoal, { foreignKey: 'user_id', as: 'goals' });
 User.hasMany(SystemLog, { foreignKey: 'admin_id', as: 'adminLogs' });
+User.hasMany(UserMemory, { foreignKey: 'user_id', as: 'memories' });
 
 // --- HealthLog Associations ---
 HealthLog.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
@@ -59,6 +61,9 @@ LinkedDomain.belongsTo(FinancialLog, { foreignKey: 'financial_log_id', as: 'fina
 // --- SystemLog Associations ---
 SystemLog.belongsTo(User, { foreignKey: 'admin_id', as: 'admin' });
 
+// --- UserMemory Associations ---
+UserMemory.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
 // ============================================
 // Export all models
 // ============================================
@@ -73,6 +78,7 @@ const db = {
   UserGoal,
   LinkedDomain,
   SystemLog,
+  UserMemory,
 };
 
 module.exports = db;
