@@ -6,7 +6,7 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
-    BERT_RUNTIME_HOST=0.0.0.0 \
+    BERT_RUNTIME_HOST=:: \
     BERT_RUNTIME_PROVIDER=cpu
 
 WORKDIR /app
@@ -25,4 +25,6 @@ ADD ${WEIGHTS_URL} ./bert_intent.onnx.data
 
 # Railway/Cloud Run inject $PORT; default 8080 for local docker run.
 EXPOSE 8080
-CMD ["sh", "-c", "python server.py --provider cpu --onnx bert_intent.onnx --model model --host 0.0.0.0 --port ${PORT:-8080}"]
+# Bind IPv6 dual-stack (::) so Railway private networking (bert.railway.internal)
+# works; it also accepts IPv4, so a public domain works too.
+CMD ["sh", "-c", "python server.py --provider cpu --onnx bert_intent.onnx --model model --host :: --port ${PORT:-8080}"]

@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import socket
 import statistics
 import threading
 import time
@@ -252,7 +253,22 @@ def main() -> None:
 
     runtime = IntentRuntime(args.model, args.onnx, args.provider)
     Handler.runtime = runtime
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    if ":" in args.host:
+        # IPv6 bind (e.g. "::") — Railway private networking requires IPv6.
+        # Disable V6ONLY so it also accepts IPv4 (dual-stack) for public access.
+        class _DualStackServer(ThreadingHTTPServer):
+            address_family = socket.AF_INET6
+
+            def server_bind(self):
+                try:
+                    self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+                except (AttributeError, OSError):
+                    pass
+                super().server_bind()
+
+        server = _DualStackServer((args.host, args.port), Handler)
+    else:
+        server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(json.dumps(runtime.status(), indent=2))
     print(f"Listening: http://{args.host}:{args.port}")
     server.serve_forever()
