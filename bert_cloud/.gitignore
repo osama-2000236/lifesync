@@ -1,0 +1,2 @@
+# ONNX external weights — hosted as a GitHub Release asset, fetched at Docker build.
+*.onnx.data
