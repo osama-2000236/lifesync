@@ -255,6 +255,59 @@ const sendOTPEmail = async (email, code) => {
         </div>
       `;
     const subject = 'LifeSync — Your Verification Code';
+    const fromName = process.env.SMTP_FROM_NAME || 'LifeSync';
+
+    // ── Single-sender HTTP providers (no domain needed) ──────────────────────
+    // Brevo / SendGrid let you verify ONE sender address and send to anyone, over
+    // HTTPS (443) — works on hosts that block outbound SMTP (e.g. Railway). These
+    // take precedence over Resend, whose shared onboarding@resend.dev test sender
+    // only delivers to the Resend account owner's own inbox.
+    if (process.env.BREVO_API_KEY) {
+      const sender = process.env.BREVO_FROM || process.env.SMTP_FROM_EMAIL;
+      if (!sender) throw new Error('BREVO_FROM (a Brevo-verified sender email) is not set.');
+      const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': process.env.BREVO_API_KEY,
+          'Content-Type': 'application/json',
+          accept: 'application/json',
+        },
+        body: JSON.stringify({
+          sender: { email: sender, name: fromName },
+          to: [{ email }],
+          subject,
+          htmlContent: html,
+        }),
+      });
+      if (!resp.ok) {
+        const detail = await resp.text().catch(() => '');
+        throw new Error(`Brevo API ${resp.status}: ${detail.slice(0, 300)}`);
+      }
+      return { success: true, message: 'Verification email sent.' };
+    }
+
+    if (process.env.SENDGRID_API_KEY) {
+      const sender = process.env.SENDGRID_FROM || process.env.SMTP_FROM_EMAIL;
+      if (!sender) throw new Error('SENDGRID_FROM (a SendGrid-verified sender email) is not set.');
+      const resp = await fetch('https://api.sendgrid.com/v3/mail/send', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          personalizations: [{ to: [{ email }] }],
+          from: { email: sender, name: fromName },
+          subject,
+          content: [{ type: 'text/html', value: html }],
+        }),
+      });
+      if (!resp.ok) {
+        const detail = await resp.text().catch(() => '');
+        throw new Error(`SendGrid API ${resp.status}: ${detail.slice(0, 300)}`);
+      }
+      return { success: true, message: 'Verification email sent.' };
+    }
 
     // Prefer Resend's HTTP API when configured. It sends over HTTPS (443), so
     // it works on hosts that block outbound SMTP ports — e.g. Railway, where
