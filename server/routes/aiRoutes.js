@@ -12,6 +12,39 @@ const { success, error } = require('../utils/responseHelper');
 
 const router = express.Router();
 
+// Public, secret-free liveness probe for the AI stack. Reports resolved
+// provider names + readiness booleans so the deployment is self-verifiable
+// without auth. NEVER returns API keys or any secret values.
+router.get('/health', async (req, res, next) => {
+  try {
+    const [chat, insights, openrouter] = await Promise.all([
+      getAIProviderStatus('chat'),
+      getAIProviderStatus('insights'),
+      getAIProviderStatus('chat', 'openrouter'),
+    ]);
+    const slim = (s) => ({
+      provider: s.provider,
+      status: s.status,
+      configured_model: s.configured_model || null,
+      local: Boolean(s.local),
+      ...(s.architecture ? { architecture: s.architecture } : {}),
+      ...(s.execution_provider ? { execution_provider: s.execution_provider } : {}),
+    });
+    const bertReady = chat.provider === 'bert_local' && chat.status === 'ready';
+    const openrouterReady = openrouter.status === 'configured';
+    return success(res, {
+      ok: bertReady && openrouterReady,
+      bert_ready: bertReady,
+      openrouter_ready: openrouterReady,
+      chat: slim(chat),
+      insights: slim(insights),
+      openrouter: slim(openrouter),
+    }, 'AI health');
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // Selectable model menu (BERT default + local Gemma options).
 router.get('/models', authenticate, (req, res) => success(res, { models: getModelCatalog() }, 'Model catalog'));
 

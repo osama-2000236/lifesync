@@ -8,6 +8,10 @@ coverage/
 __pycache__/
 *.pyc
 
+# Local dev database (never commit)
+*.sqlite
+*.sqlite3
+
 # Local model artifacts (large, machine-specific)
 bert_best_model_10pct/
 model_runtime/.venv/
