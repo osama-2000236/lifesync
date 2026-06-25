@@ -520,6 +520,12 @@ const buildGeneralResponse = (message, context = {}) => {
     return `I'm here and ready${name}. More importantly — how are you doing today (1–10)? Tell me about your day and I'll keep track of the health and money side.`;
   }
 
+  // Anti-repeat: if we ALREADY asked the mood question last turn and the reply
+  // wasn't a recognizable number/feeling, don't parrot the identical greeting.
+  if (assistantAskedMood(lastAssistantTurn(context))) {
+    return `No rush${name} — even a quick number from 1 to 10 helps me track how you're doing. Or just tell me about your day and I'll note the health and money side.`;
+  }
+
   const greeting = name ? `Hi${name}!` : 'Hi!';
   return `${greeting} I'm your LifeSync daily assistant — I track health and money together and remember what matters to you.${mem} How are you feeling today (1–10), and what's on your plate?`;
 };
@@ -555,12 +561,86 @@ const FEELING_SCORES = [
   [/\b(sad|stressed|anxious|worried|bad|unwell|sick|nervous|upset)\b/, 3],
   [/\b(terrible|awful|exhausted|depressed|miserable|overwhelmed|burnt\s?out)\b/, 2],
 ];
-const detectFeeling = (message) => {
+const detectFeeling = (message, { expectingMood = false } = {}) => {
   const text = normalize(message);
-  if (!FEELING_TRIGGER.test(text) || /\d/.test(text)) return null;
+  // Normally we ignore digit-bearing text here (numbers are handled by the
+  // health extractor). But when the assistant JUST asked for a 1–10 mood
+  // rating, a bare number ("4", "a 4", "feeling 4") IS the answer.
+  if (!/\d/.test(text)) {
+    if (!FEELING_TRIGGER.test(text)) return null;
+  } else if (!expectingMood) {
+    return null;
+  }
   for (const [re, score] of FEELING_SCORES) {
     const m = text.match(re);
     if (m) return { score, negative: score <= 4, word: m[1] };
+  }
+  return null;
+};
+
+// ─── Conversation-aware follow-up memory ───────────────────────────
+// The deterministic engine asks questions ("how do you feel 1–10?",
+// "by car, by bus, or on foot?"). When the user answers with a short reply
+// ("4", "bus"), we must read the PREVIOUS assistant turn to understand it —
+// otherwise the same question gets asked again. `context.conversation` is the
+// stored history (oldest→newest) WITHOUT the current turn, so its last
+// assistant entry is exactly the question we just asked.
+const lastAssistantTurn = (context = {}) => {
+  const convo = Array.isArray(context.conversation) ? context.conversation : [];
+  for (let i = convo.length - 1; i >= 0; i -= 1) {
+    if (convo[i] && convo[i].role === 'assistant' && convo[i].content) {
+      return String(convo[i].content);
+    }
+  }
+  const recent = Array.isArray(context.recent_messages) ? context.recent_messages : [];
+  for (let i = recent.length - 1; i >= 0; i -= 1) {
+    if (recent[i] && recent[i].role === 'assistant' && recent[i].message) {
+      return String(recent[i].message);
+    }
+  }
+  return '';
+};
+
+const MOOD_QUESTION = /(\(\s*1\s*[–-]\s*10\s*\)|how are you feeling|how'?s your mood|how are you doing today|log your mood|mood\s*\(1\s*[–-]\s*10\)|1\s*[–-]\s*10\s*scale)/i;
+const TRANSPORT_QUESTION = /\bby car\b.*\bby bus\b|\bon foot\b|how you travel|how do you (?:get|travel)/i;
+const assistantAskedMood = (text) => MOOD_QUESTION.test(normalize(text || ''));
+const assistantAskedTransport = (text) => TRANSPORT_QUESTION.test(normalize(text || ''));
+
+// Map a 0–10 score back to a representative feeling word for the ack reply.
+const feelingWordFor = (score) => {
+  if (score >= 9) return 'amazing';
+  if (score >= 7) return 'good';
+  if (score >= 5) return 'ok';
+  if (score >= 4) return 'low';
+  if (score >= 3) return 'stressed';
+  return 'terrible';
+};
+
+// Recover the outing place from the assistant's prior question text so a bare
+// "bus" reply can be resolved without the in-memory clarification record.
+const detectOutingFromHistory = (assistantText) => {
+  const t = normalize(assistantText || '');
+  const m = t.match(/(?:heading to|going to|to)\s+the\s+([a-z ]+?)\?/);
+  if (m && m[1]) return { place: prettyPlace(m[1].trim()), modeAlready: false };
+  const dest = t.match(OUTING_DEST);
+  if (dest) return { place: prettyPlace(dest[1]), modeAlready: false };
+  return null;
+};
+
+// Is the whole user message essentially just a mood answer?
+// Accepts "4", "4/10", "a 4", or a bare feeling word ("tired", "great").
+const parseBareMood = (message) => {
+  const text = normalize(message);
+  const numMatch = text.match(/^(?:a\s+|i'?m\s+(?:a\s+)?|feeling\s+(?:a\s+)?|i\s+feel\s+(?:a\s+)?)?(10|[0-9])(?:\s*\/\s*10)?[.!]?$/);
+  if (numMatch) {
+    const n = Number(numMatch[1]);
+    if (n >= 0 && n <= 10) return n;
+  }
+  // Short bare feeling word with no other content.
+  if (text.split(/\s+/).length <= 3) {
+    for (const [re, score] of FEELING_SCORES) {
+      if (re.test(text)) return score;
+    }
   }
   return null;
 };
@@ -636,9 +716,32 @@ const parseMessageWithBert = async (message, pendingClarification = null, contex
     }
   }
 
-  // Sentiment small-talk ("I'm tired", "I'm great today") → log mood + reply.
+  // Conversation-aware follow-up: interpret a SHORT reply against the question
+  // the assistant just asked, so we never ask the same thing twice.
   if (!pendingClarification && !FINANCE_SIGNAL.test(original) && !HEALTH_LOG_EVENT.test(original)) {
-    const feeling = detectFeeling(original);
+    const lastAsst = lastAssistantTurn(context);
+    const expectingMood = assistantAskedMood(lastAsst);
+
+    // (a) We just asked "how do you feel (1–10)?" and they sent a bare number.
+    if (expectingMood) {
+      const score = parseBareMood(original);
+      if (score !== null) {
+        const feeling = { score, negative: score <= 4, word: feelingWordFor(score) };
+        return buildFeelingResult(original, feeling, context, started);
+      }
+    }
+
+    // (b) We just asked the outing transport question; a bare "bus"/"car"/"walk"
+    //     resolves it into a cross-domain log instead of being forgotten.
+    if (assistantAskedTransport(lastAsst)) {
+      const mode = transportModeFromText(original);
+      const outing = detectOutingFromHistory(lastAsst);
+      if (mode && outing) return buildOutingResolution(original, outing, mode, context, started);
+    }
+
+    // (c) Sentiment small-talk ("I'm tired", "I'm great today") → log mood.
+    //     When a mood was just requested, also accept digit-bearing phrasings.
+    const feeling = detectFeeling(original, { expectingMood });
     if (feeling) return buildFeelingResult(original, feeling, context, started);
   }
 
