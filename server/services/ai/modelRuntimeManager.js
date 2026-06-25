@@ -99,6 +99,15 @@ const MODEL_CATALOG = [
     eta_ms: { gpu: 2200, cpu: 2200 },
   },
   {
+    id: 'openrouter_chat',
+    label: 'OpenRouter',
+    kind: 'generative',
+    is_default: false,
+    description: 'Cloud conversational model via OpenRouter (one key, many models). Set OPENROUTER_MODEL to pick the model. Shares the same LifeSync memory, history, and data context.',
+    target: { provider: 'openrouter', model: process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct' },
+    eta_ms: { gpu: 2000, cpu: 2000 },
+  },
+  {
     id: 'custom_local',
     label: 'Custom model',
     kind: 'generative',
@@ -182,7 +191,7 @@ const capabilitiesFor = (provider) => ({
 });
 
 // Providers whose chat path needs an API key (cloud / hosted).
-const KEYED_PROVIDERS = new Set(['openai', 'anthropic', 'gemini', 'groq', 'huggingface', 'custom_hf']);
+const KEYED_PROVIDERS = new Set(['openai', 'anthropic', 'openrouter', 'gemini', 'groq', 'huggingface', 'custom_hf']);
 
 /**
  * Resolve a picker model id → { provider, model, conversational, requiresKey }

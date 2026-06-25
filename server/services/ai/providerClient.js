@@ -6,10 +6,12 @@ const HF_API_BASE_URL = 'https://api-inference.huggingface.co/v1';
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
 const OPENAI_API_BASE_URL = 'https://api.openai.com/v1';
 const ANTHROPIC_API_BASE_URL = 'https://api.anthropic.com/v1';
+const OPENROUTER_API_BASE_URL = 'https://openrouter.ai/api/v1';
 const SUPPORTED_PROVIDERS = new Set([
   'gemini',
   'openai',
   'anthropic',
+  'openrouter',
   'huggingface',
   'groq',
   'custom_hf',
@@ -109,6 +111,21 @@ const baseProviderSettings = (providerOverride) => {
       apiKey: process.env.ANTHROPIC_API_KEY || '',
       model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
       endpoint: `${baseUrl}/messages`,
+    };
+  }
+
+  if (provider === 'openrouter') {
+    const baseUrl = (process.env.OPENROUTER_API_BASE_URL || OPENROUTER_API_BASE_URL).replace(/\/$/, '');
+    return {
+      provider,
+      apiKey: process.env.OPENROUTER_API_KEY || '',
+      model: process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct',
+      endpoint: `${baseUrl}/chat/completions`,
+      // OpenRouter ranks apps via these optional headers; harmless if unset.
+      extraHeaders: {
+        'HTTP-Referer': process.env.OPENROUTER_SITE_URL || 'https://lifesync.app',
+        'X-Title': process.env.OPENROUTER_APP_NAME || 'LifeSync',
+      },
     };
   }
 
@@ -284,6 +301,8 @@ const callOpenAICompatible = async ({
     ? 'Groq'
     : settings.provider === 'openai'
       ? 'OpenAI'
+    : settings.provider === 'openrouter'
+      ? 'OpenRouter'
     : settings.provider === 'ollama'
       ? 'Ollama'
       : settings.provider === 'lmstudio'
@@ -340,6 +359,7 @@ const callOpenAICompatible = async ({
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${settings.apiKey}`,
+        ...(settings.extraHeaders || {}),
       },
     }
   );
@@ -485,7 +505,7 @@ const generateChat = async ({ system, messages, temperature = 0.4, maxTokens = 6
     return { provider, model: settings.model, text: extractGeminiText(response.data) };
   }
 
-  if (['openai', 'lmstudio', 'ollama', 'groq', 'huggingface'].includes(provider)) {
+  if (['openai', 'openrouter', 'lmstudio', 'ollama', 'groq', 'huggingface'].includes(provider)) {
     if (!['ollama', 'lmstudio'].includes(provider) && !settings.apiKey) {
       throw new Error(`${provider} API key is not configured.`);
     }
@@ -500,7 +520,7 @@ const generateChat = async ({ system, messages, temperature = 0.4, maxTokens = 6
       timeout: provider === 'lmstudio'
         ? (parseInt(process.env.LM_STUDIO_REQUEST_TIMEOUT_MS, 10) || 180000)
         : 60000,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}`, ...(settings.extraHeaders || {}) },
     });
     return { provider, model: settings.model, text: extractOpenAIText(response.data, provider) };
   }
@@ -848,7 +868,7 @@ const generateStructuredJson = async ({
     });
   }
 
-  if (provider === 'huggingface' || provider === 'groq' || provider === 'openai' || provider === 'ollama' || provider === 'lmstudio') {
+  if (provider === 'huggingface' || provider === 'groq' || provider === 'openai' || provider === 'openrouter' || provider === 'ollama' || provider === 'lmstudio') {
     return callOpenAICompatible({
       systemInstruction,
       userPrompt,
