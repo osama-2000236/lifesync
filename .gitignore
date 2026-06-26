@@ -30,6 +30,7 @@ playwright-report/
 test-results/
 output/qa/playwright/
 .auth/
+tests/e2e/screenshots/
 
 # Agent runtime + local scratch (never commit — large binaries, DB data, env backups)
 .codex-runtime/
@@ -38,3 +39,13 @@ output/
 
 # Misc personal/docs scratch (move real docs into docs/)
 osama/
+
+# secrets — never commit
+client_secret_*.json
+*.pem
+
+# local scratch artifacts
+*.zip
+mysql.err
+mysql.out
+monitor.sh

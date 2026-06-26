@@ -1,135 +1,56 @@
 import 'dotenv/config';
 
-const BACKEND_HEALTH_URL =
-  process.env.BACKEND_HEALTH_URL
-  || process.env.RAILWAY_HEALTH_URL
-  || 'http://localhost:5000/api/health';
-const HF_SPACE_URL =
-  (
-    process.env.HF_SPACE_URL
-    || process.env.CUSTOM_HF_ENDPOINT
-    || 'https://os-1202883-lifesync-api.hf.space'
-  ).replace(/\/+$/, '');
-const HF_TIMEOUT_MS = Number(process.env.HF_PROBE_TIMEOUT_MS || 120000);
+// Probes the LIVE prod stack: backend health + AI health (BERT + OpenRouter).
+// Old HF-Space gradio probe removed (Space torn down 2026-06-25; AI now = Railway BERT svc + OpenRouter).
+const BASE =
+  (process.env.PROBE_BASE_URL
+    || process.env.RAILWAY_HEALTH_URL
+    || 'https://lifesync-production-fdf9.up.railway.app').replace(/\/+$/, '');
 const REQUEST_TIMEOUT_MS = Number(process.env.PROBE_REQUEST_TIMEOUT_MS || 30000);
 
 const withTimeout = async (url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
-    return await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
+    return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
 };
 
 const assert = (condition, message) => {
-  if (!condition) {
-    throw new Error(message);
-  }
+  if (!condition) throw new Error(message);
 };
 
 const probeBackend = async () => {
-  const response = await withTimeout(BACKEND_HEALTH_URL);
-  assert(response.ok, `Backend health check failed with status ${response.status}`);
-
-  const payload = await response.json();
-  assert(payload?.success === true, 'Backend health check payload is missing success=true');
-  console.log(`[probe] Backend OK: ${BACKEND_HEALTH_URL}`);
+  const url = `${BASE}/api/health`;
+  const res = await withTimeout(url);
+  assert(res.ok, `Backend health failed: status ${res.status}`);
+  const payload = await res.json();
+  assert(payload?.success === true, 'Backend health payload missing success=true');
+  console.log(`[probe] Backend OK: ${url} (commit ${payload.commit || 'n/a'}, env ${payload.env || 'n/a'})`);
 };
 
-const parseSseCompletionPayload = (text) => {
-  const lines = text.split(/\r?\n/);
-  let currentEvent = '';
-  const dataLines = [];
-
-  for (const line of lines) {
-    if (line.startsWith('event:')) {
-      currentEvent = line.slice('event:'.length).trim();
-      continue;
-    }
-
-    if (line.startsWith('data:')) {
-      dataLines.push({
-        event: currentEvent,
-        value: line.slice('data:'.length).trim(),
-      });
-    }
-  }
-
-  const completion = dataLines.find((entry) => entry.event === 'complete');
-  if (!completion) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(completion.value);
-    return Array.isArray(parsed) ? parsed[0] : null;
-  } catch {
-    return null;
-  }
-};
-
-const probeHfSpace = async () => {
-  const infoUrl = `${HF_SPACE_URL}/gradio_api/info`;
-  const infoResponse = await withTimeout(infoUrl);
-  assert(infoResponse.ok, `HF info endpoint failed with status ${infoResponse.status}`);
-
-  const infoPayload = await infoResponse.json();
-  assert(
-    Boolean(infoPayload?.named_endpoints?.['/infer']),
-    'HF info payload is missing /infer endpoint metadata'
+const probeAi = async () => {
+  const url = `${BASE}/api/ai/health`;
+  const res = await withTimeout(url);
+  assert(res.ok, `AI health failed: status ${res.status}`);
+  const payload = await res.json();
+  const data = payload?.data || {};
+  assert(data.ok === true, 'AI health payload missing data.ok=true');
+  assert(data.bert_ready === true, 'BERT runtime not ready (bert_ready!=true)');
+  assert(data.openrouter_ready === true, 'OpenRouter not ready (openrouter_ready!=true)');
+  console.log(
+    `[probe] AI OK: ${url} (chat=${data.chat?.provider}/${data.chat?.status}, ` +
+    `insights=${data.insights?.provider}/${data.insights?.status}, ` +
+    `openrouter=${data.openrouter?.configured_model}/${data.openrouter?.status})`
   );
-
-  const startResponse = await withTimeout(
-    `${HF_SPACE_URL}/gradio_api/call/infer`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        data: [
-          'Return JSON only.',
-          'I spent $5 on tea',
-          0.1,
-          256,
-        ],
-      }),
-    },
-    REQUEST_TIMEOUT_MS
-  );
-  assert(startResponse.ok, `HF infer call failed with status ${startResponse.status}`);
-
-  const startPayload = await startResponse.json();
-  const eventId = startPayload?.event_id;
-  assert(eventId, 'HF infer call did not return event_id');
-
-  const completionResponse = await withTimeout(
-    `${HF_SPACE_URL}/gradio_api/call/infer/${eventId}`,
-    {},
-    HF_TIMEOUT_MS
-  );
-  assert(
-    completionResponse.ok,
-    `HF infer completion stream failed with status ${completionResponse.status}`
-  );
-
-  const streamText = await completionResponse.text();
-  const completionPayload = parseSseCompletionPayload(streamText);
-  assert(completionPayload && String(completionPayload).trim(), 'HF infer completion payload is empty');
-
-  console.log(`[probe] Hugging Face OK: ${HF_SPACE_URL}`);
 };
 
 const main = async () => {
   await probeBackend();
-  await probeHfSpace();
-  console.log('[probe] External dependency probes passed.');
+  await probeAi();
+  console.log('[probe] All external dependency probes passed.');
 };
 
 main().catch((error) => {
