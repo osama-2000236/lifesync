@@ -627,7 +627,66 @@ const deleteAccount = async (req, res, next) => {
   }
 };
 
+// ============================================
+// QA / E2E SESSION (DORMANT unless QA_E2E_TOKEN is set)
+// ============================================
+// Lets an end-to-end QA harness obtain a REAL authenticated session against a
+// dedicated, isolated test account — without OTP email or DB access. This is
+// COMPLETELY INERT in normal operation: if QA_E2E_TOKEN is unset the route
+// behaves like an unknown path (404). When enabled, the caller must present the
+// exact token via the `x-qa-token` header (timing-safe compare). The seeded
+// user is namespaced (qa-e2e@lifesync.test) and flagged so it can be purged.
+const crypto = require('crypto');
+const QA_EMAIL = 'qa-e2e@lifesync.test';
+const QA_USERNAME = 'qa_e2e_bot';
+
+const timingSafeEqual = (a, b) => {
+  const ab = Buffer.from(String(a || ''));
+  const bb = Buffer.from(String(b || ''));
+  if (ab.length !== bb.length || ab.length === 0) return false;
+  return crypto.timingSafeEqual(ab, bb);
+};
+
+const qaLogin = async (req, res, next) => {
+  try {
+    const expected = process.env.QA_E2E_TOKEN;
+    // Dormant by default — indistinguishable from a non-existent route.
+    if (!expected) {
+      return error(res, 'Not found.', 404, 'NOT_FOUND');
+    }
+    const presented = req.headers['x-qa-token'];
+    if (!timingSafeEqual(presented, expected)) {
+      return error(res, 'Access denied.', 401, 'QA_FORBIDDEN');
+    }
+
+    let user = await User.findOne({ where: { email: QA_EMAIL } });
+    if (!user) {
+      user = await User.create({
+        username: QA_USERNAME,
+        email: QA_EMAIL,
+        hashed_password: crypto.randomBytes(24).toString('hex'),
+        name: 'QA E2E Bot',
+        role: 'user',
+        verified_email: true,
+        is_active: true,
+      });
+    } else if (!user.is_active) {
+      await user.update({ is_active: true });
+    }
+
+    const tokens = generateTokenPair(user);
+    return success(res, {
+      user: user.toSafeJSON(),
+      ...tokens,
+      qa: true,
+    }, 'QA session issued.');
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
+  qaLogin,
   sendRegistrationOTP,
   sendOtpValidation,
   verifyRegistrationOTP,

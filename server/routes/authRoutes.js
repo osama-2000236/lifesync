@@ -23,12 +23,16 @@ const {
   changeEmailSendOTP, changeEmailVerifyOTP,
   changeEmailSendValidation, changeEmailVerifyValidation,
   deleteAccount,
+  qaLogin,
 } = require('../controllers/authController');
 
 // ─── Two-Step Registration ───
 router.post('/register/send-otp', otpLimiter, sendOtpValidation, validate, sendRegistrationOTP);
 router.post('/register/verify-otp', authLimiter, verifyOtpValidation, validate, verifyRegistrationOTP);
 router.post('/register/complete', authLimiter, completeRegistrationValidation, validate, completeRegistration);
+
+// ─── QA / E2E session (dormant unless QA_E2E_TOKEN is set; see controller) ───
+router.post('/qa-login', authLimiter, qaLogin);
 
 // ─── Login & Tokens ───
 router.post('/login', authLimiter, loginValidation, validate, login);
