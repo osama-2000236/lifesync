@@ -85,13 +85,23 @@ app.use('/api/', generalLimiter);
 // API Routes
 // ============================================
 
-// Health check endpoint
+// Health check endpoint (public liveness probe).
+// Additive `commit`/`env` fields let deploy verification confirm WHICH build is
+// live without querying the platform API. Railway injects RAILWAY_GIT_COMMIT_SHA.
+const COMMIT_SHA = (
+  process.env.RAILWAY_GIT_COMMIT_SHA
+  || process.env.GIT_COMMIT_SHA
+  || process.env.SOURCE_VERSION
+  || ''
+).slice(0, 12) || null;
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'LifeSync API is running.',
     timestamp: new Date().toISOString(),
     version: '2.0.0',
+    commit: COMMIT_SHA,
+    env: process.env.NODE_ENV || 'development',
   });
 });
 

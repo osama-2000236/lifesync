@@ -66,6 +66,18 @@ async function section(title, fn) {
   await section('Infrastructure & health', async () => {
     const h = await http('GET', `${BE}/api/health`);
     expectStatus('GET /api/health reachable', h, 200);
+    // Deploy-identity: the health endpoint should report which build is live.
+    if (h.json && 'commit' in h.json) {
+      ok('Health reports build commit', h.json.commit || '(null — env var not injected yet)');
+      const want = process.env.EXPECT_COMMIT;
+      if (want && h.json.commit && !want.startsWith(h.json.commit) && !h.json.commit.startsWith(want)) {
+        bad('Live commit matches EXPECT_COMMIT', `live=${h.json.commit} expected=${want}`);
+      } else if (want && h.json.commit) {
+        ok('Live commit matches EXPECT_COMMIT', h.json.commit);
+      }
+    } else {
+      wrn('Health does not report build commit yet', 'add commit field (deploy pending)');
+    }
 
     const ai = await http('GET', `${BE}/api/ai/health`);
     expectStatus('GET /api/ai/health (public)', ai, 200);
