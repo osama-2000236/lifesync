@@ -160,6 +160,25 @@ async function section(title, fn) {
     expectStatus('Google login bad credential -> 401/400 (not 500)', gFake, [400, 401]);
   });
 
+  // ───────────────────────── QA E2E login (dormant by default) ─────────────────────────
+  await section('QA E2E login posture', async () => {
+    const qaToken = process.env.QA_E2E_TOKEN;
+    if (!qaToken) {
+      // No token configured for this run: the route MUST behave as if it does not
+      // exist — 404 regardless of what (if anything) the caller presents. This proves
+      // zero attack surface is added when the operator has not opted in.
+      expectStatus('qa-login dormant (no header) -> 404', await http('POST', `${BE}/api/auth/qa-login`), 404);
+      expectStatus('qa-login dormant (bogus header) -> 404', await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': 'whatever-bogus' } }), 404);
+    } else {
+      // Operator opted in: a wrong token is rejected (401) and the right one mints a session (200).
+      expectStatus('qa-login wrong token -> 401', await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': `${qaToken}-WRONG` } }), 401);
+      const good = await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': qaToken } });
+      expectStatus('qa-login correct token -> 200', good, 200);
+      if (good.json?.data?.accessToken || good.json?.data?.tokens?.accessToken) ok('qa-login issued an access token');
+      else if (good.status === 200) wrn('qa-login 200 but no accessToken field located', JSON.stringify(good.json?.data || {}).slice(0, 100));
+    }
+  });
+
   // ───────────────────────── Protected endpoints require auth ─────────────────────────
   await section('Protected endpoints enforce auth', async () => {
     // NOTE: health DATA router is mounted at /api/health-logs; /api/health is
