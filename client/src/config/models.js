@@ -2,8 +2,7 @@
 // (server/services/ai/modelRuntimeManager.js).
 export const MODEL_OPTIONS = [
   { id: 'bert_local', label: 'LifeSync BERT', tag: 'default', desc: 'Private, on-device, fastest. Powers chat + dashboard fully offline.' },
-  { id: 'gemma4_local', label: 'Gemma 4 (local)', desc: 'Newest local generative model — richer prose.' },
-  { id: 'gemma3_local', label: 'Gemma 3 (local)', desc: 'Local generative chat.' },
+  { id: 'openrouter_chat', label: 'OpenRouter', tag: 'cloud', desc: 'Cloud chat via OpenRouter (one key, many models). Same LifeSync memory + history.' },
   { id: 'openai_chat', label: 'OpenAI GPT', desc: 'Cloud conversation with full LifeSync memory and chat history transfer.' },
   { id: 'anthropic_opus', label: 'Claude Opus', desc: 'Anthropic Opus tier for deeper reasoning with the same LifeSync context.' },
   { id: 'anthropic_sonnet', label: 'Claude Sonnet', desc: 'Anthropic Sonnet tier for fast daily conversation with transferred context.' },
