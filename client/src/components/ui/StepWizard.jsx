@@ -12,6 +12,7 @@ export function StepProgress({ steps, currentStep, className = '' }) {
       {steps.map((step, i) => {
         const isDone = i < currentStep;
         const isActive = i === currentStep;
+        const StepIcon = step.icon;
         return (
           <div key={step.key ?? i} className="flex items-center flex-1 last:flex-none">
             <div
@@ -22,7 +23,7 @@ export function StepProgress({ steps, currentStep, className = '' }) {
                   : 'bg-navy-100 text-navy-400'}`}
               aria-current={isActive ? 'step' : undefined}
             >
-              {isDone ? <Check className="w-4 h-4" /> : i + 1}
+              {isDone ? <Check className="w-4 h-4" /> : StepIcon ? <StepIcon className="w-4 h-4" /> : i + 1}
             </div>
             {i < steps.length - 1 && (
               <div

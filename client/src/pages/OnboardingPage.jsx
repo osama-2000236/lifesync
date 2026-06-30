@@ -1,17 +1,26 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { authAPI, aiAPI } from '../services/api';
 import { MODEL_OPTIONS } from '../config/models';
 import {
   Activity, Heart, Wallet, MessageCircle, ArrowRight, Check,
-  Footprints, Moon, Droplets, SmilePlus, Target, Loader2,
+  Footprints, Moon, Droplets, SmilePlus, Target,
   BrainCircuit, Cpu,
 } from 'lucide-react';
+import { Button } from '../components/ui';
 
 const TOTAL_STEPS = 4;
 
 function WelcomeStep({ user, onNext }) {
+  const { t } = useSettings();
+  const domains = [
+    { icon: Heart, label: t('onboard.health'), color: 'text-coral-500', bg: 'bg-coral-50' },
+    { icon: Wallet, label: t('onboard.finance'), color: 'text-amber-500', bg: 'bg-amber-50' },
+    { icon: MessageCircle, label: t('onboard.aiChat'), color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  ];
+
   return (
     <div className="text-center space-y-6 animate-fade-up">
       <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center mx-auto shadow-xl shadow-emerald-500/25">
@@ -19,37 +28,31 @@ function WelcomeStep({ user, onNext }) {
       </div>
       <div>
         <h1 className="font-display text-3xl font-bold text-navy-900 mb-2">
-          Welcome, {user?.name?.split(' ')[0] || user?.username}! 👋
+          {t('onboard.welcomeTitle', { name: user?.name?.split(' ')[0] || user?.username })}
         </h1>
         <p className="text-navy-500 text-lg leading-relaxed max-w-sm mx-auto">
-          LifeSync connects your health and finances in one AI-powered dashboard. Let&apos;s get you set up.
+          {t('onboard.welcomeSub')}
         </p>
       </div>
 
       <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
-        {[
-          { icon: Heart, label: 'Health', color: 'text-coral-500', bg: 'bg-coral-50' },
-          { icon: Wallet, label: 'Finance', color: 'text-amber-500', bg: 'bg-amber-50' },
-          { icon: MessageCircle, label: 'AI Chat', color: 'text-emerald-600', bg: 'bg-emerald-50' },
-        ].map(({ icon: Icon, label, color, bg }) => (
-          <div key={label} className={`${bg} rounded-2xl p-4 flex flex-col items-center gap-2`}>
+        {domains.map(({ icon: Icon, label, color, bg }) => (
+          <div key={label} className={`${bg} rounded-2xl p-4 flex flex-col items-center gap-2 transition-transform duration-200 ease-[var(--ease-out-snap)] hover:-translate-y-0.5`}>
             <Icon className={`w-6 h-6 ${color}`} />
             <span className="text-xs font-semibold text-navy-600">{label}</span>
           </div>
         ))}
       </div>
 
-      <button
-        onClick={onNext}
-        className="flex items-center gap-2 mx-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all"
-      >
-        Let&apos;s go <ArrowRight className="w-4 h-4" />
-      </button>
+      <Button onClick={onNext} rightIcon={ArrowRight} size="lg" className="mx-auto">
+        {t('onboard.letsGo')}
+      </Button>
     </div>
   );
 }
 
 function ModelStep({ selectedId, onNext, onBack }) {
+  const { t } = useSettings();
   const [selected, setSelected] = useState(selectedId || 'bert_local');
 
   return (
@@ -58,8 +61,8 @@ function ModelStep({ selectedId, onNext, onBack }) {
         <div className="w-14 h-14 rounded-2xl bg-navy-50 flex items-center justify-center mx-auto mb-4">
           <BrainCircuit className="w-7 h-7 text-navy-600" />
         </div>
-        <h2 className="font-display text-2xl font-bold text-navy-900 mb-2">Pick your AI model</h2>
-        <p className="text-navy-500 text-sm">This model powers your chat and dashboard. You can change it anytime in Settings.</p>
+        <h2 className="font-display text-2xl font-bold text-navy-900 mb-2">{t('onboard.pickModel')}</h2>
+        <p className="text-navy-500 text-sm">{t('onboard.pickModelSub')}</p>
       </div>
 
       <div className="space-y-2.5">
@@ -70,8 +73,8 @@ function ModelStep({ selectedId, onNext, onBack }) {
               key={m.id}
               type="button"
               onClick={() => setSelected(m.id)}
-              className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${
-                active ? 'border-emerald-500 bg-emerald-50/60' : 'border-navy-100 bg-white hover:border-navy-200'
+              className={`w-full text-start p-4 rounded-2xl border-2 transition-all duration-200 ease-[var(--ease-out-snap)] ${
+                active ? 'border-emerald-500 bg-emerald-50/60' : 'border-navy-100 bg-white hover:border-navy-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-hover)]'
               }`}
             >
               <div className="flex items-center justify-between">
@@ -93,36 +96,30 @@ function ModelStep({ selectedId, onNext, onBack }) {
 
       <p className="text-xs text-navy-400 flex items-start gap-2">
         <Cpu className="w-4 h-4 mt-0.5 flex-shrink-0" />
-        Runs one model at a time, on your GPU automatically with CPU fallback. Your memory carries over if you switch later.
+        {t('onboard.modelNote')}
       </p>
 
       <div className="flex gap-3 pt-2">
-        <button
-          onClick={onBack}
-          className="flex-1 py-3 rounded-xl border border-navy-200 text-navy-600 font-medium hover:bg-navy-50 transition-colors text-sm"
-        >
-          Back
-        </button>
-        <button
-          onClick={() => onNext(selected)}
-          className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-sm shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all"
-        >
-          Continue <ArrowRight className="w-4 h-4" />
-        </button>
+        <Button variant="secondary" onClick={onBack} className="flex-1">
+          {t('reg.back')}
+        </Button>
+        <Button onClick={() => onNext(selected)} rightIcon={ArrowRight} className="flex-1">
+          {t('onboard.continue')}
+        </Button>
       </div>
     </div>
   );
 }
 
-const HEALTH_GOALS = [
-  { id: 'steps', icon: Footprints, label: 'Step goals', desc: 'Track daily steps' },
-  { id: 'sleep', icon: Moon, label: 'Better sleep', desc: 'Monitor sleep patterns' },
-  { id: 'hydration', icon: Droplets, label: 'Hydration', desc: 'Water intake tracking' },
-  { id: 'mood', icon: SmilePlus, label: 'Mood tracking', desc: 'Daily mental wellness' },
-];
-
 function GoalsStep({ selectedIds, onNext, onBack }) {
+  const { t } = useSettings();
   const [selected, setSelected] = useState(new Set(selectedIds));
+  const healthGoals = [
+    { id: 'steps', icon: Footprints, label: t('onboard.goal.steps'), desc: t('onboard.goal.stepsDesc') },
+    { id: 'sleep', icon: Moon, label: t('onboard.goal.sleep'), desc: t('onboard.goal.sleepDesc') },
+    { id: 'hydration', icon: Droplets, label: t('onboard.goal.hydration'), desc: t('onboard.goal.hydrationDesc') },
+    { id: 'mood', icon: SmilePlus, label: t('onboard.goal.mood'), desc: t('onboard.goal.moodDesc') },
+  ];
 
   const toggle = (id) => {
     const next = new Set(selected);
@@ -136,19 +133,19 @@ function GoalsStep({ selectedIds, onNext, onBack }) {
         <div className="w-14 h-14 rounded-2xl bg-coral-50 flex items-center justify-center mx-auto mb-4">
           <Target className="w-7 h-7 text-coral-500" />
         </div>
-        <h2 className="font-display text-2xl font-bold text-navy-900 mb-2">What are your health goals?</h2>
-        <p className="text-navy-500 text-sm">Select all that apply. We&apos;ll save them to your dashboard preferences.</p>
+        <h2 className="font-display text-2xl font-bold text-navy-900 mb-2">{t('onboard.healthGoalsTitle')}</h2>
+        <p className="text-navy-500 text-sm">{t('onboard.healthGoalsSub')}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        {HEALTH_GOALS.map(({ id, icon: Icon, label, desc }) => {
+        {healthGoals.map(({ id, icon: Icon, label, desc }) => {
           const active = selected.has(id);
           return (
             <button
               key={id}
               onClick={() => toggle(id)}
-              className={`text-left p-4 rounded-2xl border-2 transition-all ${
-                active ? 'border-emerald-500 bg-emerald-50/60' : 'border-navy-100 bg-white hover:border-navy-200'
+              className={`text-start p-4 rounded-2xl border-2 transition-all duration-200 ease-[var(--ease-out-snap)] ${
+                active ? 'border-emerald-500 bg-emerald-50/60' : 'border-navy-100 bg-white hover:border-navy-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-hover)]'
               }`}
             >
               <div className="flex items-start justify-between mb-2">
@@ -167,34 +164,28 @@ function GoalsStep({ selectedIds, onNext, onBack }) {
       </div>
 
       <div className="flex gap-3 pt-2">
-        <button
-          onClick={onBack}
-          className="flex-1 py-3 rounded-xl border border-navy-200 text-navy-600 font-medium hover:bg-navy-50 transition-colors text-sm"
-        >
-          Back
-        </button>
-        <button
-          onClick={() => onNext([...selected])}
-          className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-sm shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all"
-        >
-          Continue <ArrowRight className="w-4 h-4" />
-        </button>
+        <Button variant="secondary" onClick={onBack} className="flex-1">
+          {t('reg.back')}
+        </Button>
+        <Button onClick={() => onNext([...selected])} rightIcon={ArrowRight} className="flex-1">
+          {t('onboard.continue')}
+        </Button>
       </div>
     </div>
   );
 }
 
-const FINANCE_GOALS = [
-  { id: 'track', label: 'Track spending', desc: 'See where money goes' },
-  { id: 'budget', label: 'Budget management', desc: 'Set monthly limits' },
-  { id: 'savings', label: 'Savings goals', desc: 'Build an emergency fund' },
-  { id: 'analysis', label: 'Spending analysis', desc: 'AI-powered breakdowns' },
-];
-
 function FinanceStep({ initialCurrency, initialGoals, onNext, onBack, loading }) {
+  const { t } = useSettings();
   const [selected, setSelected] = useState(new Set(initialGoals));
   const [currency, setCurrency] = useState(initialCurrency);
   const currencies = ['USD', 'EUR', 'GBP', 'JOD', 'ILS', 'SAR', 'AED', 'EGP'];
+  const financeGoals = [
+    { id: 'track', label: t('onboard.fin.track'), desc: t('onboard.fin.trackDesc') },
+    { id: 'budget', label: t('onboard.fin.budget'), desc: t('onboard.fin.budgetDesc') },
+    { id: 'savings', label: t('onboard.fin.savings'), desc: t('onboard.fin.savingsDesc') },
+    { id: 'analysis', label: t('onboard.fin.analysis'), desc: t('onboard.fin.analysisDesc') },
+  ];
 
   const toggle = (id) => {
     const next = new Set(selected);
@@ -208,18 +199,18 @@ function FinanceStep({ initialCurrency, initialGoals, onNext, onBack, loading })
         <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-4">
           <Wallet className="w-7 h-7 text-amber-500" />
         </div>
-        <h2 className="font-display text-2xl font-bold text-navy-900 mb-2">Set up your finances</h2>
-        <p className="text-navy-500 text-sm">Choose your preferences to personalize your finance dashboard.</p>
+        <h2 className="font-display text-2xl font-bold text-navy-900 mb-2">{t('onboard.financeTitle')}</h2>
+        <p className="text-navy-500 text-sm">{t('onboard.financeSub')}</p>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-navy-700 mb-2">Primary currency</label>
+        <label className="block text-sm font-medium text-navy-700 mb-2">{t('onboard.currency')}</label>
         <div className="grid grid-cols-4 gap-2">
           {currencies.map((option) => (
             <button
               key={option}
               onClick={() => setCurrency(option)}
-              className={`py-2 rounded-xl border text-sm font-semibold transition-all ${
+              className={`py-2 rounded-xl border text-sm font-semibold transition-all duration-200 ease-[var(--ease-out-snap)] ${
                 currency === option
                   ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
                   : 'border-navy-100 text-navy-500 hover:border-navy-200'
@@ -232,16 +223,16 @@ function FinanceStep({ initialCurrency, initialGoals, onNext, onBack, loading })
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-navy-700 mb-2">What do you want to do?</label>
+        <label className="block text-sm font-medium text-navy-700 mb-2">{t('onboard.whatDo')}</label>
         <div className="space-y-2">
-          {FINANCE_GOALS.map(({ id, label, desc }) => {
+          {financeGoals.map(({ id, label, desc }) => {
             const active = selected.has(id);
             return (
               <button
                 key={id}
                 onClick={() => toggle(id)}
-                className={`w-full flex items-center gap-4 p-3.5 rounded-xl border-2 text-left transition-all ${
-                  active ? 'border-emerald-500 bg-emerald-50/60' : 'border-navy-100 bg-white hover:border-navy-200'
+                className={`w-full flex items-center gap-4 p-3.5 rounded-xl border-2 text-start transition-all duration-200 ease-[var(--ease-out-snap)] ${
+                  active ? 'border-emerald-500 bg-emerald-50/60' : 'border-navy-100 bg-white hover:border-navy-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-hover)]'
                 }`}
               >
                 <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
@@ -261,19 +252,12 @@ function FinanceStep({ initialCurrency, initialGoals, onNext, onBack, loading })
       </div>
 
       <div className="flex gap-3 pt-2">
-        <button
-          onClick={onBack}
-          className="flex-1 py-3 rounded-xl border border-navy-200 text-navy-600 font-medium hover:bg-navy-50 transition-colors text-sm"
-        >
-          Back
-        </button>
-        <button
-          onClick={() => onNext({ currency, goals: [...selected] })}
-          disabled={loading}
-          className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-sm shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-60"
-        >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Go to Dashboard <ArrowRight className="w-4 h-4" /></>}
-        </button>
+        <Button variant="secondary" onClick={onBack} className="flex-1">
+          {t('reg.back')}
+        </Button>
+        <Button onClick={() => onNext({ currency, goals: [...selected] })} loading={loading} rightIcon={ArrowRight} className="flex-1">
+          {t('onboard.goToDashboard')}
+        </Button>
       </div>
     </div>
   );
@@ -296,6 +280,7 @@ function ProgressBar({ step }) {
 
 export default function OnboardingPage() {
   const { user, updateCurrentUser } = useAuth();
+  const { t } = useSettings();
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -391,7 +376,7 @@ export default function OnboardingPage() {
         </div>
 
         <p className="text-center text-xs text-navy-400 mt-4">
-          Step {step + 1} of {TOTAL_STEPS}
+          {t('onboard.stepOf', { n: step + 1, total: TOTAL_STEPS })}
         </p>
       </div>
     </div>

@@ -1,37 +1,17 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Activity, ArrowLeft, ArrowRight, Loader2, Mail, KeyRound, Lock, Eye, EyeOff, Check } from 'lucide-react';
+import { Activity, ArrowLeft, ArrowRight, Mail, KeyRound, Lock, Eye, EyeOff } from 'lucide-react';
 import { authAPI } from '../services/api';
 import { getApiErrorMessage } from '../utils/apiErrors';
+import { useSettings } from '../contexts/SettingsContext';
+import SettingsControls from '../components/common/SettingsControls';
+import { Button, Card, FormField, Input, StepProgress } from '../components/ui';
 
-const STEPS = ['email', 'otp', 'password'];
-
-function StepIndicator({ step }) {
-  const icons = [Mail, KeyRound, Lock];
-  return (
-    <div className="flex items-center justify-center gap-2 mb-8">
-      {STEPS.map((_, i) => {
-        const Icon = icons[i];
-        return (
-          <div key={i} className="flex items-center gap-2">
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all text-sm font-bold ${
-              i < step ? 'bg-emerald-500 text-white'
-                : i === step ? 'bg-emerald-500/10 text-emerald-600 ring-2 ring-emerald-500'
-                  : 'bg-navy-100 text-navy-400'
-            }`}
-            >
-              {i < step ? <Check className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
-            </div>
-            {i < 2 && <div className={`w-8 h-0.5 ${i < step ? 'bg-emerald-500' : 'bg-navy-200'}`} />}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+const STEP_ICONS = [Mail, KeyRound, Lock];
 
 export default function ForgotPasswordPage() {
   const navigate = useNavigate();
+  const { t } = useSettings();
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -58,10 +38,10 @@ export default function ForgotPasswordPage() {
   };
 
   const passwordChecks = [
-    { label: 'At least 8 characters', ok: password.length >= 8 },
-    { label: 'Uppercase letter', ok: /[A-Z]/.test(password) },
-    { label: 'Lowercase letter', ok: /[a-z]/.test(password) },
-    { label: 'Number', ok: /\d/.test(password) },
+    { label: t('reg.check.len'), ok: password.length >= 8 },
+    { label: t('reg.check.upper'), ok: /[A-Z]/.test(password) },
+    { label: t('reg.check.lower'), ok: /[a-z]/.test(password) },
+    { label: t('reg.check.number'), ok: /\d/.test(password) },
   ];
   const passwordStrength = passwordChecks.filter((check) => check.ok).length;
   const strengthColor = ['bg-coral-500', 'bg-coral-500', 'bg-amber-400', 'bg-amber-400', 'bg-emerald-500'][passwordStrength];
@@ -74,7 +54,7 @@ export default function ForgotPasswordPage() {
       await authAPI.forgotPasswordSendOTP(email);
       setStep(1);
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to send reset code.'));
+      setError(getApiErrorMessage(err, t('fp.err.send')));
     } finally {
       setLoading(false);
     }
@@ -88,7 +68,7 @@ export default function ForgotPasswordPage() {
       await authAPI.forgotPasswordVerifyOTP(email, otp.join(''));
       setStep(2);
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Invalid or expired code.'));
+      setError(getApiErrorMessage(err, t('fp.err.invalidOtp')));
     } finally {
       setLoading(false);
     }
@@ -97,11 +77,11 @@ export default function ForgotPasswordPage() {
   const handleReset = async (e) => {
     e.preventDefault();
     if (password !== confirm) {
-      setError('Passwords do not match.');
+      setError(t('fp.err.mismatch'));
       return;
     }
     if (passwordStrength < 4) {
-      setError('Password does not meet all requirements.');
+      setError(t('fp.err.weak'));
       return;
     }
 
@@ -109,16 +89,19 @@ export default function ForgotPasswordPage() {
     setLoading(true);
     try {
       await authAPI.resetPassword(email, password);
-      navigate('/login', { state: { message: 'Password reset successfully. Please sign in.' } });
+      navigate('/login', { state: { message: t('fp.resetSuccess') } });
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Reset failed. Please try again.'));
+      setError(getApiErrorMessage(err, t('fp.err.failed')));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface p-6">
+    <div className="min-h-screen flex items-center justify-center bg-surface p-6 relative">
+      <div className="absolute top-4 end-4 z-20">
+        <SettingsControls compact />
+      </div>
       <div className="w-full max-w-md">
         <div className="flex items-center gap-3 mb-8 justify-center">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-md">
@@ -127,11 +110,15 @@ export default function ForgotPasswordPage() {
           <span className="font-display text-2xl font-bold text-navy-900">LifeSync</span>
         </div>
 
-        <StepIndicator step={step} />
+        <StepProgress
+          steps={[{ key: 'email', icon: STEP_ICONS[0] }, { key: 'otp', icon: STEP_ICONS[1] }, { key: 'password', icon: STEP_ICONS[2] }]}
+          currentStep={step}
+          className="mb-8 max-w-[260px] mx-auto"
+        />
 
-        <div className="bg-white rounded-2xl shadow-lg shadow-navy-900/5 p-8">
+        <Card padding="lg" className="shadow-lg shadow-navy-900/5">
           {error && (
-            <div className="mb-6 p-4 rounded-xl bg-coral-500/10 border border-coral-500/20 text-coral-500 text-sm">
+            <div className="mb-6 p-4 rounded-xl bg-coral-500/10 border border-coral-500/20 text-coral-500 text-sm" role="alert" aria-live="assertive">
               {error}
             </div>
           )}
@@ -139,37 +126,33 @@ export default function ForgotPasswordPage() {
           {step === 0 && (
             <form onSubmit={handleSendOTP} className="space-y-5">
               <div>
-                <h2 className="font-display text-xl font-bold text-navy-900 mb-1">Forgot your password?</h2>
-                <p className="text-navy-500 text-sm">Enter your email and we&apos;ll send a reset code.</p>
+                <h2 className="font-display text-xl font-bold text-navy-900 mb-1">{t('fp.title')}</h2>
+                <p className="text-navy-500 text-sm">{t('fp.sub')}</p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-navy-700 mb-1.5">Email address</label>
-                <input
+              <FormField id="fp-email" label={t('reg.emailAddr')}>
+                <Input
+                  id="fp-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   autoFocus
-                  className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
+                  autoComplete="email"
                   placeholder="you@example.com"
                 />
-              </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50"
-              >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Send Reset Code <ArrowRight className="w-4 h-4" /></>}
-              </button>
+              </FormField>
+              <Button type="submit" loading={loading} rightIcon={ArrowRight} className="w-full" size="lg">
+                {t('fp.sendCode')}
+              </Button>
             </form>
           )}
 
           {step === 1 && (
             <form onSubmit={handleVerifyOTP} className="space-y-5">
               <div>
-                <h2 className="font-display text-xl font-bold text-navy-900 mb-1">Check your email</h2>
+                <h2 className="font-display text-xl font-bold text-navy-900 mb-1">{t('reg.checkEmail')}</h2>
                 <p className="text-navy-500 text-sm">
-                  Enter the 6-digit code sent to <strong className="text-navy-700">{email}</strong>
+                  {t('reg.enterCode')} <strong className="text-navy-700">{email}</strong>
                 </p>
               </div>
               <div className="flex gap-2 justify-center">
@@ -177,8 +160,10 @@ export default function ForgotPasswordPage() {
                   <input
                     key={i}
                     id={`fp-otp-${i}`}
+                    aria-label={`Verification code digit ${i + 1}`}
                     type="text"
                     inputMode="numeric"
+                    autoComplete="one-time-code"
                     maxLength={1}
                     value={digit}
                     onChange={(e) => handleOtpChange(i, e.target.value)}
@@ -188,20 +173,23 @@ export default function ForgotPasswordPage() {
                 ))}
               </div>
               <div className="flex gap-3">
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
                   onClick={() => { setStep(0); setOtp(['', '', '', '', '', '']); setError(''); }}
-                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-navy-200 text-navy-600 font-medium hover:bg-navy-50 transition-colors"
+                  className="flex-1"
                 >
-                  <ArrowLeft className="w-4 h-4" /> Back
-                </button>
-                <button
+                  <ArrowLeft className="w-4 h-4 rtl:rotate-180" /> {t('reg.back')}
+                </Button>
+                <Button
                   type="submit"
-                  disabled={loading || otp.some((digit) => !digit)}
-                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold disabled:opacity-50 transition-all"
+                  loading={loading}
+                  disabled={otp.some((digit) => !digit)}
+                  rightIcon={ArrowRight}
+                  className="flex-1"
                 >
-                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Verify <ArrowRight className="w-4 h-4" /></>}
-                </button>
+                  {t('reg.verify')}
+                </Button>
               </div>
               <button
                 type="button"
@@ -209,7 +197,7 @@ export default function ForgotPasswordPage() {
                 disabled={loading}
                 className="w-full text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
               >
-                Didn&apos;t receive it? Resend code
+                {t('fp.resend')}
               </button>
             </form>
           )}
@@ -217,25 +205,28 @@ export default function ForgotPasswordPage() {
           {step === 2 && (
             <form onSubmit={handleReset} className="space-y-5">
               <div>
-                <h2 className="font-display text-xl font-bold text-navy-900 mb-1">Set new password</h2>
-                <p className="text-navy-500 text-sm">Choose a strong password for your account.</p>
+                <h2 className="font-display text-xl font-bold text-navy-900 mb-1">{t('fp.newPassword')}</h2>
+                <p className="text-navy-500 text-sm">{t('fp.newPasswordSub')}</p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-navy-700 mb-1.5">New password</label>
+              <FormField id="fp-new-password" label={t('fp.newPasswordLabel')}>
                 <div className="relative">
-                  <input
+                  <Input
+                    id="fp-new-password"
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    className="w-full px-4 py-3 pr-12 rounded-xl border border-navy-200 bg-white text-navy-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
-                    placeholder="New password"
+                    autoComplete="new-password"
+                    className="pe-12"
+                    placeholder={t('fp.newPasswordLabel')}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-navy-400 hover:text-navy-600 p-1"
+                    className="absolute end-3 top-1/2 -translate-y-1/2 text-navy-400 hover:text-navy-600 p-1"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -251,48 +242,48 @@ export default function ForgotPasswordPage() {
                     <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
                       {passwordChecks.map((check) => (
                         <div key={check.label} className={`text-xs flex items-center gap-1.5 ${check.ok ? 'text-emerald-600' : 'text-navy-400'}`}>
-                          <div className={`w-1.5 h-1.5 rounded-full ${check.ok ? 'bg-emerald-500' : 'bg-navy-300'}`} />
+                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${check.ok ? 'bg-emerald-500' : 'bg-navy-300'}`} />
                           {check.label}
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
-              </div>
+              </FormField>
 
-              <div>
-                <label className="block text-sm font-medium text-navy-700 mb-1.5">Confirm password</label>
-                <input
+              <FormField
+                id="fp-confirm-password"
+                label={t('fp.confirmPassword')}
+                error={confirm && password !== confirm ? t('fp.mismatch') : undefined}
+              >
+                <Input
+                  id="fp-confirm-password"
                   type="password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                   required
-                  className={`w-full px-4 py-3 rounded-xl border bg-white text-navy-900 focus:outline-none focus:ring-2 transition-all ${
-                    confirm && password !== confirm
-                      ? 'border-coral-400 focus:ring-coral-500/20'
-                      : 'border-navy-200 focus:ring-emerald-500/30 focus:border-emerald-500'
-                  }`}
-                  placeholder="Repeat new password"
+                  error={Boolean(confirm && password !== confirm)}
+                  placeholder={t('fp.confirmPlaceholder')}
                 />
-                {confirm && password !== confirm && (
-                  <p className="mt-1 text-xs text-coral-500">Passwords don&apos;t match.</p>
-                )}
-              </div>
+              </FormField>
 
-              <button
+              <Button
                 type="submit"
-                disabled={loading || passwordStrength < 4 || password !== confirm}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50"
+                loading={loading}
+                disabled={passwordStrength < 4 || password !== confirm}
+                rightIcon={ArrowRight}
+                className="w-full"
+                size="lg"
               >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Reset Password <ArrowRight className="w-4 h-4" /></>}
-              </button>
+                {t('fp.resetBtn')}
+              </Button>
             </form>
           )}
-        </div>
+        </Card>
 
         <p className="mt-6 text-center text-navy-500 text-sm">
-          Remembered it?{' '}
-          <Link to="/login" className="text-emerald-600 font-semibold hover:text-emerald-700">Sign in</Link>
+          {t('fp.remembered')}{' '}
+          <Link to="/login" className="text-emerald-600 font-semibold hover:text-emerald-700">{t('auth.signin')}</Link>
         </p>
       </div>
     </div>

@@ -3,9 +3,10 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import SettingsControls from '../components/common/SettingsControls';
-import { Activity, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
+import { Activity, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import GoogleSignInButton from '../components/auth/GoogleSignInButton';
 import { getApiErrorMessage } from '../utils/apiErrors';
+import { Button, FormField, Input, Alert } from '../components/ui';
 
 export default function LoginPage() {
   const { login, loginWithGoogle, googleAuthEnabled } = useAuth();
@@ -59,7 +60,7 @@ export default function LoginPage() {
       <div className="absolute top-4 end-4 z-20">
         <SettingsControls compact />
       </div>
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-navy-900 via-navy-800 to-navy-950 relative overflow-hidden flex-col justify-between p-12">
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-ink-900 via-ink-800 to-ink-950 relative overflow-hidden flex-col justify-between p-12">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-20 left-20 w-72 h-72 rounded-full bg-emerald-400 blur-3xl" />
           <div className="absolute bottom-40 right-20 w-96 h-96 rounded-full bg-emerald-600 blur-3xl" />
@@ -79,13 +80,13 @@ export default function LoginPage() {
             {t('auth.heroTitle1')}<br />
             <span className="text-emerald-400">{t('auth.heroTitle2')}</span>
           </h2>
-          <p className="text-navy-300 text-lg max-w-md leading-relaxed">
+          <p className="text-white/70 text-lg max-w-md leading-relaxed">
             {t('auth.heroSub')}
           </p>
         </div>
 
         <div className="relative z-10">
-          <p className="text-navy-400 text-sm">Birzeit University · Graduation Project 2025</p>
+          <p className="text-white/40 text-sm">Birzeit University · Graduation Project 2025</p>
         </div>
       </div>
 
@@ -119,24 +120,18 @@ export default function LoginPage() {
           )}
 
           {successMessage && (
-            <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm flex items-center gap-2" role="status" aria-live="polite">
-              <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              {successMessage}
-            </div>
+            <Alert tone="success" className="mb-6">{successMessage}</Alert>
           )}
 
           {error && (
-            <div id="login-form-error" className="mb-6 p-4 rounded-xl bg-coral-500/10 border border-coral-500/20 text-coral-500 text-sm" role="alert" aria-live="assertive">
-              {error}
-            </div>
+            <Alert tone="error" className="mb-6">
+              <span id="login-form-error">{error}</span>
+            </Alert>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label htmlFor="login-email" className="block text-sm font-medium text-navy-700 mb-1.5">{t('auth.email')}</label>
-              <input
+            <FormField id="login-email" label={t('auth.email')}>
+              <Input
                 id="login-email"
                 name="email"
                 type="email"
@@ -144,12 +139,11 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
-                aria-invalid={Boolean(error)}
+                error={Boolean(error)}
                 aria-describedby={error ? 'login-form-error' : undefined}
-                className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
                 placeholder="you@example.com"
               />
-            </div>
+            </FormField>
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
@@ -159,7 +153,7 @@ export default function LoginPage() {
                 </Link>
               </div>
               <div className="relative">
-                <input
+                <Input
                   id="login-password"
                   name="password"
                   type={showPassword ? 'text' : 'password'}
@@ -167,15 +161,15 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   autoComplete="current-password"
-                  aria-invalid={Boolean(error)}
+                  error={Boolean(error)}
                   aria-describedby={error ? 'login-form-error' : undefined}
-                  className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all pr-12"
+                  className="pe-12"
                   placeholder={t('auth.passwordPlaceholder')}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-navy-400 hover:text-navy-600 p-1"
+                  className="absolute end-3 top-1/2 -translate-y-1/2 text-navy-400 hover:text-navy-600 p-1"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   aria-pressed={showPassword}
                 >
@@ -184,17 +178,9 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={loading || googleLoading}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>{t('auth.signin')} <ArrowRight className="w-4 h-4 rtl:rotate-180" /></>
-              )}
-            </button>
+            <Button type="submit" loading={loading} disabled={googleLoading} rightIcon={ArrowRight} className="w-full" size="lg">
+              {t('auth.signin')}
+            </Button>
           </form>
 
           <p className="mt-8 text-center text-navy-500 text-sm">

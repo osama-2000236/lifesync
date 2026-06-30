@@ -4,11 +4,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import SettingsControls from '../components/common/SettingsControls';
 import { authAPI } from '../services/api';
-import { Activity, ArrowRight, ArrowLeft, Loader2, Mail, KeyRound, User, Check } from 'lucide-react';
+import { Activity, ArrowRight, ArrowLeft, Mail, KeyRound, User } from 'lucide-react';
 import GoogleSignInButton from '../components/auth/GoogleSignInButton';
 import { getApiErrorMessage } from '../utils/apiErrors';
+import { Button, Card, FormField, Input, StepProgress } from '../components/ui';
 
-const STEPS = ['email', 'otp', 'credentials'];
+const STEPS = [{ key: 'email', icon: Mail }, { key: 'otp', icon: KeyRound }, { key: 'credentials', icon: User }];
 
 export default function RegisterPage() {
   const { register, loginWithGoogle, googleAuthEnabled } = useAuth();
@@ -105,12 +106,6 @@ export default function RegisterPage() {
     }
   };
 
-  const stepIcons = [
-    <Mail key="mail" className="w-5 h-5" />,
-    <KeyRound key="key" className="w-5 h-5" />,
-    <User key="user" className="w-5 h-5" />,
-  ];
-
   const passwordChecks = [
     { label: t('reg.check.len'), ok: password.length >= 8 },
     { label: t('reg.check.upper'), ok: /[A-Z]/.test(password) },
@@ -133,23 +128,9 @@ export default function RegisterPage() {
           <span className="font-display text-2xl font-bold text-navy-900">LifeSync</span>
         </div>
 
-        <div className="flex items-center justify-center gap-2 mb-8">
-          {STEPS.map((_, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all text-sm font-bold ${
-                i < step ? 'bg-emerald-500 text-white'
-                  : i === step ? 'bg-emerald-500/10 text-emerald-600 ring-2 ring-emerald-500'
-                    : 'bg-navy-100 text-navy-400'
-              }`}
-              >
-                {i < step ? <Check className="w-4 h-4" /> : stepIcons[i]}
-              </div>
-              {i < 2 && <div className={`w-8 h-0.5 ${i < step ? 'bg-emerald-500' : 'bg-navy-200'}`} />}
-            </div>
-          ))}
-        </div>
+        <StepProgress steps={STEPS} currentStep={step} className="mb-8 max-w-[260px] mx-auto" />
 
-        <div className="bg-white rounded-2xl shadow-lg shadow-navy-900/5 p-8">
+        <Card padding="lg" className="shadow-lg shadow-navy-900/5">
           {googleAuthEnabled && step === 0 && (
             <div className="mb-6">
               <GoogleSignInButton
@@ -180,9 +161,8 @@ export default function RegisterPage() {
                 <h2 className="font-display text-xl font-bold text-navy-900 mb-1">{t('reg.createAccount')}</h2>
                 <p className="text-navy-500 text-sm">{t('reg.sendSub')}</p>
               </div>
-              <div>
-                <label htmlFor="register-email" className="block text-sm font-medium text-navy-700 mb-1.5">{t('reg.emailAddr')}</label>
-                <input
+              <FormField id="register-email" label={t('reg.emailAddr')}>
+                <Input
                   id="register-email"
                   name="email"
                   type="email"
@@ -190,19 +170,14 @@ export default function RegisterPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   autoComplete="email"
-                  aria-invalid={Boolean(error)}
+                  error={Boolean(error)}
                   aria-describedby={error ? 'register-form-error' : undefined}
-                  className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                   placeholder="you@example.com"
                 />
-              </div>
-              <button
-                type="submit"
-                disabled={loading || googleLoading}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50"
-              >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{t('reg.sendCode')} <ArrowRight className="w-4 h-4 rtl:rotate-180" /></>}
-              </button>
+              </FormField>
+              <Button type="submit" loading={loading} disabled={googleLoading} rightIcon={ArrowRight} className="w-full" size="lg">
+                {t('reg.sendCode')}
+              </Button>
             </form>
           )}
 
@@ -230,20 +205,23 @@ export default function RegisterPage() {
                 ))}
               </div>
               <div className="flex gap-3">
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
                   onClick={() => { setStep(0); setOtp(['', '', '', '', '', '']); setError(''); }}
-                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-navy-200 text-navy-600 font-medium hover:bg-navy-50 transition-colors"
+                  className="flex-1"
                 >
                   <ArrowLeft className="w-4 h-4 rtl:rotate-180" /> {t('reg.back')}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
-                  disabled={loading || googleLoading || otp.some((digit) => !digit)}
-                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+                  loading={loading}
+                  disabled={googleLoading || otp.some((digit) => !digit)}
+                  rightIcon={ArrowRight}
+                  className="flex-1"
                 >
-                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{t('reg.verify')} <ArrowRight className="w-4 h-4 rtl:rotate-180" /></>}
-                </button>
+                  {t('reg.verify')}
+                </Button>
               </div>
             </form>
           )}
@@ -254,22 +232,19 @@ export default function RegisterPage() {
                 <h2 className="font-display text-xl font-bold text-navy-900 mb-1">{t('reg.almostThere')}</h2>
                 <p className="text-navy-500 text-sm">{t('reg.chooseCreds')}</p>
               </div>
-              <div>
-                <label htmlFor="register-name" className="block text-sm font-medium text-navy-700 mb-1.5">{t('reg.fullName')} <span className="text-navy-400">{t('reg.optional')}</span></label>
-                <input
+              <FormField id="register-name" label={<>{t('reg.fullName')} <span className="text-navy-400">{t('reg.optional')}</span></>}>
+                <Input
                   id="register-name"
                   name="name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   autoComplete="name"
-                  className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                   placeholder={t('reg.yourName')}
                 />
-              </div>
-              <div>
-                <label htmlFor="register-username" className="block text-sm font-medium text-navy-700 mb-1.5">{t('reg.username')}</label>
-                <input
+              </FormField>
+              <FormField id="register-username" label={t('reg.username')}>
+                <Input
                   id="register-username"
                   name="username"
                   type="text"
@@ -278,15 +253,13 @@ export default function RegisterPage() {
                   required
                   minLength={3}
                   autoComplete="username"
-                  aria-invalid={Boolean(error)}
+                  error={Boolean(error)}
                   aria-describedby={error ? 'register-form-error' : undefined}
-                  className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                   placeholder={t('reg.chooseUsername')}
                 />
-              </div>
-              <div>
-                <label htmlFor="register-password" className="block text-sm font-medium text-navy-700 mb-1.5">{t('auth.password')}</label>
-                <input
+              </FormField>
+              <FormField id="register-password" label={t('auth.password')}>
+                <Input
                   id="register-password"
                   name="password"
                   type="password"
@@ -295,9 +268,8 @@ export default function RegisterPage() {
                   required
                   minLength={8}
                   autoComplete="new-password"
-                  aria-invalid={Boolean(error)}
+                  error={Boolean(error)}
                   aria-describedby={error ? 'register-form-error' : undefined}
-                  className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                   placeholder={t('reg.passwordHint')}
                 />
                 {password && (
@@ -317,17 +289,13 @@ export default function RegisterPage() {
                     </div>
                   </div>
                 )}
-              </div>
-              <button
-                type="submit"
-                disabled={loading || googleLoading}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50"
-              >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{t('reg.createAccountBtn')} <ArrowRight className="w-4 h-4 rtl:rotate-180" /></>}
-              </button>
+              </FormField>
+              <Button type="submit" loading={loading} disabled={googleLoading} rightIcon={ArrowRight} className="w-full" size="lg">
+                {t('reg.createAccountBtn')}
+              </Button>
             </form>
           )}
-        </div>
+        </Card>
 
         <p className="mt-6 text-center text-navy-500 text-sm">
           {t('reg.haveAccount')}{' '}
