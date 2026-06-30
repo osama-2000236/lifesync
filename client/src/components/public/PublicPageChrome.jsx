@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom';
 import { Activity, ArrowRight, MessageCircle } from 'lucide-react';
+import SettingsControls from '../common/SettingsControls';
 
 const resolveMarketingHomeHref = (user) => (user ? '/landing' : '/');
 const resolveLogoHref = (user) => (user ? '/dashboard' : '/login');
 
 const navLinkClass = (isActive) => (
-  `text-sm font-medium px-2.5 sm:px-3 py-1.5 rounded-lg transition-all whitespace-nowrap ${
+  `text-sm font-medium px-2.5 sm:px-3 py-1.5 rounded-lg transition-all duration-200 ease-[var(--ease-out-snap)] whitespace-nowrap ${
     isActive
       ? 'text-emerald-700 bg-emerald-50'
       : 'text-navy-500 hover:text-navy-900 hover:bg-navy-50'
@@ -47,6 +48,8 @@ export function PublicPageNavBar({ activePage, user }) {
             </Link>
           </div>
 
+          <SettingsControls compact />
+
           <Link
             to={primaryAction.to}
             className="inline-flex items-center justify-center text-sm font-medium text-navy-600 hover:text-navy-900 px-3 sm:px-4 py-2 rounded-lg hover:bg-navy-50 transition-all whitespace-nowrap"
@@ -56,7 +59,7 @@ export function PublicPageNavBar({ activePage, user }) {
 
           <Link
             to={secondaryAction.to}
-            className="hidden sm:inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-emerald-600 px-5 py-2 rounded-xl shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all whitespace-nowrap"
+            className="hidden sm:inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-emerald-600 px-5 py-2 rounded-xl shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 active:scale-[0.97] transition-all duration-200 ease-[var(--ease-out-snap)] whitespace-nowrap"
           >
             {secondaryAction.label}
             {SecondaryIcon ? <SecondaryIcon className="w-4 h-4" /> : null}
@@ -74,7 +77,7 @@ export function PublicPageFooter({ user }) {
     : { to: '/login', label: 'Sign In' };
 
   return (
-    <footer className="bg-navy-950 text-navy-400 px-6 py-10">
+    <footer className="bg-ink-950 text-white/40 px-6 py-10">
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center">

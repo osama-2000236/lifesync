@@ -34,10 +34,10 @@ export default function AppLayout() {
   };
 
   const navLinkClass = ({ isActive }) =>
-    `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 group ${
+    `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-out-snap)] group ${
       isActive
-        ? 'bg-emerald-500/10 text-emerald-600'
-        : 'text-navy-500 hover:bg-navy-50 hover:text-navy-700'
+        ? 'bg-emerald-500/10 text-emerald-600 shadow-[0_1px_2px_rgba(16,185,129,0.08)]'
+        : 'text-navy-500 hover:bg-navy-50 hover:text-navy-700 hover:translate-x-0.5 rtl:hover:-translate-x-0.5'
     }`;
 
   const userInitial = (user?.name || user?.username || '?')[0].toUpperCase();
@@ -46,7 +46,7 @@ export default function AppLayout() {
     <div className="flex h-screen bg-surface overflow-hidden">
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-navy-950/40 backdrop-blur-sm z-40 lg:hidden"
+          className="fixed inset-0 bg-ink-950/40 backdrop-blur-sm z-40 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -108,7 +108,7 @@ export default function AppLayout() {
           <div className="flex justify-center mb-3">
             <SettingsControls />
           </div>
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-navy-50/60">
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-navy-50/60 hover:bg-navy-100/60 transition-colors duration-200">
             <Link to="/profile" className="flex items-center gap-3 flex-1 min-w-0 group">
               <div className="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-navy-300 to-navy-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 group-hover:ring-2 group-hover:ring-emerald-400 transition-all">
                 {user?.avatar_url ? (

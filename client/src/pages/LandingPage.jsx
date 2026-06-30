@@ -78,7 +78,7 @@ function HeroSection({ user }) {
 
   return (
     <section className="relative min-h-[calc(100vh-4rem)] flex flex-col items-center justify-center overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-navy-950 via-navy-900 to-navy-800">
+      <div className="absolute inset-0 bg-gradient-to-br from-ink-950 via-ink-900 to-ink-800">
         <div
           className="absolute inset-0 opacity-20"
           style={{
@@ -121,7 +121,7 @@ function HeroSection({ user }) {
           away.
         </h1>
 
-        <p className="text-navy-300 text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed mb-10">
+        <p className="text-white/70 text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed mb-10">
           LifeSync connects your wellness and financial data through natural language.
           {' '}
           Just talk. Our AI handles the rest.
@@ -137,7 +137,7 @@ function HeroSection({ user }) {
           </Link>
           <Link
             to={secondaryAction.to}
-            className="flex items-center gap-2 px-8 py-4 rounded-2xl border border-navy-600 text-navy-300 font-medium text-base hover:border-navy-400 hover:text-white hover:bg-navy-800/50 transition-all"
+            className="flex items-center gap-2 px-8 py-4 rounded-2xl border border-white/20 text-white/70 font-medium text-base hover:border-white/40 hover:text-white hover:bg-white/10 transition-all"
           >
             {secondaryAction.label}
           </Link>
@@ -147,13 +147,13 @@ function HeroSection({ user }) {
           {stats.map((stat) => (
             <div key={stat.label} className="text-center">
               <div className="font-display font-bold text-xl text-white">{stat.value}</div>
-              <div className="text-navy-400 text-xs mt-0.5">{stat.label}</div>
+              <div className="text-white/50 text-xs mt-0.5">{stat.label}</div>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 text-navy-500 flex flex-col items-center gap-1">
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 text-white/40 flex flex-col items-center gap-1">
         <span className="text-xs tracking-widest uppercase">Explore</span>
         <ChevronDown className="w-4 h-4 animate-bounce" />
       </div>
@@ -233,7 +233,7 @@ function HowItWorksSection() {
                 <div className="hidden sm:block absolute top-8 left-full w-full h-px bg-gradient-to-r from-emerald-200 to-transparent -z-0 translate-x-[-50%]" />
               )}
               <div className="relative z-10">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-navy-900 to-navy-800 flex items-center justify-center mb-5 shadow-lg">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-ink-900 to-ink-800 flex items-center justify-center mb-5 shadow-lg">
                   <span className="font-display font-bold text-emerald-400 text-sm">{step.num}</span>
                 </div>
                 <h3 className="font-display font-bold text-navy-900 mb-2">{step.title}</h3>
@@ -253,7 +253,7 @@ function CTASection({ user }) {
     : { to: '/register', label: 'Create free account' };
 
   return (
-    <section className="py-24 px-6 bg-gradient-to-br from-navy-950 via-navy-900 to-navy-800 relative overflow-hidden">
+    <section className="py-24 px-6 bg-gradient-to-br from-ink-950 via-ink-900 to-ink-800 relative overflow-hidden">
       <div
         className="absolute inset-0 opacity-15"
         style={{ backgroundImage: 'radial-gradient(circle at 60% 50%, #10b981 0%, transparent 60%)' }}
@@ -266,7 +266,7 @@ function CTASection({ user }) {
         <h2 className="font-display text-4xl sm:text-5xl font-bold text-white mb-4 leading-tight">
           Take control of your life today
         </h2>
-        <p className="text-navy-300 text-lg mb-10">
+        <p className="text-white/70 text-lg mb-10">
           Join the next generation of people who manage health and money intelligently.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
