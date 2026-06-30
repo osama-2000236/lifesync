@@ -17,10 +17,11 @@ const router = express.Router();
 // without auth. NEVER returns API keys or any secret values.
 router.get('/health', async (req, res, next) => {
   try {
-    const [chat, insights, openrouter] = await Promise.all([
+    const [chat, insights, openrouter, bert] = await Promise.all([
       getAIProviderStatus('chat'),
       getAIProviderStatus('insights'),
       getAIProviderStatus('chat', 'openrouter'),
+      getAIProviderStatus('chat', 'bert_local'),
     ]);
     const slim = (s) => ({
       provider: s.provider,
@@ -30,18 +31,27 @@ router.get('/health', async (req, res, next) => {
       ...(s.architecture ? { architecture: s.architecture } : {}),
       ...(s.execution_provider ? { execution_provider: s.execution_provider } : {}),
     });
+    // chat_ready: the ACTIVE chat model can serve (BERT ready, or a cloud model
+    // configured). bert_runtime_ready: the in-server BERT service is reachable
+    // regardless of which model is currently selected. bert_ready (back-compat):
+    // BERT is BOTH reachable AND the active chat model.
+    const chatReady = ['ready', 'configured'].includes(chat.status);
+    const bertRuntimeReady = bert.status === 'ready';
     const bertReady = chat.provider === 'bert_local' && chat.status === 'ready';
     const openrouterReady = openrouter.status === 'configured';
     // Secret-free catalog summary so the model menu is self-verifiable without auth.
     const catalog = getModelCatalog().map((m) => ({ id: m.id, provider: m.provider, model: m.model }));
     return success(res, {
-      ok: bertReady && openrouterReady,
+      ok: chatReady && openrouterReady,
+      chat_ready: chatReady,
+      bert_runtime_ready: bertRuntimeReady,
       bert_ready: bertReady,
       openrouter_ready: openrouterReady,
       openrouter_models: catalog.filter((m) => m.provider === 'openrouter').length,
       chat: slim(chat),
       insights: slim(insights),
       openrouter: slim(openrouter),
+      bert: slim(bert),
       catalog,
     }, 'AI health');
   } catch (err) {

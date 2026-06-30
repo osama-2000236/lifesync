@@ -62,7 +62,10 @@ const smokeAiHealth = async () => {
   const response = await withTimeout(`${API_BASE}/ai/health`);
   assert(response.ok, `AI health failed with status ${response.status}`);
   const { data } = await response.json();
-  assert(data?.bert_ready === true, 'BERT (in-server classifier) is not ready');
+  // bert_runtime_ready = the in-server BERT service is reachable (independent of
+  // which model is currently selected as the active chat).
+  assert(data?.bert_runtime_ready === true, 'BERT runtime (in-server classifier) is not reachable');
+  assert(data?.chat_ready === true, 'Active chat model is not serveable');
   assert(data?.openrouter_ready === true, 'OpenRouter is not configured/ready');
   assert((data?.openrouter_models || 0) >= 4, `Expected >=4 OpenRouter models in catalog, got ${data?.openrouter_models}`);
 };
