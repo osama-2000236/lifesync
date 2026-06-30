@@ -28,6 +28,19 @@ export function useVoiceAssistant({ locale = 'en', onUtterance } = {}) {
   const rafRef = useRef(null);
   const silenceTimerRef = useRef(null);
   const finalRef = useRef('');
+  const voicesRef = useRef([]);
+  const smoothRef = useRef(0);
+  const lastSetRef = useRef(0);
+
+  // Cache TTS voices (load async) so the first reply picks the right language
+  // voice — Arabic especially, which often loads late.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return undefined;
+    const load = () => { voicesRef.current = window.speechSynthesis.getVoices() || []; };
+    load();
+    window.speechSynthesis.onvoiceschanged = load;
+    return () => { window.speechSynthesis.onvoiceschanged = null; };
+  }, []);
   const activeRef = useRef(false);
   const onUtteranceRef = useRef(onUtterance);
   useEffect(() => { onUtteranceRef.current = onUtterance; }, [onUtterance]);
@@ -37,11 +50,15 @@ export function useVoiceAssistant({ locale = 'en', onUtterance } = {}) {
   // ─── Mic level metering (drives the orb) ───
   const startMeter = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Echo cancellation keeps the spoken reply from re-triggering the mic.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       streamRef.current = stream;
       const Ctx = window.AudioContext || window.webkitAudioContext;
       const ctx = new Ctx();
       audioCtxRef.current = ctx;
+      if (ctx.state === 'suspended') { try { await ctx.resume(); } catch { /* ignore */ } }
       const src = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
@@ -52,7 +69,14 @@ export function useVoiceAssistant({ locale = 'en', onUtterance } = {}) {
         let sum = 0;
         for (let i = 0; i < data.length; i += 1) sum += data[i];
         const avg = sum / data.length / 255; // 0..1
-        setLevel((prev) => prev * 0.6 + avg * 0.4); // smooth
+        smoothRef.current = smoothRef.current * 0.6 + avg * 0.4;
+        // Throttle React state to ~20fps (orb has a CSS transition for smoothing)
+        // so the overlay doesn't re-render 60×/sec.
+        const now = performance.now();
+        if (now - lastSetRef.current > 50) {
+          lastSetRef.current = now;
+          setLevel(Math.round(smoothRef.current * 100) / 100);
+        }
         rafRef.current = requestAnimationFrame(tick);
       };
       tick();
@@ -124,7 +148,9 @@ export function useVoiceAssistant({ locale = 'en', onUtterance } = {}) {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(String(text));
       u.lang = langTag(locale);
-      const voice = window.speechSynthesis.getVoices().find((v) => v.lang?.toLowerCase().startsWith(langTag(locale).slice(0, 2)));
+      const wanted = langTag(locale).slice(0, 2);
+      const pool = voicesRef.current.length ? voicesRef.current : (window.speechSynthesis.getVoices() || []);
+      const voice = pool.find((v) => v.lang?.toLowerCase().startsWith(wanted));
       if (voice) u.voice = voice;
       setPhase('speaking');
       u.onend = () => { resolve(); if (activeRef.current) startListening(); };
@@ -135,6 +161,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance } = {}) {
 
   const start = useCallback(async () => {
     if (!supported) { setError('unsupported'); return; }
+    if (activeRef.current) return; // guard against double-start (StrictMode / re-open)
     setError(null);
     activeRef.current = true;
     setActive(true);

@@ -16,6 +16,7 @@ export default function VoiceAssistantOverlay({ open, onClose, sessionId, model 
   const abortRef = useRef(null);
 
   const handleUtterance = useCallback((text) => {
+    if (abortRef.current) abortRef.current(); // cancel any in-flight reply first
     setTurns((prev) => [...prev.slice(-4), { role: 'user', text }]);
     abortRef.current = chatAPI.sendMessageStream(text, sessionId, {
       onComplete: (result) => {
@@ -44,12 +45,14 @@ export default function VoiceAssistantOverlay({ open, onClose, sessionId, model 
   if (!open) return null;
 
   const phase = voice.state;
-  const phaseLabel = {
+  // When errored, the footer shows the reason — don't show the misleading
+  // "Starting…" idle label under the orb.
+  const phaseLabel = voice.error ? '' : ({
     listening: t('va.listening'),
     thinking: t('va.thinking'),
     speaking: t('va.speaking'),
     idle: t('va.tapToStart'),
-  }[phase] || '';
+  }[phase] || '');
   const PhaseIcon = phase === 'speaking' ? Volume2 : phase === 'thinking' ? Sparkles : Mic;
 
   // Orb scales with mic level when listening; gentle auto-pulse otherwise.
