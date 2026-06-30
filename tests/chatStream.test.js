@@ -216,6 +216,46 @@ describe('POST /api/chat/stream', () => {
     expect(complete.data.confidence).toBe(0.95);
   });
 
+  // ─── 4b. REAL cross-domain: health + finance entities create a LinkedDomain ───
+
+  test('cross-domain message logs health + finance AND creates a linked row', async () => {
+    parseMessage.mockResolvedValue({
+      success: true,
+      intent: 'log_both',
+      domain: 'both',
+      is_cross_domain: true,
+      entities: [
+        { domain: 'finance', type: 'expense', amount: 50, currency: 'USD', category: 'Food & Dining', description: 'healthy dinner' },
+        { domain: 'health', type: 'nutrition', value: 0, value_text: 'healthy dinner', unit: 'kcal', category: 'Nutrition' },
+      ],
+      response: 'Logged a $50 healthy dinner and linked it to your nutrition.',
+      needs_clarification: false,
+      confidence: 0.9,
+      processing_time_ms: 90,
+      original_message: 'spent $50 on a healthy dinner',
+    });
+
+    const res = await request(app)
+      .post('/api/chat/stream')
+      .set('Authorization', 'Bearer fake-token')
+      .send({ message: 'spent $50 on a healthy dinner' });
+
+    const complete = parseSSE(res.text).find((e) => e.event === 'complete');
+    expect(complete.data.is_cross_domain).toBe(true);
+    expect(complete.data.entities_logged.health.length).toBe(1);
+    expect(complete.data.entities_logged.finance.length).toBe(1);
+    // The REAL cross-domain link: a LinkedDomain row joining the two.
+    expect(complete.data.entities_logged.linked.length).toBe(1);
+    const link = complete.data.entities_logged.linked[0];
+    expect(link.health_log_id).toBeDefined();
+    expect(link.financial_log_id).toBeDefined();
+
+    // Confirm it was actually persisted.
+    const LinkedDomain = require('../server/models/LinkedDomain');
+    const rows = await LinkedDomain.findAll({ where: { id: link.id } });
+    expect(rows.length).toBe(1);
+  });
+
   // ─── 5. Error handling — AI service failure ───
 
   test('emits error event when parseMessage throws', async () => {
