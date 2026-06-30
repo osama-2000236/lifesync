@@ -9,31 +9,95 @@ import { chatAPI } from '../../services/api';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useVoiceAssistant } from '../../hooks/useVoiceAssistant';
 
+// Sentence boundary for flushing streamed text to speech as it arrives
+// (English . ! ? plus Arabic ؟) — keeps real-time latency low without waiting
+// for the full reply.
+const SENTENCE_END = /[.!?؟\n]/;
+const MAX_CHUNK_CHARS = 140;
+
 export default function VoiceAssistantOverlay({ open, onClose, sessionId, model }) {
   const { t, locale } = useSettings();
-  const [turns, setTurns] = useState([]); // {role, text}
-  const speakRef = useRef(null);
+  const [turns, setTurns] = useState([]); // {role, text, streaming?}
+  const voiceRef = useRef(null);
   const abortRef = useRef(null);
+
+  const handleBargeIn = useCallback(() => {
+    if (abortRef.current) { abortRef.current(); abortRef.current = null; }
+  }, []);
 
   const handleUtterance = useCallback((text) => {
     if (abortRef.current) abortRef.current(); // cancel any in-flight reply first
     setTurns((prev) => [...prev.slice(-4), { role: 'user', text }]);
+
+    let full = '';
+    let cursor = 0;
+    const flushSentences = (force) => {
+      for (;;) {
+        let idx = -1;
+        for (let i = cursor; i < full.length; i += 1) {
+          if (SENTENCE_END.test(full[i])) { idx = i; break; }
+        }
+        if (idx === -1) {
+          if (!force && full.length - cursor > MAX_CHUNK_CHARS) {
+            const windowText = full.slice(cursor, cursor + MAX_CHUNK_CHARS);
+            const spaceIdx = windowText.lastIndexOf(' ');
+            if (spaceIdx > 40) {
+              const chunk = full.slice(cursor, cursor + spaceIdx).trim();
+              cursor += spaceIdx + 1;
+              if (chunk) voiceRef.current?.enqueueSpeech(chunk);
+              continue;
+            }
+          }
+          break;
+        }
+        const chunk = full.slice(cursor, idx + 1).trim();
+        cursor = idx + 1;
+        if (chunk) voiceRef.current?.enqueueSpeech(chunk);
+      }
+      if (force) {
+        const rest = full.slice(cursor).trim();
+        cursor = full.length;
+        if (rest) voiceRef.current?.enqueueSpeech(rest);
+      }
+    };
+
     abortRef.current = chatAPI.sendMessageStream(text, sessionId, {
+      onDelta: (delta) => {
+        full += delta.text || '';
+        setTurns((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.role === 'assistant' && last.streaming) {
+            return [...prev.slice(0, -1), { role: 'assistant', text: full, streaming: true }];
+          }
+          return [...prev.slice(-4), { role: 'assistant', text: full, streaming: true }];
+        });
+        flushSentences(false);
+      },
       onComplete: (result) => {
         const reply = result.response || '';
-        setTurns((prev) => [...prev.slice(-4), { role: 'assistant', text: reply }]);
-        speakRef.current?.(reply);
+        if (!full.trim() && reply) full = reply;
+        flushSentences(true);
+        voiceRef.current?.finishSpeechStream();
+        const finalText = full.trim() ? full : reply;
+        setTurns((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.role === 'assistant' && last.streaming) {
+            return [...prev.slice(0, -1), { role: 'assistant', text: finalText }];
+          }
+          return [...prev.slice(-4), { role: 'assistant', text: finalText }];
+        });
       },
       onError: () => {
         const msg = locale === 'ar' ? 'تعذّر الوصول للمساعد. حاول مرة أخرى.' : "Couldn't reach the assistant. Try again.";
         setTurns((prev) => [...prev.slice(-4), { role: 'assistant', text: msg }]);
-        speakRef.current?.(msg);
+        voiceRef.current?.enqueueSpeech(msg);
+        voiceRef.current?.finishSpeechStream();
       },
     }, { model, lang: locale });
   }, [sessionId, model, locale]);
 
-  const voice = useVoiceAssistant({ locale, onUtterance: handleUtterance });
-  useEffect(() => { speakRef.current = voice.speak; }, [voice.speak]);
+  const voice = useVoiceAssistant({ locale, onUtterance: handleUtterance, onBargeIn: handleBargeIn });
+  useEffect(() => { voiceRef.current = voice; }, [voice]);
 
   // Open/close drives the mic session.
   useEffect(() => {

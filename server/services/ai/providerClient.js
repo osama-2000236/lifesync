@@ -535,6 +535,82 @@ const generateChat = async ({ system, messages, temperature = 0.4, maxTokens = 6
   throw new Error(`Unsupported chat provider: ${provider}`);
 };
 
+// ─── Streaming conversational generation ───
+// Token-by-token variant of generateChat, for real-time voice/chat UX (speak the
+// first sentence while the rest is still generating instead of waiting for the
+// full completion). Only OpenAI-compatible chat/completions providers expose an
+// SSE token stream here (covers openrouter + custom_local/ollama/lmstudio, which
+// is everything the model picker actually serves); other providers fall back to
+// one non-streamed delta so callers can use a single code path either way.
+const generateChatStream = async ({
+  system, messages, temperature = 0.4, maxTokens = 600, providerOverride, model, onDelta, signal,
+} = {}) => {
+  const provider = providerOverride ? normalizeProvider(providerOverride) : getProvider('chat');
+  if (provider === 'bert_local') throw new Error('bert_local is a classifier, not a conversational generator.');
+  if (!SUPPORTED_PROVIDERS.has(provider)) throw new Error(`Unsupported chat provider: ${provider}`);
+
+  if (!['openai', 'openrouter', 'lmstudio', 'ollama', 'groq', 'huggingface'].includes(provider)) {
+    const full = await generateChat({ system, messages, temperature, maxTokens, providerOverride, model });
+    onDelta?.(full.text);
+    return full;
+  }
+
+  const settings = getProviderSettings(provider);
+  if (model) settings.model = model;
+  if (!['ollama', 'lmstudio'].includes(provider) && !settings.apiKey) {
+    throw new Error(`${provider} API key is not configured.`);
+  }
+
+  const turns = sanitizeTurns(messages);
+  if (!turns.length) turns.push({ role: 'user', content: 'Hello' });
+  const msgs = system ? [{ role: 'system', content: system }, ...turns] : turns;
+
+  const response = await axios.post(settings.endpoint, {
+    model: settings.model,
+    messages: msgs,
+    temperature,
+    max_tokens: maxTokens,
+    stream: true,
+  }, {
+    timeout: provider === 'lmstudio'
+      ? (parseInt(process.env.LM_STUDIO_REQUEST_TIMEOUT_MS, 10) || 180000)
+      : 60000,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}`, ...(settings.extraHeaders || {}) },
+    responseType: 'stream',
+    signal,
+  });
+
+  let full = '';
+  let buf = '';
+  await new Promise((resolve, reject) => {
+    response.data.on('data', (chunk) => {
+      buf += chunk.toString('utf8');
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const payload = trimmed.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+          const json = JSON.parse(payload);
+          const delta = json?.choices?.[0]?.delta?.content || '';
+          if (delta) { full += delta; onDelta?.(delta); }
+        } catch { /* ignore partial/malformed SSE chunk */ }
+      }
+    });
+    response.data.on('end', resolve);
+    response.data.on('error', reject);
+    // Safety net: if the request is aborted mid-stream (e.g. voice barge-in),
+    // some Node/axios versions close the socket without an 'end' or 'error'
+    // event — without this the promise would hang forever.
+    response.data.on('close', resolve);
+  });
+
+  if (!full.trim()) throw new Error(`Empty streamed response from ${provider}`);
+  return { provider, model: settings.model, text: full };
+};
+
 /** Classify one message with the local BERT sequence-classification runtime. */
 const classifyText = async (text) => {
   const settings = getProviderSettings('bert_local');
@@ -962,6 +1038,7 @@ const getAIProviderStatus = async (feature = 'chat', providerOverride = null) =>
 module.exports = {
   generateStructuredJson,
   generateChat,
+  generateChatStream,
   classifyText,
   getAIProviderStatus,
   normalizeEntities,

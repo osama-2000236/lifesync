@@ -265,6 +265,13 @@ const processMessageStream = async (req, res) => {
   const currentSessionId = session_id || uuidv4();
   const aiOptions = resolveChatOptions(req.body?.model);
 
+  // If the client disconnects mid-stream (voice barge-in, tab close), stop the
+  // upstream model call instead of burning tokens on a reply nobody will see.
+  // Firing after a normal res.end() is a harmless no-op (request already settled).
+  const abortController = new AbortController();
+  aiOptions.signal = abortController.signal;
+  req.on('close', () => abortController.abort());
+
   // ─── Set up SSE headers ───
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -324,18 +331,22 @@ const processMessageStream = async (req, res) => {
       res.write(':heartbeat\n\n');
     }, 15_000);
 
+    // Stream the conversational reply token-by-token so the voice assistant
+    // (and any other client) can render/speak it before the full turn finishes.
+    const onDelta = (chunk) => sseWrite(res, 'delta', { session_id: currentSessionId, text: chunk });
+
     try {
       if (pending && pending.sessionId === currentSessionId) {
         nlpResult = await parseMessage(message, {
           originalMessage: pending.originalMessage,
           clarificationQuestion: pending.clarificationQuestion,
           clarificationOptions: pending.clarificationOptions,
-        }, nlpContext, aiOptions);
+        }, nlpContext, aiOptions, onDelta);
         pendingClarifications.delete(userId);
       } else {
         // Fresh message — run the two-track pipeline (extract + converse).
         sseWrite(res, 'status', { message: 'Processing your message...' });
-        nlpResult = await parseMessage(message, null, nlpContext, aiOptions);
+        nlpResult = await parseMessage(message, null, nlpContext, aiOptions, onDelta);
       }
     } catch (aiError) {
       clearInterval(heartbeat);

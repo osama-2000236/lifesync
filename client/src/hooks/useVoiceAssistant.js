@@ -13,7 +13,7 @@ const SR = typeof window !== 'undefined'
 const langTag = (locale) => (locale === 'ar' ? 'ar-SA' : 'en-US');
 const SILENCE_MS = 1300; // pause after speech that finalizes a turn
 
-export function useVoiceAssistant({ locale = 'en', onUtterance } = {}) {
+export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}) {
   const supported = Boolean(SR) && typeof window !== 'undefined' && 'speechSynthesis' in window;
 
   const [active, setActive] = useState(false);
@@ -44,8 +44,17 @@ export function useVoiceAssistant({ locale = 'en', onUtterance } = {}) {
   const activeRef = useRef(false);
   const onUtteranceRef = useRef(onUtterance);
   useEffect(() => { onUtteranceRef.current = onUtterance; }, [onUtterance]);
+  const onBargeInRef = useRef(onBargeIn);
+  useEffect(() => { onBargeInRef.current = onBargeIn; }, [onBargeIn]);
   const stateRef = useRef('idle');
   const setPhase = useCallback((s) => { stateRef.current = s; setState(s); }, []);
+
+  // ─── Sentence-queue TTS (real-time): speaks each finished sentence as soon as
+  // it arrives from the streaming reply, instead of waiting for the full text.
+  const speechQueueRef = useRef([]);
+  const speakingRef = useRef(false);
+  const streamDoneRef = useRef(true);
+  const bargeRecRef = useRef(null);
 
   // ─── Mic level metering (drives the orb) ───
   const startMeter = useCallback(async () => {
@@ -141,23 +150,95 @@ export function useVoiceAssistant({ locale = 'en', onUtterance } = {}) {
     try { rec.start(); } catch { /* ignore */ }
   }, [locale, setPhase]);
 
-  // Speak a reply, then resume listening (hands-free turn-taking).
-  const speak = useCallback((text) => new Promise((resolve) => {
-    if (!text || !activeRef.current) return resolve();
+  // ─── Barge-in: while the assistant is speaking, a separate recognizer listens
+  // for the user starting to talk. On detection it cuts the reply short and
+  // hands control back to the normal listening loop (Gemini-app style interrupt).
+  const stopBargeListener = useCallback(() => {
+    const rec = bargeRecRef.current;
+    bargeRecRef.current = null;
+    try { rec?.abort(); } catch { /* ignore */ }
+  }, []);
+
+  const startBargeListener = useCallback(() => {
+    if (!SR || !activeRef.current) return;
+    stopBargeListener();
+    const rec = new SR();
+    rec.lang = langTag(locale);
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = (e) => {
+      const last = e.results[e.results.length - 1];
+      const txt = (last?.[0]?.transcript || '').trim();
+      if (txt.length < 3) return;
+      stopBargeListener();
+      try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+      speechQueueRef.current = [];
+      speakingRef.current = false;
+      streamDoneRef.current = true;
+      onBargeInRef.current?.();
+      if (activeRef.current) startListening();
+    };
+    rec.onerror = () => { /* benign in a best-effort listener */ };
+    rec.onend = () => {
+      if (activeRef.current && stateRef.current === 'speaking' && bargeRecRef.current === rec) {
+        try { rec.start(); } catch { /* ignore */ }
+      }
+    };
+    bargeRecRef.current = rec;
+    try { rec.start(); } catch { /* ignore */ }
+  }, [locale, stopBargeListener, startListening]);
+
+  // Speaks the queue sequentially; resumes listening once it's drained AND the
+  // caller has signaled no more chunks are coming (finishSpeechStream).
+  const drainQueue = useCallback(() => {
+    if (speakingRef.current || !activeRef.current) return;
+    const next = speechQueueRef.current.shift();
+    if (!next) {
+      stopBargeListener();
+      if (streamDoneRef.current && activeRef.current) startListening();
+      return;
+    }
+    speakingRef.current = true;
+    setPhase('speaking');
+    if (!bargeRecRef.current) startBargeListener(); // keep one barge listener alive across the whole speaking turn, not per-sentence
     try {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(String(text));
+      const u = new SpeechSynthesisUtterance(next);
       u.lang = langTag(locale);
       const wanted = langTag(locale).slice(0, 2);
       const pool = voicesRef.current.length ? voicesRef.current : (window.speechSynthesis.getVoices() || []);
       const voice = pool.find((v) => v.lang?.toLowerCase().startsWith(wanted));
       if (voice) u.voice = voice;
-      setPhase('speaking');
-      u.onend = () => { resolve(); if (activeRef.current) startListening(); };
-      u.onerror = () => { resolve(); if (activeRef.current) startListening(); };
+      u.onend = () => { speakingRef.current = false; drainQueue(); };
+      u.onerror = () => { speakingRef.current = false; drainQueue(); };
       window.speechSynthesis.speak(u);
-    } catch { resolve(); if (activeRef.current) startListening(); }
-  }), [locale, setPhase, startListening]);
+    } catch { speakingRef.current = false; drainQueue(); }
+  }, [locale, setPhase, startListening, startBargeListener, stopBargeListener]);
+
+  // Enqueue one finished sentence/chunk for speech (called as the reply streams in).
+  const enqueueSpeech = useCallback((text) => {
+    const t = String(text || '').trim();
+    if (!t || !activeRef.current) return;
+    speechQueueRef.current.push(t);
+    streamDoneRef.current = false;
+    drainQueue();
+  }, [drainQueue]);
+
+  // Signal that no more chunks are coming for this turn — resumes listening
+  // once whatever is queued finishes speaking.
+  const finishSpeechStream = useCallback(() => {
+    streamDoneRef.current = true;
+    if (!speakingRef.current && speechQueueRef.current.length === 0 && activeRef.current) {
+      stopBargeListener();
+      startListening();
+    }
+  }, [startListening, stopBargeListener]);
+
+  // Back-compat single-shot speak (BERT path / error messages): one chunk, done.
+  const speak = useCallback((text) => {
+    if (!text || !activeRef.current) return;
+    enqueueSpeech(text);
+    finishSpeechStream();
+  }, [enqueueSpeech, finishSpeechStream]);
 
   const start = useCallback(async () => {
     if (!supported) { setError('unsupported'); return; }
@@ -173,14 +254,21 @@ export function useVoiceAssistant({ locale = 'en', onUtterance } = {}) {
     activeRef.current = false;
     clearSilence();
     try { recRef.current?.abort(); } catch { /* ignore */ }
+    stopBargeListener();
     try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+    speechQueueRef.current = [];
+    speakingRef.current = false;
+    streamDoneRef.current = true;
     stopMeter();
     setTranscript('');
     setPhase('idle');
     setActive(false);
-  }, [stopMeter, setPhase]);
+  }, [stopMeter, setPhase, stopBargeListener]);
 
   useEffect(() => () => { stop(); }, [stop]);
 
-  return { supported, active, state, transcript, level, error, start, stop, speak, setPhase };
+  return {
+    supported, active, state, transcript, level, error,
+    start, stop, speak, enqueueSpeech, finishSpeechStream, setPhase,
+  };
 }

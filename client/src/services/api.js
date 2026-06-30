@@ -136,6 +136,7 @@ export const chatAPI = {
                 const data = JSON.parse(dataStr);
                 if (currentEvent === 'ack' && callbacks.onAck) callbacks.onAck(data);
                 else if (currentEvent === 'status' && callbacks.onStatus) callbacks.onStatus(data);
+                else if (currentEvent === 'delta' && callbacks.onDelta) callbacks.onDelta(data);
                 else if (currentEvent === 'complete' && callbacks.onComplete) callbacks.onComplete(data);
                 else if (currentEvent === 'error' && callbacks.onError) callbacks.onError(data);
                 else if (currentEvent === 'done') { /* stream finished */ }

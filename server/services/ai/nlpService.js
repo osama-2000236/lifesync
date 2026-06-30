@@ -16,7 +16,7 @@ const {
   _isStrictCustomHFMode,
 } = require('./providerClient');
 const { parseMessageWithBert } = require('./bertNlpService');
-const { generateAssistantReply } = require('./conversationService');
+const { generateAssistantReply, generateAssistantReplyStream } = require('./conversationService');
 
 const AI_SERVICE_ERROR_PATTERNS = [
   /timeout/i,
@@ -711,8 +711,12 @@ const currentRuntimeMetadata = () => {
  * @param {Object|null} pendingClarification
  * @param {Object} context  (must include `conversation` for real history)
  * @param {Object} options  { provider, model } per-request override
+ * @param {Function|null} onDelta  optional — when provided, Track B streams its
+ *   reply token-by-token through this callback (real-time voice/chat UX). Omit
+ *   for the plain request/response JSON path; behavior is identical either way,
+ *   just delivered all-at-once vs. incrementally.
  */
-const parseMessage = async (message, pendingClarification = null, context = {}, options = {}) => {
+const parseMessage = async (message, pendingClarification = null, context = {}, options = {}, onDelta = null) => {
   const provider = options.provider || _getProvider('chat');
 
   // Carry the UI locale into the deterministic track so its replies/clarifications
@@ -724,18 +728,30 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
 
   // BERT default, or a clarification turn → keep the deterministic reply as-is.
   if (provider === 'bert_local' || actions.needs_clarification) {
+    if (onDelta && actions.response) onDelta(actions.response);
     return actions;
   }
 
   // Track B — conversational reply from the chosen model (history + memory).
-  const reply = await generateAssistantReply({
-    provider,
-    model: options.model,
-    context,
-    loggedEntities: actions.entities,
-    message: actions.original_message || message,
-    locale: options.lang || context.locale || null,
-  });
+  const reply = onDelta
+    ? await generateAssistantReplyStream({
+        provider,
+        model: options.model,
+        context,
+        loggedEntities: actions.entities,
+        message: actions.original_message || message,
+        locale: options.lang || context.locale || null,
+        onDelta,
+        signal: options.signal,
+      })
+    : await generateAssistantReply({
+        provider,
+        model: options.model,
+        context,
+        loggedEntities: actions.entities,
+        message: actions.original_message || message,
+        locale: options.lang || context.locale || null,
+      });
 
   if (reply && reply.text) {
     return {
@@ -753,6 +769,8 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
 
   // Missing API key / model unavailable → keep the deterministic reply so the
   // chat never breaks (cloud models stay "needs a key" but local logging works).
+  // Nothing streamed in this failure case, so emit the fallback as one delta.
+  if (onDelta && actions.response) onDelta(actions.response);
   return {
     ...actions,
     model_runtime: {

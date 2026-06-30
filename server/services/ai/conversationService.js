@@ -10,7 +10,7 @@
 // history + memory come from the app DB).
 // ============================================
 
-const { generateChat } = require('./providerClient');
+const { generateChat, generateChatStream } = require('./providerClient');
 const { _buildContextSummary: buildContextSummary } = require('./bertNlpService');
 
 const describeLoggedFacts = (entities = []) => {
@@ -119,8 +119,94 @@ const generateAssistantReply = async ({ provider, model, context = {}, loggedEnt
   }
 };
 
+// Streaming variant of stripReasoning: swallows a leading <think>...</think>
+// block across chunk boundaries, then passes everything after it straight
+// through. (The non-streaming heuristic for malformed local models is skipped
+// here — it needs the full text to detect, which defeats the point of streaming.)
+const THINK_OPEN = '<think>';
+const THINK_CLOSE = '</think>';
+const makeReasoningFilter = (onChunk) => {
+  let raw = '';
+  let decided = false;
+  let inThink = false;
+
+  return (delta) => {
+    if (decided) { onChunk(delta); return; }
+    raw += delta;
+    const trimmedStart = raw.replace(/^\s+/, '');
+
+    if (inThink) {
+      const closeIdx = raw.indexOf(THINK_CLOSE);
+      if (closeIdx !== -1) {
+        const after = raw.slice(closeIdx + THINK_CLOSE.length);
+        inThink = false;
+        decided = true;
+        raw = '';
+        if (after) onChunk(after);
+      }
+      return;
+    }
+
+    if (trimmedStart.startsWith(THINK_OPEN)) {
+      inThink = true;
+      raw = trimmedStart.slice(THINK_OPEN.length);
+      const closeIdx = raw.indexOf(THINK_CLOSE);
+      if (closeIdx !== -1) {
+        const after = raw.slice(closeIdx + THINK_CLOSE.length);
+        inThink = false;
+        decided = true;
+        raw = '';
+        if (after) onChunk(after);
+      }
+      return;
+    }
+
+    if (THINK_OPEN.startsWith(trimmedStart) && trimmedStart.length < THINK_OPEN.length) {
+      return; // ambiguous prefix — wait for more characters before deciding
+    }
+
+    decided = true;
+    const flushed = raw;
+    raw = '';
+    if (flushed) onChunk(flushed);
+  };
+};
+
+/**
+ * Streaming variant of generateAssistantReply — calls onDelta(text) as tokens
+ * arrive so the caller (voice assistant) can start speaking before the full
+ * reply has finished generating. Same fallback contract as the non-streaming
+ * version: returns null/{error} instead of throwing so chat never breaks.
+ */
+const generateAssistantReplyStream = async ({
+  provider, model, context = {}, loggedEntities = [], message, locale = null, onDelta, signal,
+}) => {
+  try {
+    const system = buildSystemPrompt(context, loggedEntities, locale);
+    const messages = buildMessages(context.conversation, message);
+    let text = '';
+    const filter = makeReasoningFilter((chunk) => { text += chunk; onDelta?.(chunk); });
+    const result = await generateChatStream({
+      system,
+      messages,
+      providerOverride: provider,
+      model,
+      temperature: 0.4,
+      maxTokens: 1200,
+      signal,
+      onDelta: filter,
+    });
+    const finalText = text.trim() || stripReasoning(result?.text).trim();
+    if (!finalText) return null;
+    return { text: finalText, provider: result.provider, model: result.model };
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+
 module.exports = {
   generateAssistantReply,
+  generateAssistantReplyStream,
   _buildSystemPrompt: buildSystemPrompt,
   _buildMessages: buildMessages,
   _describeLoggedFacts: describeLoggedFacts,
