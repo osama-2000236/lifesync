@@ -13,68 +13,24 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
 import FullScreenLoader from '../components/common/FullScreenLoader';
 import { PublicPageNavBar, PublicPageFooter } from '../components/public/PublicPageChrome';
 
-const features = [
-  {
-    icon: Brain,
-    bg: 'bg-emerald-50',
-    text: 'text-emerald-600',
-    title: 'AI-Powered Insights',
-    desc: 'Natural language understanding lets you log health and finances just by describing your day. LifeSync figures out the rest.',
-  },
-  {
-    icon: Heart,
-    bg: 'bg-coral-50',
-    text: 'text-coral-500',
-    title: 'Health Tracking',
-    desc: 'Steps, sleep, mood, hydration, and exercise in one place. Spot wellness patterns and correlations you never knew existed.',
-  },
-  {
-    icon: Wallet,
-    bg: 'bg-amber-50',
-    text: 'text-amber-500',
-    title: 'Finance Management',
-    desc: 'Track spending, categorize transactions, and watch your financial health improve with AI-driven recommendations.',
-  },
-  {
-    icon: BarChart3,
-    bg: 'bg-navy-50',
-    text: 'text-navy-600',
-    title: 'Smart Dashboard',
-    desc: 'Your health and finances visualized together. Discover how your spending affects your wellness and vice versa.',
-  },
-  {
-    icon: MessageCircle,
-    bg: 'bg-emerald-50',
-    text: 'text-emerald-600',
-    title: 'Conversational Assistant',
-    desc: 'Ask anything. "How was my sleep this week?" or "Where did most of my money go?" Get instant, intelligent answers.',
-  },
-  {
-    icon: Lock,
-    bg: 'bg-navy-50',
-    text: 'text-navy-600',
-    title: 'Private & Secure',
-    desc: 'Your data stays encrypted and private. We never sell your information. You own your data, period.',
-  },
-];
-
-const stats = [
-  { value: '1 dashboard', label: 'for health + finances' },
-  { value: 'NLP-powered', label: 'natural input' },
-  { value: 'Real-time', label: 'AI insights' },
-  { value: '100% private', label: 'your data' },
-];
-
 function HeroSection({ user }) {
+  const { t } = useSettings();
   const primaryAction = user
-    ? { to: '/dashboard', label: 'Open dashboard' }
-    : { to: '/register', label: 'Get started free' };
+    ? { to: '/dashboard', label: t('public.openDashboard') }
+    : { to: '/register', label: t('public.getStarted') };
   const secondaryAction = user
-    ? { to: '/chat', label: 'Open assistant' }
-    : { to: '/login', label: 'Sign in' };
+    ? { to: '/chat', label: t('public.openAssistant') }
+    : { to: '/login', label: t('auth.signin') };
+  const stats = [
+    { value: t('landing.stat1Value'), label: t('landing.stat1Label') },
+    { value: t('landing.stat2Value'), label: t('landing.stat2Label') },
+    { value: t('landing.stat3Value'), label: t('landing.stat3Label') },
+    { value: t('landing.stat4Value'), label: t('landing.stat4Label') },
+  ];
 
   return (
     <section className="relative min-h-[calc(100vh-4rem)] flex flex-col items-center justify-center overflow-hidden">
@@ -108,23 +64,21 @@ function HeroSection({ user }) {
       <div className="relative z-10 text-center px-6 max-w-4xl mx-auto">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-medium mb-8">
           <Sparkles className="w-3.5 h-3.5" />
-          AI-powered life management
+          {t('landing.badge')}
         </div>
 
         <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl font-bold text-white leading-[1.05] tracking-tight mb-6">
-          Your health and finances,
+          {t('landing.heroTitle1')}
           {' '}
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-emerald-300">
-            one conversation
+            {t('landing.heroTitleHighlight')}
           </span>
           {' '}
-          away.
+          {t('landing.heroTitleEnd')}
         </h1>
 
         <p className="text-white/70 text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed mb-10">
-          LifeSync connects your wellness and financial data through natural language.
-          {' '}
-          Just talk. Our AI handles the rest.
+          {t('landing.heroSub')}
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -154,7 +108,7 @@ function HeroSection({ user }) {
       </div>
 
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 text-white/40 flex flex-col items-center gap-1">
-        <span className="text-xs tracking-widest uppercase">Explore</span>
+        <span className="text-xs tracking-widest uppercase">{t('landing.explore')}</span>
         <ChevronDown className="w-4 h-4 animate-bounce" />
       </div>
     </section>
@@ -162,19 +116,29 @@ function HeroSection({ user }) {
 }
 
 function FeaturesSection() {
+  const { t } = useSettings();
+  const features = [
+    { icon: Brain, bg: 'bg-emerald-50', text: 'text-emerald-600', title: t('landing.feature1Title'), desc: t('landing.feature1Desc') },
+    { icon: Heart, bg: 'bg-coral-50', text: 'text-coral-500', title: t('landing.feature2Title'), desc: t('landing.feature2Desc') },
+    { icon: Wallet, bg: 'bg-amber-50', text: 'text-amber-500', title: t('landing.feature3Title'), desc: t('landing.feature3Desc') },
+    { icon: BarChart3, bg: 'bg-navy-50', text: 'text-navy-600', title: t('landing.feature4Title'), desc: t('landing.feature4Desc') },
+    { icon: MessageCircle, bg: 'bg-emerald-50', text: 'text-emerald-600', title: t('landing.feature5Title'), desc: t('landing.feature5Desc') },
+    { icon: Lock, bg: 'bg-navy-50', text: 'text-navy-600', title: t('landing.feature6Title'), desc: t('landing.feature6Desc') },
+  ];
+
   return (
     <section className="py-24 px-6 bg-surface">
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-16">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-sm font-medium mb-4">
             <Zap className="w-3.5 h-3.5" />
-            Everything you need
+            {t('landing.featuresBadge')}
           </div>
           <h2 className="font-display text-4xl font-bold text-navy-900 mb-4">
-            One app. Complete life picture.
+            {t('landing.featuresTitle')}
           </h2>
           <p className="text-navy-500 text-lg max-w-xl mx-auto">
-            Stop juggling five apps. LifeSync brings your health and finances into a single intelligent dashboard.
+            {t('landing.featuresSub')}
           </p>
         </div>
 
@@ -198,22 +162,11 @@ function FeaturesSection() {
 }
 
 function HowItWorksSection() {
+  const { t } = useSettings();
   const steps = [
-    {
-      num: '01',
-      title: 'Create your account',
-      desc: 'Sign up with Google or email in seconds. No credit card and no commitments.',
-    },
-    {
-      num: '02',
-      title: 'Start logging naturally',
-      desc: 'Just type: "Ran 5k, feeling great" or "Spent $40 on groceries." LifeSync handles the categorization.',
-    },
-    {
-      num: '03',
-      title: 'Discover hidden patterns',
-      desc: 'Watch your dashboard reveal connections between your habits and finances you never noticed.',
-    },
+    { num: '01', title: t('landing.step1Title'), desc: t('landing.step1Desc') },
+    { num: '02', title: t('landing.step2Title'), desc: t('landing.step2Desc') },
+    { num: '03', title: t('landing.step3Title'), desc: t('landing.step3Desc') },
   ];
 
   return (
@@ -221,16 +174,16 @@ function HowItWorksSection() {
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-16">
           <h2 className="font-display text-4xl font-bold text-navy-900 mb-4">
-            Simple by design
+            {t('landing.howTitle')}
           </h2>
-          <p className="text-navy-500 text-lg">Up and running in under 2 minutes.</p>
+          <p className="text-navy-500 text-lg">{t('landing.howSub')}</p>
         </div>
 
         <div className="grid sm:grid-cols-3 gap-8">
           {steps.map((step, index) => (
             <div key={step.num} className="relative">
               {index < steps.length - 1 && (
-                <div className="hidden sm:block absolute top-8 left-full w-full h-px bg-gradient-to-r from-emerald-200 to-transparent -z-0 translate-x-[-50%]" />
+                <div className="hidden sm:block absolute top-8 start-full w-full h-px bg-gradient-to-r rtl:bg-gradient-to-l from-emerald-200 to-transparent -z-0 -translate-x-1/2 rtl:translate-x-1/2" />
               )}
               <div className="relative z-10">
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-ink-900 to-ink-800 flex items-center justify-center mb-5 shadow-lg">
@@ -248,9 +201,10 @@ function HowItWorksSection() {
 }
 
 function CTASection({ user }) {
+  const { t } = useSettings();
   const primaryAction = user
-    ? { to: '/dashboard', label: 'Open dashboard' }
-    : { to: '/register', label: 'Create free account' };
+    ? { to: '/dashboard', label: t('public.openDashboard') }
+    : { to: '/register', label: t('landing.createFreeAccount') };
 
   return (
     <section className="py-24 px-6 bg-gradient-to-br from-ink-950 via-ink-900 to-ink-800 relative overflow-hidden">
@@ -261,13 +215,13 @@ function CTASection({ user }) {
       <div className="relative z-10 max-w-2xl mx-auto text-center">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-medium mb-6">
           <Star className="w-3.5 h-3.5" />
-          Free to get started
+          {t('landing.ctaBadge')}
         </div>
         <h2 className="font-display text-4xl sm:text-5xl font-bold text-white mb-4 leading-tight">
-          Take control of your life today
+          {t('landing.ctaTitle')}
         </h2>
         <p className="text-white/70 text-lg mb-10">
-          Join the next generation of people who manage health and money intelligently.
+          {t('landing.ctaSub')}
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link

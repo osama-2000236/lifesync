@@ -1,5 +1,6 @@
 import { Shield, Lock, Eye, Trash2, Mail, Globe } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
 import FullScreenLoader from '../components/common/FullScreenLoader';
 import { PublicPageNavBar, PublicPageFooter } from '../components/public/PublicPageChrome';
 
@@ -28,6 +29,7 @@ function SectionTitle({ children }) {
 
 export default function PrivacyPolicyPage() {
   const { user, loading } = useAuth();
+  const { t } = useSettings();
 
   if (loading) {
     return <FullScreenLoader />;
@@ -37,13 +39,13 @@ export default function PrivacyPolicyPage() {
     <div className="min-h-screen bg-surface">
       <PublicPageNavBar activePage="privacy" user={user} />
 
-      <div className="bg-gradient-to-br from-navy-900 to-navy-800 py-16 px-6 text-center">
+      <div className="bg-gradient-to-br from-ink-900 to-ink-800 py-16 px-6 text-center">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-medium mb-4">
           <Shield className="w-3.5 h-3.5" />
-          Your privacy matters
+          {t('legal.privacyBadge')}
         </div>
-        <h1 className="font-display text-4xl font-bold text-white mb-3">Privacy Policy</h1>
-        <p className="text-navy-300 text-sm">Last updated: {LAST_UPDATED}</p>
+        <h1 className="font-display text-4xl font-bold text-white mb-3">{t('legal.privacyTitle')}</h1>
+        <p className="text-white/60 text-sm">{t('legal.lastUpdated', { date: LAST_UPDATED })}</p>
       </div>
 
       <div className="max-w-4xl mx-auto px-6 py-14">

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
 import FullScreenLoader from '../components/common/FullScreenLoader';
 import { PublicPageNavBar, PublicPageFooter } from '../components/public/PublicPageChrome';
 
@@ -36,6 +37,7 @@ function SectionTitle({ children }) {
 
 export default function TermsPage() {
   const { user, loading } = useAuth();
+  const { t } = useSettings();
 
   if (loading) {
     return <FullScreenLoader />;
@@ -45,13 +47,13 @@ export default function TermsPage() {
     <div className="min-h-screen bg-surface">
       <PublicPageNavBar activePage="terms" user={user} />
 
-      <div className="bg-gradient-to-br from-navy-900 to-navy-800 py-16 px-6 text-center">
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-navy-700/60 border border-navy-600 text-navy-300 text-sm font-medium mb-4">
+      <div className="bg-gradient-to-br from-ink-900 to-ink-800 py-16 px-6 text-center">
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/20 text-white/80 text-sm font-medium mb-4">
           <Scale className="w-3.5 h-3.5" />
-          Legal agreement
+          {t('legal.termsBadge')}
         </div>
-        <h1 className="font-display text-4xl font-bold text-white mb-3">Terms of Service</h1>
-        <p className="text-navy-300 text-sm">Last updated: {LAST_UPDATED}</p>
+        <h1 className="font-display text-4xl font-bold text-white mb-3">{t('legal.termsTitle')}</h1>
+        <p className="text-white/60 text-sm">{t('legal.lastUpdated', { date: LAST_UPDATED })}</p>
       </div>
 
       <div className="max-w-4xl mx-auto px-6 py-14">

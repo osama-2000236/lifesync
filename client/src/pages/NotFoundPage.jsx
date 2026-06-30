@@ -1,13 +1,21 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
+import SettingsControls from '../components/common/SettingsControls';
 import { Activity, ArrowLeft, Home, Search } from 'lucide-react';
+import { Button } from '../components/ui';
 
 export default function NotFoundPage() {
   const { user } = useAuth();
+  const { t } = useSettings();
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-surface flex flex-col items-center justify-center px-6 text-center">
+    <div className="min-h-screen bg-surface flex flex-col items-center justify-center px-6 text-center relative">
+      <div className="absolute top-4 end-4 z-20">
+        <SettingsControls compact />
+      </div>
+
       <Link to="/" className="flex items-center gap-2.5 mb-12">
         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-md">
           <Activity className="w-5 h-5 text-white" strokeWidth={2.5} />
@@ -26,24 +34,21 @@ export default function NotFoundPage() {
         </div>
       </div>
 
-      <h1 className="font-display text-2xl font-bold text-navy-900 mb-2">Page not found</h1>
+      <h1 className="font-display text-2xl font-bold text-navy-900 mb-2">{t('notfound.title')}</h1>
       <p className="text-navy-500 max-w-sm mb-8 leading-relaxed">
-        This page doesn&apos;t exist or was moved. Check the URL or head back to somewhere familiar.
+        {t('notfound.desc')}
       </p>
 
       <div className="flex items-center gap-3">
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-navy-200 text-navy-600 font-medium text-sm hover:bg-navy-50 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" /> Go back
-        </button>
+        <Button variant="secondary" onClick={() => navigate(-1)}>
+          <ArrowLeft className="w-4 h-4 rtl:rotate-180" /> {t('notfound.goBack')}
+        </Button>
         <Link
           to={user ? '/dashboard' : '/'}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-sm shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-sm shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 active:scale-[0.97] transition-all duration-200 ease-[var(--ease-out-snap)]"
         >
           <Home className="w-4 h-4" />
-          {user ? 'Dashboard' : 'Home'}
+          {user ? t('nav.dashboard') : t('nav.home')}
         </Link>
       </div>
     </div>
