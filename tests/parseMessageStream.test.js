@@ -71,6 +71,24 @@ describe('generateAssistantReplyStream — reasoning filter', () => {
     expect(seen).toEqual(['No reasoning ', 'here.']);
     expect(reply.text).toBe('No reasoning here.');
   });
+
+  test('gives up waiting and surfaces text if a <think> block never closes', async () => {
+    const unclosed = `<think>${'x'.repeat(4001)}`;
+    generateChatStream.mockImplementation(async ({ onDelta }) => {
+      onDelta(unclosed);
+      return { provider: 'openrouter', model: 'x', text: unclosed };
+    });
+
+    const seen = [];
+    const reply = await generateAssistantReplyStream({
+      provider: 'openrouter', context: ctx(), loggedEntities: [], message: 'hi',
+      onDelta: (d) => seen.push(d),
+    });
+
+    // Never silently swallowed forever — something reaches the caller.
+    expect(seen.join('').length).toBeGreaterThan(0);
+    expect(reply.text.length).toBeGreaterThan(0);
+  });
 });
 
 describe('parseMessage — streaming onDelta wiring', () => {

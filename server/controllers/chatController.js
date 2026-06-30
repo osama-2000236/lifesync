@@ -238,6 +238,9 @@ const syncToFirebase = async (sessionId, userId, userMessage, assistantMessage, 
  * Format: "event: <name>\ndata: <JSON>\n\n"
  */
 const sseWrite = (res, event, data) => {
+  // The client may have disconnected mid-turn (voice barge-in, tab close) —
+  // writing to an already-closed response just throws/warns for no benefit.
+  if (res.writableEnded || res.destroyed) return;
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 };
 

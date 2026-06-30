@@ -607,7 +607,10 @@ const generateChatStream = async ({
     response.data.on('close', resolve);
   });
 
-  if (!full.trim()) throw new Error(`Empty streamed response from ${provider}`);
+  if (!full.trim()) {
+    if (signal?.aborted) throw new Error(`Streamed request to ${provider} was aborted`);
+    throw new Error(`Empty streamed response from ${provider}`);
+  }
   return { provider, model: settings.model, text: full };
 };
 

@@ -68,6 +68,19 @@ describe('generateChatStream', () => {
     })).rejects.toThrow(/Empty streamed response/);
   });
 
+  test('a barge-in abort with zero tokens received throws a distinct, non-misleading error', async () => {
+    process.env.OPENROUTER_API_KEY = 'or-test-key';
+    axios.post.mockResolvedValue({ data: sseStream(['data: [DONE]']) });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(generateChatStream({
+      messages: [{ role: 'user', content: 'hi' }],
+      providerOverride: 'openrouter',
+      signal: controller.signal,
+    })).rejects.toThrow(/aborted/);
+  });
+
   test('ignores malformed SSE lines and keeps streaming valid ones', async () => {
     process.env.OPENROUTER_API_KEY = 'or-test-key';
     const lines = [

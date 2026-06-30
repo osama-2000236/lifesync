@@ -125,6 +125,10 @@ const generateAssistantReply = async ({ provider, model, context = {}, loggedEnt
 // here — it needs the full text to detect, which defeats the point of streaming.)
 const THINK_OPEN = '<think>';
 const THINK_CLOSE = '</think>';
+// If a reasoning block never closes (truncated/broken model output), stop
+// waiting after this many buffered chars and surface what's left — silently
+// swallowing the whole reply forever is worse than showing raw reasoning text.
+const MAX_THINK_BUFFER = 4000;
 const makeReasoningFilter = (onChunk) => {
   let raw = '';
   let decided = false;
@@ -135,6 +139,11 @@ const makeReasoningFilter = (onChunk) => {
     raw += delta;
     const trimmedStart = raw.replace(/^\s+/, '');
 
+    if (!inThink && trimmedStart.startsWith(THINK_OPEN)) {
+      inThink = true;
+      raw = trimmedStart.slice(THINK_OPEN.length);
+    }
+
     if (inThink) {
       const closeIdx = raw.indexOf(THINK_CLOSE);
       if (closeIdx !== -1) {
@@ -143,20 +152,14 @@ const makeReasoningFilter = (onChunk) => {
         decided = true;
         raw = '';
         if (after) onChunk(after);
-      }
-      return;
-    }
-
-    if (trimmedStart.startsWith(THINK_OPEN)) {
-      inThink = true;
-      raw = trimmedStart.slice(THINK_OPEN.length);
-      const closeIdx = raw.indexOf(THINK_CLOSE);
-      if (closeIdx !== -1) {
-        const after = raw.slice(closeIdx + THINK_CLOSE.length);
-        inThink = false;
+      } else if (raw.length > MAX_THINK_BUFFER) {
+        // Reasoning block never closed within budget — stop swallowing and
+        // surface what's buffered so the caller isn't met with dead air,
+        // whether the overflow arrived in one chunk or many.
         decided = true;
+        const flushed = raw;
         raw = '';
-        if (after) onChunk(after);
+        onChunk(flushed);
       }
       return;
     }
