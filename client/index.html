@@ -4,7 +4,25 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>client</title>
+    <title>LifeSync</title>
+    <script>
+      // Pre-paint theme + direction from saved settings (avoids flash). Kept in
+      // sync by SettingsContext after React mounts.
+      (function () {
+        try {
+          var t = localStorage.getItem('lifesync.theme');
+          if (t !== 'light' && t !== 'dark') {
+            t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          var l = localStorage.getItem('lifesync.locale') === 'ar' ? 'ar' : 'en';
+          var r = document.documentElement;
+          if (t === 'dark') r.classList.add('dark');
+          r.setAttribute('dir', l === 'ar' ? 'rtl' : 'ltr');
+          r.setAttribute('lang', l);
+          r.style.colorScheme = t;
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

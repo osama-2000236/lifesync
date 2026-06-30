@@ -231,6 +231,19 @@ const sendOTPEmail = async (email, code) => {
     console.log(`\n📧 LifeSync OTP for ${email}: ${code}\n`);
   }
 
+  // Demo bypass (env-gated, hard override). When OTP_DEMO_MODE is enabled, log the
+  // code to the SERVER logs (e.g. Railway logs — private) and report success so
+  // registration works without a deliverable email provider. This wins even when a
+  // key is present, because a key can be in a non-deliverable state (e.g. Resend's
+  // onboarding@resend.dev test sender only delivers to the account owner). The code
+  // is NEVER returned to the client. Turn OFF and set a verified RESEND_FROM domain
+  // for real production sign-ups.
+  const otpDemoMode = ['1', 'true', 'yes', 'on'].includes(String(process.env.OTP_DEMO_MODE || '').toLowerCase());
+  if (otpDemoMode) {
+    console.log(`\n📧 [OTP_DEMO_MODE] LifeSync verification code for ${email}: ${code}\n`);
+    return { success: true, demo: true, message: 'Verification code issued (demo mode — check server logs).' };
+  }
+
   try {
     const html = `
         <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #f8fafc; border-radius: 12px;">

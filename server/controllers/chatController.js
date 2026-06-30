@@ -97,6 +97,13 @@ const chatValidation = [
   body('model')
     .optional()
     .isString(),
+  body('lang')
+    .optional()
+    .isString()
+    .isLength({ max: 8 }),
+  body('context_window')
+    .optional()
+    .isIn(['standard', 'deep', 'max']),
 ];
 
 /** Per-request chat model → { provider, model } options for parseMessage. */
@@ -308,6 +315,7 @@ const processMessageStream = async (req, res) => {
     const pending = pendingClarifications.get(userId);
     const nlpContext = await buildBertContext(userId, currentSessionId, {
       excludeChatIds: [userChatLog.id, assistantChatLog.id],
+      window: req.body?.context_window || null,
     });
     let nlpResult;
 
@@ -508,7 +516,7 @@ const processMessage = async (req, res, next) => {
     const { message, session_id } = req.body;
     const userId = req.user.id;
     const currentSessionId = session_id || uuidv4();
-    const aiOptions = resolveChatOptions(req.body?.model);
+    const aiOptions = { ...resolveChatOptions(req.body?.model), lang: req.body?.lang || null };
 
     // ─── Optimistic write: persist user message immediately ───
     const userChatLog = await ChatLog.create(await safeFields({
@@ -536,6 +544,7 @@ const processMessage = async (req, res, next) => {
     const pending = pendingClarifications.get(userId);
     const nlpContext = await buildBertContext(userId, currentSessionId, {
       excludeChatIds: [userChatLog.id, assistantChatLog.id],
+      window: req.body?.context_window || null,
     });
     let nlpResult;
 

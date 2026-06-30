@@ -15,6 +15,9 @@ const {
   persistDashboardInsights,
 } = require('../services/ai/dashboardInsightsService');
 const { getLatestInsights, markAsRead } = require('../services/ai/insightsService');
+const { buildGamification } = require('../services/ai/gamificationService');
+const HealthLog = require('../models/HealthLog');
+const FinancialLog = require('../models/FinancialLog');
 const { success, error, created } = require('../utils/responseHelper');
 
 // Get current insights (Gemma-backed, with short cache for dashboard refreshes)
@@ -43,6 +46,23 @@ router.post('/generate', authenticate, async (req, res, next) => {
   try {
     const insights = await persistDashboardInsights(req.user.id);
     created(res, { insights }, 'Insights generated and stored');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Gamification: streak, lifetime stats, and unlocked achievements (bilingual).
+router.get('/gamification', authenticate, async (req, res, next) => {
+  try {
+    const [healthRows, financeRows] = await Promise.all([
+      HealthLog.findAll({ where: { user_id: req.user.id }, attributes: ['logged_at'], order: [['logged_at', 'DESC']], limit: 1000 }),
+      FinancialLog.findAll({ where: { user_id: req.user.id }, attributes: ['logged_at', 'type', 'amount'], order: [['logged_at', 'DESC']], limit: 1000 }),
+    ]);
+    const data = buildGamification(
+      healthRows.map((r) => (r.get ? r.get({ plain: true }) : r)),
+      financeRows.map((r) => (r.get ? r.get({ plain: true }) : r)),
+    );
+    success(res, data, 'Gamification snapshot');
   } catch (err) {
     next(err);
   }

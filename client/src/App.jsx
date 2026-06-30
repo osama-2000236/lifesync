@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { SettingsProvider } from './contexts/SettingsContext';
 
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
@@ -63,6 +64,7 @@ function RootRoute() {
 
 export default function App() {
   return (
+    <SettingsProvider>
     <BrowserRouter>
       <AuthProvider>
         <Routes>
@@ -94,5 +96,6 @@ export default function App() {
         </Routes>
       </AuthProvider>
     </BrowserRouter>
+    </SettingsProvider>
   );
 }

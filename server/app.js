@@ -23,6 +23,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const insightsRoutes = require('./routes/insightsRoutes');
 const externalRoutes = require('./routes/externalRoutes');
 const aiRoutes = require('./routes/aiRoutes');
+const voiceRoutes = require('./routes/voiceRoutes');
 
 // Import granular rate limiters
 const { chatLimiter, insightLimiter, generalLimiter } = require('./middleware/rateLimiter');
@@ -114,6 +115,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/insights', insightLimiter, insightsRoutes);
 app.use('/api/external', externalRoutes);
 app.use('/api/ai', generalLimiter, aiRoutes);
+app.use('/api/voice', generalLimiter, voiceRoutes);
 
 // ============================================
 // Error Handling

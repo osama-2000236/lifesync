@@ -9,12 +9,16 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { aiAPI, chatAPI } from '../services/api';
 import { subscribeToChatSession } from '../services/firebase';
 import { MODEL_OPTIONS } from '../config/models';
+import { useSettings } from '../contexts/SettingsContext';
+import { useVoice } from '../hooks/useVoice';
+import VoiceAssistantOverlay from '../components/voice/VoiceAssistantOverlay';
 import {
   Send, Loader2, Sparkles, Plus, Clock, MessageCircle,
   Heart, Wallet, Link2, RotateCcw, AlertCircle, Zap,
   ArrowRight, TrendingUp, Activity,
   BrainCircuit, ChevronDown, RefreshCw, Cpu, ShieldCheck,
   CheckCircle2, AlertTriangle, Upload, Info, HardDrive,
+  Mic, MicOff, Volume2, VolumeX, AudioLines,
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -585,10 +589,20 @@ export default function ChatPage() {
   const [modelLoading, setModelLoading] = useState(true);
   const [modelError, setModelError] = useState(null);
   const [lastUserText, setLastUserText] = useState(''); // for retry
+  const [voiceAssistantOpen, setVoiceAssistantOpen] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(null);
   const statusTimersRef = useRef([]);
+
+  // ─── Settings (i18n + theme) + voice (browser STT/TTS) ───
+  const { t, locale } = useSettings();
+  const sendMessageRef = useRef(null);
+  const handleTranscript = useCallback((text) => sendMessageRef.current?.(text), []);
+  const voice = useVoice({ locale, onTranscript: handleTranscript });
+  // Read replies aloud without coupling sendMessage to the voice object identity.
+  const speakRef = useRef(null);
+  useEffect(() => { speakRef.current = voice.speak; }, [voice.speak]);
 
   const clearStatusTimers = useCallback(() => {
     statusTimersRef.current.forEach(clearTimeout);
@@ -734,6 +748,10 @@ export default function ChatPage() {
         };
         setMessages((prev) => [...prev, assistantMsg]);
 
+        // Read the final reply aloud when voice output is on (skip clarification
+        // prompts; no-op when speakReplies is off).
+        if (result.response && !result.needs_clarification) speakRef.current?.(result.response);
+
         // Recorded an intent that changed data → refresh the dashboard now.
         const logged = result.entities_logged || {};
         if ((logged.health?.length || logged.finance?.length)) {
@@ -781,10 +799,13 @@ export default function ChatPage() {
         setStatusText(null);
         inputRef.current?.focus();
       },
-    }, { model: activeModelId });
+    }, { model: activeModelId, lang: locale });
 
     abortRef.current = abort;
-  }, [clearStatusTimers, input, modelRuntime?.activation?.status, modelRuntime?.active?.model_id, modelRuntime?.switching_to, sending, sessionId]);
+  }, [clearStatusTimers, input, locale, modelRuntime?.activation?.status, modelRuntime?.active?.model_id, modelRuntime?.switching_to, sending, sessionId]);
+
+  // Keep a stable ref so the voice hook's onTranscript can send messages.
+  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
 
   // Cleanup abort on unmount or session switch
   useEffect(() => {
@@ -844,6 +865,18 @@ export default function ChatPage() {
   };
   const modelSwitching = modelRuntime?.activation?.status === 'starting';
 
+  // Map a speech-recognition error to a friendly, localized hint (ignore benign ones).
+  const VOICE_BENIGN = ['no-speech', 'aborted'];
+  const voiceErrorKey = voice.error && !VOICE_BENIGN.includes(voice.error)
+    ? (['not-allowed', 'service-not-allowed'].includes(voice.error)
+        ? 'voice.error.permission'
+        : voice.error === 'language-not-supported'
+          ? 'voice.error.lang'
+          : voice.error === 'unsupported'
+            ? 'voice.unsupported'
+            : 'voice.error.generic')
+    : null;
+
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* ─── Sessions Sidebar (Desktop) ─── */}
@@ -857,7 +890,7 @@ export default function ChatPage() {
             onClick={startNewSession}
             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors"
           >
-            <Plus className="w-4 h-4" /> New Chat
+            <Plus className="w-4 h-4" /> {t('chat.newChat')}
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-1">
@@ -870,7 +903,7 @@ export default function ChatPage() {
             />
           ))}
           {sessions.length === 0 && (
-            <p className="text-center text-navy-400 text-xs py-8">No previous chats</p>
+            <p className="text-center text-navy-400 text-xs py-8">{t('chat.noChats')}</p>
           )}
         </div>
       </aside>
@@ -886,9 +919,20 @@ export default function ChatPage() {
             <Activity className="w-4 h-4 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-display text-base font-bold text-navy-800">LifeSync Assistant</h2>
-            <p className="text-[11px] text-navy-400">Track health &amp; finances through conversation</p>
+            <h2 className="font-display text-base font-bold text-navy-800">{t('chat.title')}</h2>
+            <p className="text-[11px] text-navy-400">{t('chat.subtitle')}</p>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setVoiceAssistantOpen(true)}
+            aria-label={t('va.open')}
+            title={t('va.open')}
+            className="h-9 flex items-center gap-2 px-3 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+          >
+            <AudioLines className="w-4 h-4" />
+            <span className="hidden sm:inline">{t('va.open')}</span>
+          </button>
 
           <ModelPulse
             runtime={modelRuntime}
@@ -941,6 +985,24 @@ export default function ChatPage() {
         {/* Input Area */}
         <div className="px-6 py-3 bg-white border-t border-navy-100 flex-shrink-0">
           <div className="flex items-end gap-3 max-w-3xl mx-auto">
+            {/* Read-replies-aloud toggle */}
+            {voice.ttsSupported && (
+              <button
+                type="button"
+                onClick={() => { voice.setSpeakReplies((v) => !v); voice.cancelSpeech(); }}
+                aria-pressed={voice.speakReplies}
+                aria-label={voice.speakReplies ? t('voice.muteReplies') : t('voice.speakReplies')}
+                title={voice.speakReplies ? t('voice.muteReplies') : t('voice.speakReplies')}
+                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all flex-shrink-0 border ${
+                  voice.speakReplies
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                    : 'bg-surface border-navy-200 text-navy-400 hover:text-navy-600'
+                }`}
+              >
+                {voice.speakReplies ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+              </button>
+            )}
+
             <div className="flex-1 relative">
               <textarea
                 ref={inputRef}
@@ -948,8 +1010,9 @@ export default function ChatPage() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 disabled={modelSwitching}
-                placeholder={modelSwitching ? 'Switching models...' : 'Tell me about your day...'}
+                placeholder={modelSwitching ? t('chat.switching') : (voice.listening ? t('voice.listening') : t('chat.placeholder'))}
                 rows={1}
+                dir="auto"
                 className="w-full px-4 py-3 pr-12 rounded-2xl border border-navy-200 bg-surface text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 resize-none text-sm transition-all disabled:opacity-60 disabled:cursor-wait"
                 style={{ minHeight: '44px', maxHeight: '120px' }}
                 onInput={(e) => {
@@ -958,17 +1021,47 @@ export default function ChatPage() {
                 }}
               />
             </div>
+
+            {/* Microphone (browser speech-to-text) */}
+            {voice.sttSupported && (
+              <button
+                type="button"
+                onClick={() => (voice.listening ? voice.stopListening() : voice.startListening())}
+                disabled={sending || modelSwitching}
+                aria-pressed={voice.listening}
+                aria-label={voice.listening ? t('voice.stop') : t('voice.start')}
+                title={voice.listening ? t('voice.stop') : t('voice.start')}
+                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all flex-shrink-0 border disabled:opacity-40 disabled:cursor-not-allowed ${
+                  voice.listening
+                    ? 'bg-coral-500 border-coral-500 text-white animate-pulse'
+                    : 'bg-surface border-navy-200 text-navy-500 hover:text-emerald-600 hover:border-emerald-300'
+                }`}
+              >
+                {voice.listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </button>
+            )}
+
             <button
               onClick={() => sendMessage()}
               disabled={!input.trim() || sending || modelSwitching}
-              aria-label="Send message"
+              aria-label={t('chat.send')}
               className="w-11 h-11 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white flex items-center justify-center hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/20 flex-shrink-0"
             >
               {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
           </div>
+          {voiceErrorKey && (
+            <p role="status" className="max-w-3xl mx-auto mt-1.5 text-[11px] text-coral-500">{t(voiceErrorKey)}</p>
+          )}
         </div>
       </div>
+
+      <VoiceAssistantOverlay
+        open={voiceAssistantOpen}
+        onClose={() => setVoiceAssistantOpen(false)}
+        sessionId={sessionId}
+        model={modelRuntime?.switching_to || modelRuntime?.active?.model_id || 'bert_local'}
+      />
     </div>
   );
 }

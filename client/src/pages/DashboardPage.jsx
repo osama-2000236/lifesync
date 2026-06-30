@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { healthAPI, financeAPI, insightsAPI } from '../services/api';
 import { getApiErrorMessage } from '../utils/apiErrors';
 import { getPaginatedItems } from '../utils/paginatedResponse';
@@ -7,6 +8,7 @@ import HealthCorrelationChart from '../components/dashboard/HealthCorrelationCha
 import SpendingChart from '../components/dashboard/SpendingChart';
 import MoodActivityChart from '../components/dashboard/MoodActivityChart';
 import InsightCards from '../components/dashboard/InsightCards';
+import StreakCard from '../components/dashboard/StreakCard';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import {
   Footprints, Moon, SmilePlus, Droplets,
@@ -29,11 +31,13 @@ export default function DashboardPage() {
   const DASHBOARD_REFRESH_INTERVAL_MS = 30_000;
   const INSIGHTS_REFRESH_INTERVAL_MS = 5 * 60_000;
   const { user } = useAuth();
+  const { t } = useSettings();
   const [healthData, setHealthData] = useState([]);
   const [financeData, setFinanceData] = useState([]);
   const [healthSummary, setHealthSummary] = useState(null);
   const [financeSummary, setFinanceSummary] = useState(null);
   const [insights, setInsights] = useState(null);
+  const [gamification, setGamification] = useState(null);
   const [insightsError, setInsightsError] = useState('');
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [insightsLoading, setInsightsLoading] = useState(true);
@@ -53,14 +57,19 @@ export default function DashboardPage() {
       }
 
       try {
-        const [healthRes, financeRes, healthSummaryRes, financeSummaryRes] = await Promise.allSettled([
+        const [healthRes, financeRes, healthSummaryRes, financeSummaryRes, gamificationRes] = await Promise.allSettled([
           healthAPI.getLogs({ limit: 100 }),
           financeAPI.getLogs({ limit: 100 }),
           healthAPI.getWeeklySummary(),
           financeAPI.getWeeklySummary(),
+          insightsAPI.getGamification(),
         ]);
 
         if (!isMounted) return;
+
+        if (gamificationRes.status === 'fulfilled') {
+          setGamification(gamificationRes.value.data.data || null);
+        }
 
         if (healthRes.status === 'fulfilled') {
           setHealthData(getPaginatedItems(healthRes.value.data, 'logs'));
@@ -141,28 +150,28 @@ export default function DashboardPage() {
 
   const quickStats = [
     {
-      label: '7-Day Steps',
+      label: t('dash.steps7d'),
       value: normalizedHealthSummary.steps?.total ? normalizedHealthSummary.steps.total.toLocaleString() : '—',
       icon: Footprints,
       color: 'text-emerald-500',
       bg: 'bg-emerald-50',
     },
     {
-      label: 'Avg Sleep',
+      label: t('dash.avgSleep'),
       value: normalizedHealthSummary.sleep?.avg ? `${normalizedHealthSummary.sleep.avg.toFixed(1)}h` : '—',
       icon: Moon,
       color: 'text-indigo-500',
       bg: 'bg-indigo-50',
     },
     {
-      label: 'Avg Mood',
+      label: t('dash.avgMood'),
       value: normalizedHealthSummary.mood?.avg ? normalizedHealthSummary.mood.avg.toFixed(1) : '—',
       icon: SmilePlus,
       color: 'text-amber-500',
       bg: 'bg-amber-50',
     },
     {
-      label: 'Avg Water',
+      label: t('dash.avgWater'),
       value: normalizedHealthSummary.water?.avg ? `${normalizedHealthSummary.water.avg.toFixed(1)}L` : '—',
       icon: Droplets,
       color: 'text-sky-500',
@@ -172,9 +181,9 @@ export default function DashboardPage() {
 
   const greeting = () => {
     const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
+    if (hour < 12) return t('dash.goodMorning');
+    if (hour < 17) return t('dash.goodAfternoon');
+    return t('dash.goodEvening');
   };
 
   return (
@@ -205,15 +214,21 @@ export default function DashboardPage() {
         )}
       </div>
 
+      {(gamification || dashboardLoading) && (
+        <div className="mb-8">
+          <StreakCard data={gamification} loading={dashboardLoading && !gamification} />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
                 <Activity className="w-5 h-5 text-emerald-500" />
-                <h2 className="font-display text-lg font-bold text-navy-800">Health Trends</h2>
+                <h2 className="font-display text-lg font-bold text-navy-800">{t('dash.healthTrends')}</h2>
               </div>
-              <span className="text-xs text-navy-400 font-medium px-3 py-1 rounded-full bg-navy-50">Last 7 days</span>
+              <span className="text-xs text-navy-400 font-medium px-3 py-1 rounded-full bg-navy-50">{t('dash.last7days')}</span>
             </div>
             <HealthCorrelationChart healthData={healthData} loading={dashboardLoading} />
           </div>
@@ -223,7 +238,7 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2">
                   <Wallet className="w-5 h-5 text-coral-500" />
-                  <h2 className="font-display text-base font-bold text-navy-800">Spending</h2>
+                  <h2 className="font-display text-base font-bold text-navy-800">{t('dash.spending')}</h2>
                 </div>
                 <div className="flex gap-1 bg-navy-50 rounded-lg p-0.5">
                   {['doughnut', 'bar'].map((value) => (
@@ -250,7 +265,7 @@ export default function DashboardPage() {
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
               <div className="flex items-center gap-2 mb-5">
                 <Heart className="w-5 h-5 text-purple-500" />
-                <h2 className="font-display text-base font-bold text-navy-800">Mood vs. Activity</h2>
+                <h2 className="font-display text-base font-bold text-navy-800">{t('dash.moodVsActivity')}</h2>
               </div>
               <MoodActivityChart healthData={healthData} loading={dashboardLoading} />
             </div>
@@ -260,7 +275,7 @@ export default function DashboardPage() {
         <div className="space-y-6">
           <div className="flex items-center gap-2 mb-1">
             <BarChart3 className="w-5 h-5 text-navy-500" />
-            <h2 className="font-display text-lg font-bold text-navy-800">Insights</h2>
+            <h2 className="font-display text-lg font-bold text-navy-800">{t('dash.insights')}</h2>
           </div>
           <InsightCards insights={insights} loading={insightsLoading} error={insightsError} />
         </div>

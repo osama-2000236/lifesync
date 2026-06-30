@@ -31,15 +31,27 @@ const describeLoggedFacts = (entities = []) => {
   return parts.join(', ');
 };
 
-/** System prompt: persona + grounded LifeSync context + memory + just-logged facts. */
-const buildSystemPrompt = (context = {}, loggedEntities = []) => {
+/** Language directive: native, not translated. LLMs mirror the user's language
+ *  reliably; the locale hint biases short/ambiguous turns toward Arabic. */
+const buildLanguageDirective = (locale) => {
+  const base = 'LANGUAGE: Reply in the SAME language the user writes in. If they write Arabic, reply in fluent, natural Modern Standard Arabic (فصحى) — native phrasing, not literal/translated wording, and never mix English words into an Arabic reply.';
+  if (String(locale || '').toLowerCase().startsWith('ar')) {
+    return `${base}\nThe user's app is set to Arabic, so default to Arabic unless they clearly switch to English. Keep units and currency natural in Arabic.`;
+  }
+  return base;
+};
+
+/** System prompt: persona + language + grounded LifeSync context + memory + just-logged facts. */
+const buildSystemPrompt = (context = {}, loggedEntities = [], locale = null) => {
   const name = context?.profile?.name;
   const memory = context?.memory?.summary;
   const summary = buildContextSummary(context);
   const logged = describeLoggedFacts(loggedEntities);
+  const resolvedLocale = locale || context?.locale || null;
 
   return [
     'You are LifeSync — a warm, concise personal daily assistant that helps with health, money, mood, and everyday planning.',
+    buildLanguageDirective(resolvedLocale),
     name ? `The user's name is ${name}.` : '',
     'Speak naturally and conversationally, like a helpful friend who remembers the user. Keep replies short (1–4 sentences) unless asked for detail.',
     'Output ONLY your final reply to the user — never show your reasoning, planning, a "thinking process", or step-by-step analysis.',
@@ -67,11 +79,17 @@ const stripReasoning = (raw) => {
   return t;
 };
 
-/** Map prior turns + the current message into a provider-agnostic messages array. */
+/** Map prior turns + the current message into a provider-agnostic messages array.
+ *  History depth follows CONTEXT_MESSAGES (default 20) so the larger/switchable
+ *  context window actually reaches the conversational model, not a fixed 16. */
+const historyLimit = () => {
+  const n = parseInt(process.env.CONTEXT_MESSAGES, 10);
+  return Number.isFinite(n) ? Math.min(80, Math.max(4, n)) : 20;
+};
 const buildMessages = (conversation = [], currentMessage) => {
   const history = (Array.isArray(conversation) ? conversation : [])
     .filter((m) => m && m.content && (m.role === 'user' || m.role === 'assistant'))
-    .slice(-16);
+    .slice(-historyLimit());
   return [...history, { role: 'user', content: String(currentMessage || '') }];
 };
 
@@ -80,9 +98,9 @@ const buildMessages = (conversation = [], currentMessage) => {
  * Returns the prose string, or null on failure (caller falls back to the
  * deterministic reply so a missing API key / offline model never breaks chat).
  */
-const generateAssistantReply = async ({ provider, model, context = {}, loggedEntities = [], message }) => {
+const generateAssistantReply = async ({ provider, model, context = {}, loggedEntities = [], message, locale = null }) => {
   try {
-    const system = buildSystemPrompt(context, loggedEntities);
+    const system = buildSystemPrompt(context, loggedEntities, locale);
     const messages = buildMessages(context.conversation, message);
     const result = await generateChat({
       system,

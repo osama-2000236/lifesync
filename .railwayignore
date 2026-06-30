@@ -1,0 +1,22 @@
+# `railway up` only needs what the Dockerfile copies: package.json(+lock),
+# server/, .env.example, Dockerfile. Exclude everything else so the CLI upload
+# stays small and fast. (Does not affect GitHub-triggered deploys.)
+client/
+bert_cloud/
+bert_best_model_10pct/
+model_runtime/
+hf_space/
+docs/
+tests/
+agentflow/
+.agents/
+.agentflow/
+.claude/
+.codex-logs/
+.codex-runtime/
+.codex-runtime
+.wrangler/
+.github/
+.git/
+*.md
+*.log

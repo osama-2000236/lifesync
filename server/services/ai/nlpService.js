@@ -715,6 +715,10 @@ const currentRuntimeMetadata = () => {
 const parseMessage = async (message, pendingClarification = null, context = {}, options = {}) => {
   const provider = options.provider || _getProvider('chat');
 
+  // Carry the UI locale into the deterministic track so its replies/clarifications
+  // can be native Arabic too (not just the conversational models).
+  if (options.lang && !context.locale) context.locale = options.lang;
+
   // Track A — deterministic actions + a safe baseline reply.
   const actions = await parseMessageWithBert(message, pendingClarification, context);
 
@@ -730,6 +734,7 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
     context,
     loggedEntities: actions.entities,
     message: actions.original_message || message,
+    locale: options.lang || context.locale || null,
   });
 
   if (reply && reply.text) {

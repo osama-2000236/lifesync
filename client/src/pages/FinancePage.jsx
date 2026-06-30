@@ -1,6 +1,7 @@
 // src/pages/FinancePage.jsx
 import { useState, useEffect } from 'react';
 import { financeAPI } from '../services/api';
+import { useSettings } from '../contexts/SettingsContext';
 import { getPaginatedItems, getPaginatedTotalPages } from '../utils/paginatedResponse';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import {
@@ -9,6 +10,8 @@ import {
 } from 'lucide-react';
 
 export default function FinancePage() {
+  const { t } = useSettings();
+  const typeLabel = (type) => (type === 'all' ? t('common.all') : t(`fin.type.${type}`));
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -37,7 +40,7 @@ export default function FinancePage() {
   }, [page, typeFilter, search]);
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this financial entry?')) return;
+    if (!confirm(t('financepage.deleteConfirm'))) return;
     try {
       await financeAPI.deleteLog(id);
       setLogs((prev) => prev.filter((l) => l.id !== id));
@@ -51,9 +54,9 @@ export default function FinancePage() {
     <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-up">
       <div className="mb-6">
         <h1 className="font-display text-2xl font-bold text-navy-900 flex items-center gap-2">
-          <Wallet className="w-6 h-6 text-emerald-500" /> Finance Logs
+          <Wallet className="w-6 h-6 text-emerald-500" /> {t('financepage.title')}
         </h1>
-        <p className="text-navy-500 text-sm mt-1">Your tracked income and expenses</p>
+        <p className="text-navy-500 text-sm mt-1">{t('financepage.subtitle')}</p>
       </div>
 
       {/* Filters */}
@@ -61,16 +64,16 @@ export default function FinancePage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-navy-300" />
           <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search descriptions..."
+            placeholder={t('financepage.search')}
             className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-navy-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400" />
         </div>
         <div className="flex gap-2">
-          {['all', 'expense', 'income'].map((t) => (
-            <button key={t} onClick={() => { setTypeFilter(t); setPage(1); }}
+          {['all', 'expense', 'income'].map((tp) => (
+            <button key={tp} onClick={() => { setTypeFilter(tp); setPage(1); }}
               className={`px-4 py-2 rounded-xl text-xs font-medium transition-all ${
-                typeFilter === t ? 'bg-emerald-500 text-white shadow-sm' : 'bg-white border border-navy-100 text-navy-500 hover:bg-navy-50'
+                typeFilter === tp ? 'bg-emerald-500 text-white shadow-sm' : 'bg-white border border-navy-100 text-navy-500 hover:bg-navy-50'
               }`}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
+              {typeLabel(tp)}
             </button>
           ))}
         </div>
@@ -83,8 +86,8 @@ export default function FinancePage() {
         ) : logs.length === 0 ? (
           <div className="text-center py-16">
             <Wallet className="w-12 h-12 text-navy-200 mx-auto mb-3" />
-            <p className="text-navy-500 font-medium">No financial logs yet</p>
-            <p className="text-navy-400 text-sm mt-1">Start tracking by telling the Assistant about your spending!</p>
+            <p className="text-navy-500 font-medium">{t('financepage.empty')}</p>
+            <p className="text-navy-400 text-sm mt-1">{t('financepage.emptyHint')}</p>
           </div>
         ) : (
           logs.map((log) => {
@@ -100,7 +103,7 @@ export default function FinancePage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-navy-800">{log.description || log.type}</p>
                   <p className="text-xs text-navy-400 mt-0.5">
-                    {log.category?.name || 'Uncategorized'} · {new Date(log.logged_at || log.created_at).toLocaleDateString()}
+                    {log.category?.name || t('financepage.uncategorized')} · {new Date(log.logged_at || log.created_at).toLocaleDateString()}
                   </p>
                 </div>
                 <div className="text-right flex-shrink-0">

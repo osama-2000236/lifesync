@@ -1,27 +1,30 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSettings } from '../../contexts/SettingsContext';
+import SettingsControls from '../common/SettingsControls';
 import {
   LayoutDashboard, MessageCircle, Heart, Wallet, Shield,
   LogOut, Menu, X, Activity, ChevronRight, Plug, Globe, FileText,
 } from 'lucide-react';
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/chat', label: 'Assistant', icon: MessageCircle },
-  { to: '/health', label: 'Health', icon: Heart },
-  { to: '/finance', label: 'Finance', icon: Wallet },
-  { to: '/integrations', label: 'Integrations', icon: Plug },
+  { to: '/dashboard', key: 'nav.dashboard', icon: LayoutDashboard },
+  { to: '/chat', key: 'nav.assistant', icon: MessageCircle },
+  { to: '/health', key: 'nav.health', icon: Heart },
+  { to: '/finance', key: 'nav.finance', icon: Wallet },
+  { to: '/integrations', key: 'nav.integrations', icon: Plug },
 ];
 
 const publicPageItems = [
-  { to: '/landing', label: 'Home', icon: Globe },
-  { to: '/privacy', label: 'Privacy', icon: Shield },
-  { to: '/terms', label: 'Terms', icon: FileText },
+  { to: '/landing', key: 'nav.home', icon: Globe },
+  { to: '/privacy', key: 'nav.privacy', icon: Shield },
+  { to: '/terms', key: 'nav.terms', icon: FileText },
 ];
 
 export default function AppLayout() {
   const { user, logout, isAdmin } = useAuth();
+  const { t } = useSettings();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -60,7 +63,7 @@ export default function AppLayout() {
             </div>
             <div>
               <h1 className="font-display text-lg font-bold text-navy-900 tracking-tight group-hover:text-emerald-700 transition-colors">LifeSync</h1>
-              <p className="text-[11px] text-navy-400 -mt-0.5 font-medium">Smart Life Management</p>
+              <p className="text-[11px] text-navy-400 -mt-0.5 font-medium">{t('brand.tagline')}</p>
             </div>
           </Link>
           <button onClick={() => setSidebarOpen(false)} aria-label="Close navigation" className="ml-auto lg:hidden text-navy-400">
@@ -69,39 +72,42 @@ export default function AppLayout() {
         </div>
 
         <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
-          {navItems.map(({ to, label, icon: Icon }) => (
+          {navItems.map(({ to, key, icon: Icon }) => (
             <NavLink key={to} to={to} className={navLinkClass} onClick={() => setSidebarOpen(false)}>
               <Icon className="w-[18px] h-[18px]" />
-              <span>{label}</span>
-              <ChevronRight className="w-4 h-4 ml-auto opacity-0 -translate-x-1 group-hover:opacity-50 group-hover:translate-x-0 transition-all" />
+              <span>{t(key)}</span>
+              <ChevronRight className="w-4 h-4 ml-auto opacity-0 -translate-x-1 group-hover:opacity-50 group-hover:translate-x-0 transition-all rtl:rotate-180" />
             </NavLink>
           ))}
 
           {isAdmin && (
             <>
               <div className="pt-4 pb-2 px-4">
-                <p className="text-[10px] uppercase tracking-widest text-navy-300 font-semibold">Admin</p>
+                <p className="text-[10px] uppercase tracking-widest text-navy-300 font-semibold">{t('nav.admin')}</p>
               </div>
               <NavLink to="/admin" className={navLinkClass} onClick={() => setSidebarOpen(false)}>
                 <Shield className="w-[18px] h-[18px]" />
-                <span>Admin Portal</span>
+                <span>{t('nav.adminPortal')}</span>
               </NavLink>
             </>
           )}
 
           <div className="pt-4 pb-2 px-4">
-            <p className="text-[10px] uppercase tracking-widest text-navy-300 font-semibold">Public Pages</p>
+            <p className="text-[10px] uppercase tracking-widest text-navy-300 font-semibold">{t('nav.publicPages')}</p>
           </div>
-          {publicPageItems.map(({ to, label, icon: Icon }) => (
+          {publicPageItems.map(({ to, key, icon: Icon }) => (
             <NavLink key={to} to={to} className={navLinkClass} onClick={() => setSidebarOpen(false)}>
               <Icon className="w-[18px] h-[18px]" />
-              <span>{label}</span>
-              <ChevronRight className="w-4 h-4 ml-auto opacity-0 -translate-x-1 group-hover:opacity-50 group-hover:translate-x-0 transition-all" />
+              <span>{t(key)}</span>
+              <ChevronRight className="w-4 h-4 ml-auto opacity-0 -translate-x-1 group-hover:opacity-50 group-hover:translate-x-0 transition-all rtl:rotate-180" />
             </NavLink>
           ))}
         </nav>
 
         <div className="px-4 pb-4">
+          <div className="flex justify-center mb-3">
+            <SettingsControls />
+          </div>
           <div className="flex items-center gap-3 p-3 rounded-xl bg-navy-50/60">
             <Link to="/profile" className="flex items-center gap-3 flex-1 min-w-0 group">
               <div className="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-navy-300 to-navy-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 group-hover:ring-2 group-hover:ring-emerald-400 transition-all">
@@ -121,7 +127,7 @@ export default function AppLayout() {
             <button
               onClick={handleLogout}
               className="p-2 rounded-lg hover:bg-navy-100 text-navy-400 hover:text-coral-500 transition-colors"
-              title="Sign out"
+              title={t('nav.signOut')}
             >
               <LogOut className="w-4 h-4" />
             </button>
@@ -138,6 +144,7 @@ export default function AppLayout() {
             <Activity className="w-5 h-5 text-emerald-500" />
             <span className="font-display font-bold text-navy-800">LifeSync</span>
           </Link>
+          <SettingsControls compact className="ms-auto" />
         </header>
 
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">

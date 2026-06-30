@@ -9,8 +9,61 @@ const LABEL_TO_INTENT = {
   set_goal: 'set_goal',
 };
 
-const normalize = (text) => text.toLowerCase().replace(/[’]/g, "'").trim();
+// ─── Arabic input normalization ────────────────────────────────────────────
+// The deterministic extractor is English-regex based. To log in native Arabic
+// (not translation) we map Arabic-Indic/Persian numerals → ASCII and distinctive
+// Arabic stems → the English tokens the extractor + rule router already match.
+// Substring-based (Arabic has no \b in JS regex); stems are distinctive enough
+// that collateral matches are negligible. Only runs when Arabic script present,
+// and only on the COPY used for matching — the stored message stays raw Arabic.
+const AR_DIGITS = {
+  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+  '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+};
+const AR_LEXICON = [
+  [/صرف|أنفق|انفق|دفع|اشتري|اشتر/g, ' spent '],
+  [/ربح|كسب|استلم|راتب/g, ' earned '],
+  [/دولار/g, ' dollars '],
+  [/شيكل|شيقل/g, ' shekels '],
+  [/يورو/g, ' euros '],
+  [/مشيت|مشي|امشي|أمشي/g, ' walked '],
+  [/خطوات|خطوة|خطوه/g, ' steps '],
+  [/نمت|أنام|انام|النوم|نوم/g, ' slept '],
+  [/ساعات|ساعة|ساعه/g, ' hours '],
+  [/دقائق|دقيقة|دقيقه/g, ' minutes '],
+  [/شربت|اشرب|أشرب/g, ' drank '],
+  [/مياه|ماء/g, ' water '],
+  [/لترات|لتر/g, ' liters '],
+  [/أكواب|اكواب|كوب/g, ' glasses '],
+  [/تمارين|تمرين|تمرنت|تمرن|رياضة|تدريب|جري|ركض|ركضت/g, ' exercise '],
+  [/مزاج|أشعر|اشعر|شعرت|شعور/g, ' feel mood '],
+  [/الغداء|غداء/g, ' lunch '],
+  [/العشاء|عشاء/g, ' dinner '],
+  [/الإفطار|الافطار|إفطار|افطار|فطور/g, ' breakfast '],
+  [/قهوة|قهوه/g, ' coffee '],
+  [/طعام|وجبة|وجبه|الأكل|أكل|اكل/g, ' food '],
+  [/صحية|صحّي|صحي/g, ' healthy '],
+  [/على/g, ' on '], // connector so "<amount> on <purpose>" parses the category
+];
+const normalizeArabic = (text) => {
+  let s = String(text).replace(/[٠-٩۰-۹]/g, (d) => AR_DIGITS[d] ?? d);
+  for (const [re, rep] of AR_LEXICON) s = s.replace(re, rep);
+  // Drop any unmapped Arabic (connectors, suffix residue like "moodي", custom
+  // words) so leftovers don't glue onto the English tokens the regexes match.
+  s = s.replace(/[؀-ۿ]+/g, ' ');
+  return s;
+};
+const normalize = (text) => {
+  let t = String(text || '').toLowerCase().replace(/[’]/g, "'");
+  if (/[؀-ۿ]/.test(t)) t = normalizeArabic(t);
+  return t.replace(/\s+/g, ' ').trim();
+};
 const numberValue = (value) => Number(String(value).replace(/,/g, ''));
+
+// Reply in Arabic when the user wrote Arabic OR the UI locale is Arabic, so the
+// default on-device assistant confirms/clarifies natively (not just cloud models).
+const wantsArabic = (message, context = {}) =>
+  /[؀-ۿ]/.test(String(message || '')) || String(context?.locale || '').toLowerCase().startsWith('ar');
 
 const HEALTH_SIGNAL = /\b(steps?|walk(?:ed|ing)?|run(?:ning)?|jogg(?:ed|ing)?|sleep|slept|mood|feel(?:ing)?|water|hydration|exercis(?:e|ed|ing)|workout|gym|heart\s*rate|bpm|calories?|kcal|nutrition|healthy)\b/i;
 const FINANCE_SIGNAL = /(?:[$€£₪]|\b(?:spent|spend|paid|pay|bought|purchase(?:d)?|cost|expense|earned|income|salary|paycheck|freelance|received|usd|dollars?|ils|nis|shekels?|eur|euros?|gbp|pounds?)\b)/i;
@@ -454,6 +507,27 @@ const describeLogged = (entities) => {
   return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 };
 
+// Arabic equivalent of describeLogged — native units, not transliteration.
+const describeLoggedAr = (entities) => {
+  const cur = (c) => ({ USD: 'دولار', EUR: 'يورو', GBP: 'جنيه', ILS: 'شيكل' }[c] || c || 'دولار');
+  const parts = entities.map((e) => {
+    if (e.domain === 'finance') {
+      const label = e.type === 'income' ? 'دخل' : 'مصروف';
+      return `${e.amount} ${cur(e.currency)} ${label}`;
+    }
+    if (e.type === 'sleep') return `${e.value} ساعات نوم`;
+    if (e.type === 'steps') return `${e.value} خطوة`;
+    if (e.type === 'water') return `${e.value} لتر ماء`;
+    if (e.type === 'exercise') return `${e.value} دقيقة ${e.activity ? '' : 'تمرين'}`.trim();
+    if (e.type === 'mood') return `المزاج ${e.value}/10`;
+    if (e.type === 'heart_rate') return `نبض ${e.value}`;
+    if (e.type === 'nutrition') return e.value ? `${e.value} سعرة` : 'وجبة';
+    return e.activity || e.type;
+  });
+  if (parts.length <= 1) return parts.join('');
+  return `${parts.slice(0, -1).join('، ')} و${parts[parts.length - 1]}`;
+};
+
 // Deterministic mood / creative follow-up so every reply feels like a daily
 // assistant. If the user just logged a mood, ask something creative instead.
 const CREATIVE_NUDGES = [
@@ -489,7 +563,38 @@ const GENERAL_PATTERNS = {
   negativeMood: /\b(i'?m|i am|feeling|feel)\s+(tired|sad|stressed|anxious|bad|terrible|awful|exhausted|sick|down|low|depressed|overwhelmed|burnt? ?out)\b/i,
 };
 
+// Arabic intent cues matched on the RAW message (normalize() strips Arabic).
+const AR_GENERAL = {
+  thanks: /شكر|متشكر|مشكور|ممنون/,
+  who: /من\s*أنت|من\s*انت|ما\s*أنت|اسمك|مين\s*انت/,
+  capabilities: /ماذا\s*(?:تفعل|تستطيع)|ما\s*وظيفتك|كيف\s*أستخدم|ماذا\s*يمكنك/,
+  bye: /وداع|مع\s*السلامة|إلى\s*اللقاء|الى\s*اللقاء|تصبح\s*على\s*خير|باي/,
+  howareyou: /كيف\s*حالك|كيفك|أخبارك|اخبارك|شخبارك|شو\s*أخبارك/,
+  negative: /حزين|تعبان|متعب|قلق|مكتئب|سيّئ|سيئ|متوتر|مرهق|زعلان|مضايق/,
+  positive: /بخير|سعيد|رائع|ممتاز|جيد|تمام|مبسوط|مرتاح/,
+};
+
+const buildArabicGeneral = (message, context = {}) => {
+  const raw = String(message || '');
+  const name = context?.profile?.name ? ` ${context.profile.name}` : '';
+  const health = context?.health || {};
+  if (AR_GENERAL.thanks.test(raw)) return `على الرحب والسعة${name}! أتريد تسجيل شيء أو عرض اتجاهات صحتك ومالك لهذا الأسبوع؟`;
+  if (AR_GENERAL.who.test(raw)) return `أنا LifeSync — مساعدك اليومي الخاص على جهازك${name}. أتتبّع صحتك ومالك معاً، وأتذكّر ما يهمّك، وأربط بينهما. ماذا تريد أن نفعل؟`;
+  if (AR_GENERAL.capabilities.test(raw)) return `أستطيع تسجيل الصحة (خطوات، نوم، مزاج، ماء، تمارين) والمال (دخل/مصروفات) من لغتك الطبيعية، والإجابة عن أسئلتك، ورصد الأنماط بين المجالين (مثل: نوم أقل ← إنفاق أعلى)، وتتبّع أهدافك. جرّب: «مشيت 6000 خطوة» أو «صرفت 12 دولار على الغداء».`;
+  if (AR_GENERAL.bye.test(raw)) return `اعتنِ بنفسك${name}! سأُبقي كل شيء جاهزاً للمرة القادمة. حتى تسجيل سريع قبل أن تذهب يفيد تحليلاتك الأسبوعية.`;
+  if (AR_GENERAL.negative.test(raw)) {
+    const sleepHint = health.sleep?.average && health.sleep.average < 7
+      ? ` نومك يبلغ متوسطه ${health.sleep.average} ساعة مؤخراً، وروتين نوم أثبت قد يساعد.` : '';
+    return `يؤسفني شعورك بهذا${name}.${sleepHint} أتريد تسجيل مزاجك (1–10) لنتابع النمط؟ القليل من الماء أو مشي قصير أو بعض ضوء النهار قد يساعد.`;
+  }
+  if (AR_GENERAL.positive.test(raw)) return `يسعدني ذلك${name}! أتريد أن أسجّل مزاجك ليظهر على لوحتك؟ هل فعلت اليوم ما يستحق التتبّع — مشي أو وجبة صحية؟`;
+  if (AR_GENERAL.howareyou.test(raw)) return `أنا هنا وجاهز${name}. والأهم — كيف حالك اليوم (1–10)؟ أخبرني عن يومك وسأتتبّع الجانب الصحي والمالي.`;
+  const greet = context?.profile?.name ? `مرحباً ${context.profile.name}!` : 'مرحباً!';
+  return `${greet} أنا مساعد LifeSync اليومي — أتتبّع صحتك ومالك معاً وأتذكّر ما يهمّك. كيف تشعر اليوم (1–10)، وما الذي تخطّط له؟`;
+};
+
 const buildGeneralResponse = (message, context = {}) => {
+  if (wantsArabic(message, context)) return buildArabicGeneral(message, context);
   const text = normalize(message);
   const name = context?.profile?.name ? ` ${context.profile.name}` : '';
   const mem = memoryLine(context);
@@ -531,6 +636,7 @@ const buildGeneralResponse = (message, context = {}) => {
 };
 
 const buildResponse = (intent, entities, message, context = {}, adviceRequested = false) => {
+  const ar = wantsArabic(message, context);
   if (adviceRequested) return buildAdviceResponse(message, context, entities);
   if (intent === 'query_general') {
     return buildGeneralResponse(message, context);
@@ -544,10 +650,20 @@ const buildResponse = (intent, entities, message, context = {}, adviceRequested 
   const health = entities.filter((entity) => entity.domain === 'health');
   const finance = entities.filter((entity) => entity.domain === 'finance');
   if (health.length || finance.length) {
+    if (ar) {
+      const detail = describeLoggedAr(entities);
+      const cross = entities.some((e) => e.domain === 'finance' && e.type === 'expense')
+        && entities.some((e) => e.domain === 'health')
+        ? ' وربطتُ الجانب الصحي بالمالي حتى ترصد التحليلات الأنماط.' : '';
+      const nudge = entities.some((e) => e.type === 'mood') ? '' : ' بالمناسبة، كيف مزاجك اليوم من 1 إلى 10؟';
+      return `تم — سجّلت ${detail}. حُدِّثت لوحتك للتو.${cross}${nudge}`.replace(/\s+/g, ' ').trim();
+    }
     const detail = describeLogged(entities);
     return `Done — logged ${detail}. Your dashboard just refreshed with it.${crossDomainHint(entities)} ${moodOrCreativeNudge(entities, message)}`.replace(/\s+/g, ' ').trim();
   }
-  return 'I understood the request, but found no complete record to save. Tell me a number and what it was for, like "spent $8 on lunch" or "walked 4000 steps".';
+  return ar
+    ? 'فهمتُ طلبك لكن لم أجد قيمة كاملة لحفظها. أعطني رقماً وما هو، مثل «صرفت 8 دولار على الغداء» أو «مشيت 4000 خطوة».'
+    : 'I understood the request, but found no complete record to save. Tell me a number and what it was for, like "spent $8 on lunch" or "walked 4000 steps".';
 };
 
 // Sentiment small-talk: "I'm tired", "I'm great today" → log a mood AND reply
@@ -561,7 +677,25 @@ const FEELING_SCORES = [
   [/\b(sad|stressed|anxious|worried|bad|unwell|sick|nervous|upset)\b/, 3],
   [/\b(terrible|awful|exhausted|depressed|miserable|overwhelmed|burnt\s?out)\b/, 2],
 ];
+// Arabic feeling words (matched on the RAW message — normalize() strips Arabic).
+const AR_FEELING_TRIGGER = /أنا|أشعر|اشعر|حاسس|مزاجي|اليوم/;
+const AR_FEELING_SCORES = [
+  [/ممتاز|رائع|مذهل|سعيد جدا/, 10],
+  [/سعيد|مبسوط|بخير|مرتاح|جيد|تمام/, 8],
+  [/عادي|لا بأس|نص نص/, 5],
+  [/متعب|تعبان|مرهق|نعسان|خامل/, 4],
+  [/حزين|زعلان|سيّئ|سيئ|قلق|متوتر|مضايق|مهموم/, 3],
+  [/مكتئب|محبط|يائس|فظيع|منهار/, 2],
+];
 const detectFeeling = (message, { expectingMood = false } = {}) => {
+  const raw = String(message || '');
+  // Arabic sentiment first (e.g. "أنا حزين" → log mood 3), parity with English.
+  if (/[؀-ۿ]/.test(raw) && (AR_FEELING_TRIGGER.test(raw) || raw.trim().split(/\s+/).length <= 4)) {
+    for (const [re, score] of AR_FEELING_SCORES) {
+      const m = raw.match(re);
+      if (m) return { score, negative: score <= 4, word: m[0] };
+    }
+  }
   const text = normalize(message);
   // Normally we ignore digit-bearing text here (numbers are handled by the
   // health extractor). But when the assistant JUST asked for a 1–10 mood
@@ -652,7 +786,15 @@ const buildFeelingResult = (message, feeling, context, started) => {
     value_text: feeling.word, unit: 'rating', duration: null, category: 'Mood',
   };
   let response;
-  if (feeling.negative) {
+  if (wantsArabic(message, context)) {
+    if (feeling.negative) {
+      const sleepHintAr = health.sleep?.average && health.sleep.average < 7
+        ? ` نومك يبلغ متوسطه ${health.sleep.average} ساعة مؤخراً، وهذا قد يستنزف طاقتك.` : '';
+      response = `يؤسفني شعورك بهذا${name} — سجّلت مزاجك ${feeling.score}/10.${sleepHintAr} القليل من الماء أو مشي قصير أو بعض ضوء النهار قد يساعد. أتريد أن نتحدّث عن يومك؟`;
+    } else {
+      response = `سعيد لأنك بخير${name}! سجّلت مزاجك ${feeling.score}/10. هل هناك ما يستحق التتبّع اليوم — مشي أو وجبة صحية أو بعض الادخار؟`;
+    }
+  } else if (feeling.negative) {
     const sleepHint = health.sleep?.average && health.sleep.average < 7
       ? ` Your sleep is averaging ${health.sleep.average}h lately, which can drag energy down.`
       : '';
@@ -754,10 +896,13 @@ const parseMessageWithBert = async (message, pendingClarification = null, contex
     classification = { label: detectRuleLabel(original) || 'general_chat', confidence: 0.5, provider: 'fallback', latency_ms: null };
   }
 
+  // Normalized copy (Arabic → English tokens) for the inline signal tests below
+  // so cross-domain/event detection works on native-Arabic input too.
+  const normOriginal = normalize(original);
   const ruleLabel = detectRuleLabel(original);
-  const adviceRequested = ADVICE_SIGNAL.test(original);
-  const hasHealthEvent = HEALTH_LOG_EVENT.test(original);
-  const hasFinanceEvent = FINANCE_LOG_EVENT.test(original);
+  const adviceRequested = ADVICE_SIGNAL.test(normOriginal);
+  const hasHealthEvent = HEALTH_LOG_EVENT.test(normOriginal);
+  const hasFinanceEvent = FINANCE_LOG_EVENT.test(normOriginal);
   const detectedLabels = [...new Set([
     classification.label,
     ...(Array.isArray(classification.detected_labels) ? classification.detected_labels : []),
@@ -798,32 +943,43 @@ const parseMessageWithBert = async (message, pendingClarification = null, contex
   }
 
   let clarificationResult = null;
+  // Bilingual clarifications: ask in the user's language (native Arabic, not a
+  // translation). The Arabic answer options resolve back through normalize().
+  const arq = wantsArabic(original, context);
+  const clar = (enQ, enOpts, arQ, arOpts) => clarification(arq ? arQ : enQ, arq ? arOpts : enOpts);
+  const curAr = (c) => ({ USD: 'دولار', EUR: 'يورو', GBP: 'جنيه', ILS: 'شيكل' }[c] || c || 'دولار');
   const ambiguousGym = /\b\d+(?:\.\d+)?\s+for\s+(?:the\s+)?gym\b/i.test(original) && !forcedLabel;
   if (ambiguousGym && !adviceRequested) {
-    clarificationResult = clarification(
+    clarificationResult = clar(
       'Should I log this as a gym expense, exercise minutes, or both?',
-      ['Gym expense', 'Exercise minutes', 'Both']
+      ['Gym expense', 'Exercise minutes', 'Both'],
+      'أسجّلها كمصروف نادٍ، أم دقائق تمرين، أم كليهما؟',
+      ['مصروف نادٍ', 'دقائق تمرين', 'كليهما']
     );
   } else if (!adviceRequested && routedLabel === 'log_expense' && !entities.some((entity) => entity.domain === 'finance')) {
-    clarificationResult = clarification('What amount should I log?', ['Add an amount', 'Cancel']);
+    clarificationResult = clar('What amount should I log?', ['Add an amount', 'Cancel'], 'ما المبلغ الذي أسجّله؟', ['أضف مبلغاً', 'إلغاء']);
   } else if (!adviceRequested && routedLabel === 'log_expense' && !forcedLabel) {
     const finance = entities.find((entity) => entity.domain === 'finance');
     if (finance && !finance.description && !/\b(income|salary|earned|received)\b/i.test(original)) {
-      clarificationResult = clarification(
+      clarificationResult = clar(
         `What was the ${finance.currency} ${finance.amount} for?`,
-        ['Food', 'Transport', 'Shopping', 'Other']
+        ['Food', 'Transport', 'Shopping', 'Other'],
+        `علامَ صرفت ${finance.amount} ${curAr(finance.currency)}؟`,
+        ['طعام', 'مواصلات', 'تسوّق', 'أخرى']
       );
     }
   } else if (!adviceRequested && routedLabel === 'log_health' && entities.length === 0) {
-    clarificationResult = clarification(
+    clarificationResult = clar(
       'What value should I record—for example duration, steps, hours, liters, or a mood rating?',
-      ['Add duration', 'Add steps', 'Add health value']
+      ['Add duration', 'Add steps', 'Add health value'],
+      'ما القيمة التي أسجّلها؟ مثل المدة أو الخطوات أو الساعات أو اللترات أو تقييم المزاج.',
+      ['أضف مدة', 'أضف خطوات', 'أضف قيمة صحية']
     );
   } else if (!adviceRequested && routedLabel === 'log_both') {
     let hasHealth = entities.some((entity) => entity.domain === 'health');
     const financeEntity = entities.find((entity) => entity.domain === 'finance');
     // "$50 on a healthy dinner" → finance expense + a qualitative nutrition log.
-    if (!hasHealth && financeEntity && FOOD_CONTEXT.test(original)) {
+    if (!hasHealth && financeEntity && FOOD_CONTEXT.test(normOriginal)) {
       entities.push({
         domain: 'health',
         activity: 'nutrition',
@@ -837,9 +993,11 @@ const parseMessageWithBert = async (message, pendingClarification = null, contex
       hasHealth = true;
     }
     if (!hasHealth || !financeEntity) {
-      clarificationResult = clarification(
+      clarificationResult = clar(
         'I need both a measurable health value and a financial amount. What is missing?',
-        ['Add health value', 'Add financial amount', 'Log one domain only']
+        ['Add health value', 'Add financial amount', 'Log one domain only'],
+        'أحتاج قيمة صحية قابلة للقياس ومبلغاً مالياً. ما الناقص؟',
+        ['أضف قيمة صحية', 'أضف مبلغاً', 'سجّل مجالاً واحداً']
       );
     }
   }

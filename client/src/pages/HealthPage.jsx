@@ -1,6 +1,7 @@
 // src/pages/HealthPage.jsx
 import { useState, useEffect } from 'react';
 import { healthAPI } from '../services/api';
+import { useSettings } from '../contexts/SettingsContext';
 import { getPaginatedItems, getPaginatedTotalPages } from '../utils/paginatedResponse';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import {
@@ -19,6 +20,8 @@ const typeConfig = {
 };
 
 export default function HealthPage() {
+  const { t } = useSettings();
+  const typeLabel = (type) => (type === 'all' ? t('common.all') : t(`health.type.${type}`));
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -47,7 +50,7 @@ export default function HealthPage() {
   }, [page, typeFilter, search]);
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this health entry?')) return;
+    if (!confirm(t('healthpage.deleteConfirm'))) return;
     try {
       await healthAPI.deleteLog(id);
       setLogs((prev) => prev.filter((l) => l.id !== id));
@@ -62,9 +65,9 @@ export default function HealthPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-display text-2xl font-bold text-navy-900 flex items-center gap-2">
-            <Heart className="w-6 h-6 text-emerald-500" /> Health Logs
+            <Heart className="w-6 h-6 text-emerald-500" /> {t('healthpage.title')}
           </h1>
-          <p className="text-navy-500 text-sm mt-1">Your tracked health metrics</p>
+          <p className="text-navy-500 text-sm mt-1">{t('healthpage.subtitle')}</p>
         </div>
       </div>
 
@@ -73,16 +76,16 @@ export default function HealthPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-navy-300" />
           <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search notes..."
+            placeholder={t('healthpage.search')}
             className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-navy-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400" />
         </div>
         <div className="flex gap-1.5 flex-wrap">
-          {['all', ...Object.keys(typeConfig)].map((t) => (
-            <button key={t} onClick={() => { setTypeFilter(t); setPage(1); }}
+          {['all', ...Object.keys(typeConfig)].map((tp) => (
+            <button key={tp} onClick={() => { setTypeFilter(tp); setPage(1); }}
               className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                typeFilter === t ? 'bg-emerald-500 text-white shadow-sm' : 'bg-white border border-navy-100 text-navy-500 hover:bg-navy-50'
+                typeFilter === tp ? 'bg-emerald-500 text-white shadow-sm' : 'bg-white border border-navy-100 text-navy-500 hover:bg-navy-50'
               }`}>
-              {t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1).replace('_', ' ')}
+              {typeLabel(tp)}
             </button>
           ))}
         </div>
@@ -95,8 +98,8 @@ export default function HealthPage() {
         ) : logs.length === 0 ? (
           <div className="text-center py-16">
             <Heart className="w-12 h-12 text-navy-200 mx-auto mb-3" />
-            <p className="text-navy-500 font-medium">No health logs yet</p>
-            <p className="text-navy-400 text-sm mt-1">Start tracking by chatting with the Assistant!</p>
+            <p className="text-navy-500 font-medium">{t('healthpage.empty')}</p>
+            <p className="text-navy-400 text-sm mt-1">{t('healthpage.emptyHint')}</p>
           </div>
         ) : (
           logs.map((log) => {
@@ -108,14 +111,14 @@ export default function HealthPage() {
                   <Icon className={`w-5 h-5 ${config.color}`} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-navy-800 capitalize">{log.type.replace('_', ' ')}</p>
+                  <p className="text-sm font-semibold text-navy-800 capitalize">{typeLabel(log.type)}</p>
                   <p className="text-xs text-navy-400 mt-0.5">
                     {log.value_text || log.notes || ''} · {new Date(log.logged_at || log.created_at).toLocaleDateString()}
                   </p>
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="text-lg font-bold text-navy-800">{log.value}<span className="text-xs text-navy-400 ml-1">{config.unit}</span></p>
-                  {log.duration && <p className="text-xs text-navy-400">{log.duration} min</p>}
+                  {log.duration && <p className="text-xs text-navy-400">{log.duration} {t('common.min')}</p>}
                 </div>
                 <button onClick={() => handleDelete(log.id)} className="p-2 rounded-lg hover:bg-coral-500/5 text-navy-300 hover:text-coral-500 transition-colors">
                   <Trash2 className="w-4 h-4" />

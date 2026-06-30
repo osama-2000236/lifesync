@@ -32,13 +32,17 @@ router.get('/health', async (req, res, next) => {
     });
     const bertReady = chat.provider === 'bert_local' && chat.status === 'ready';
     const openrouterReady = openrouter.status === 'configured';
+    // Secret-free catalog summary so the model menu is self-verifiable without auth.
+    const catalog = getModelCatalog().map((m) => ({ id: m.id, provider: m.provider, model: m.model }));
     return success(res, {
       ok: bertReady && openrouterReady,
       bert_ready: bertReady,
       openrouter_ready: openrouterReady,
+      openrouter_models: catalog.filter((m) => m.provider === 'openrouter').length,
       chat: slim(chat),
       insights: slim(insights),
       openrouter: slim(openrouter),
+      catalog,
     }, 'AI health');
   } catch (err) {
     return next(err);

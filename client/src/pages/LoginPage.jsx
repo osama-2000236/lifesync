@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
+import SettingsControls from '../components/common/SettingsControls';
 import { Activity, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
 import GoogleSignInButton from '../components/auth/GoogleSignInButton';
 import { getApiErrorMessage } from '../utils/apiErrors';
 
 export default function LoginPage() {
   const { login, loginWithGoogle, googleAuthEnabled } = useAuth();
+  const { t } = useSettings();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -26,7 +29,7 @@ export default function LoginPage() {
       await login(email, password);
       navigate('/dashboard');
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Login failed. Please try again.'));
+      setError(getApiErrorMessage(err, t('auth.loginFailed')));
     } finally {
       setLoading(false);
     }
@@ -52,7 +55,10 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex relative">
+      <div className="absolute top-4 end-4 z-20">
+        <SettingsControls compact />
+      </div>
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-navy-900 via-navy-800 to-navy-950 relative overflow-hidden flex-col justify-between p-12">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-20 left-20 w-72 h-72 rounded-full bg-emerald-400 blur-3xl" />
@@ -70,11 +76,11 @@ export default function LoginPage() {
 
         <div className="relative z-10">
           <h2 className="font-display text-4xl font-bold text-white leading-tight mb-4">
-            Your health and finances,<br />
-            <span className="text-emerald-400">one conversation away.</span>
+            {t('auth.heroTitle1')}<br />
+            <span className="text-emerald-400">{t('auth.heroTitle2')}</span>
           </h2>
           <p className="text-navy-300 text-lg max-w-md leading-relaxed">
-            Track spending, monitor wellness, and discover hidden patterns — all through natural language.
+            {t('auth.heroSub')}
           </p>
         </div>
 
@@ -92,8 +98,8 @@ export default function LoginPage() {
             <span className="font-display text-2xl font-bold text-navy-900">LifeSync</span>
           </div>
 
-          <h1 className="font-display text-2xl font-bold text-navy-900 mb-1">Welcome back</h1>
-          <p className="text-navy-500 mb-8">Sign in to continue to your dashboard.</p>
+          <h1 className="font-display text-2xl font-bold text-navy-900 mb-1">{t('auth.welcomeBack')}</h1>
+          <p className="text-navy-500 mb-8">{t('auth.signinSub')}</p>
 
           {googleAuthEnabled && (
             <div className="mb-6">
@@ -102,11 +108,11 @@ export default function LoginPage() {
                 onError={() => setError('Google sign-in is unavailable right now. Please try email login.')}
               />
               {googleLoading && (
-                <p className="mt-3 text-center text-sm text-navy-500" role="status" aria-live="polite">Completing Google sign-in...</p>
+                <p className="mt-3 text-center text-sm text-navy-500" role="status" aria-live="polite">{t('auth.completingGoogle')}</p>
               )}
               <div className="mt-6 flex items-center gap-3 text-xs uppercase tracking-[0.22em] text-navy-300">
                 <div className="h-px flex-1 bg-navy-200" />
-                <span>Email sign in</span>
+                <span>{t('auth.emailSignin')}</span>
                 <div className="h-px flex-1 bg-navy-200" />
               </div>
             </div>
@@ -129,7 +135,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label htmlFor="login-email" className="block text-sm font-medium text-navy-700 mb-1.5">Email</label>
+              <label htmlFor="login-email" className="block text-sm font-medium text-navy-700 mb-1.5">{t('auth.email')}</label>
               <input
                 id="login-email"
                 name="email"
@@ -147,9 +153,9 @@ export default function LoginPage() {
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label htmlFor="login-password" className="block text-sm font-medium text-navy-700">Password</label>
+                <label htmlFor="login-password" className="block text-sm font-medium text-navy-700">{t('auth.password')}</label>
                 <Link to="/forgot-password" className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">
-                  Forgot password?
+                  {t('auth.forgot')}
                 </Link>
               </div>
               <div className="relative">
@@ -164,7 +170,7 @@ export default function LoginPage() {
                   aria-invalid={Boolean(error)}
                   aria-describedby={error ? 'login-form-error' : undefined}
                   className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all pr-12"
-                  placeholder="Enter your password"
+                  placeholder={t('auth.passwordPlaceholder')}
                 />
                 <button
                   type="button"
@@ -186,15 +192,15 @@ export default function LoginPage() {
               {loading ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
-                <>Sign in <ArrowRight className="w-4 h-4" /></>
+                <>{t('auth.signin')} <ArrowRight className="w-4 h-4 rtl:rotate-180" /></>
               )}
             </button>
           </form>
 
           <p className="mt-8 text-center text-navy-500 text-sm">
-            Don&apos;t have an account?{' '}
+            {t('auth.noAccount')}{' '}
             <Link to="/register" className="text-emerald-600 font-semibold hover:text-emerald-700">
-              Create one
+              {t('auth.createOne')}
             </Link>
           </p>
         </div>

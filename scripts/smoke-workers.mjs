@@ -55,6 +55,34 @@ const smokeRailway = async () => {
   assert(payload?.success === true, 'Railway health payload is missing success=true');
 };
 
+const API_BASE = RAILWAY_HEALTH_URL.replace(/\/health\/?$/, '');
+
+// AI stack must report the hybrid invariant: BERT in-server + OpenRouter ready.
+const smokeAiHealth = async () => {
+  const response = await withTimeout(`${API_BASE}/ai/health`);
+  assert(response.ok, `AI health failed with status ${response.status}`);
+  const { data } = await response.json();
+  assert(data?.bert_ready === true, 'BERT (in-server classifier) is not ready');
+  assert(data?.openrouter_ready === true, 'OpenRouter is not configured/ready');
+  assert((data?.openrouter_models || 0) >= 4, `Expected >=4 OpenRouter models in catalog, got ${data?.openrouter_models}`);
+};
+
+// Voice config endpoint must be live and advertise Arabic as RTL.
+const smokeVoiceConfig = async () => {
+  const response = await withTimeout(`${API_BASE}/voice/config`);
+  assert(response.ok, `Voice config failed with status ${response.status}`);
+  const { data } = await response.json();
+  assert(Array.isArray(data?.languages) && data.languages.some((l) => l.code === 'ar'),
+    'Voice config missing Arabic language');
+  assert((data?.rtl_languages || []).includes('ar'), 'Voice config missing Arabic RTL flag');
+};
+
+// Auth-gated routes must be registered (401, not 404).
+const smokeAuthGuard = async (path) => {
+  const response = await withTimeout(`${API_BASE}${path}`);
+  assert(response.status === 401, `${path} expected 401 (registered+guarded), got ${response.status}`);
+};
+
 const main = async () => {
   for (const route of ROUTES) {
     await smokeFrontendRoute(route);
@@ -63,6 +91,15 @@ const main = async () => {
 
   await smokeRailway();
   console.log(`[smoke] Railway health OK: ${RAILWAY_HEALTH_URL}`);
+
+  await smokeAiHealth();
+  console.log('[smoke] AI health OK: BERT in-server + OpenRouter ready');
+
+  await smokeVoiceConfig();
+  console.log('[smoke] Voice config OK: Arabic + RTL advertised');
+
+  await smokeAuthGuard('/insights/gamification');
+  console.log('[smoke] Gamification route registered + guarded (401)');
 
   const hash = await readAssetHash();
   console.log(`[smoke] Active production asset hash: ${hash}`);

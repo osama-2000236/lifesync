@@ -21,11 +21,6 @@ const READY_STATES = new Set(['ready', 'configured']);
 // Gemma versions run locally through the configured generative runtime
 // (Ollama by default). Model tags are env-overridable so partners can point
 // each entry at whatever they pulled on their machine.
-const gemmaRuntime = () => {
-  const value = (process.env.GEMMA_LOCAL_RUNTIME || 'ollama').trim().toLowerCase();
-  return ['ollama', 'lmstudio'].includes(value) ? value : 'ollama';
-};
-
 // The runtime used for a user-supplied custom model. LM Studio loads arbitrary
 // GGUF files with automatic GPU offload; Ollama and any OpenAI-compatible
 // endpoint are also supported.
@@ -43,6 +38,18 @@ const customModelState = {
   file_name: null,
 };
 
+// ─── Cloud routing: one key, many models ──────────────────────────────────
+// Every non-local assistant model is served through OpenRouter so a single
+// OPENROUTER_API_KEY powers GPT, Claude, Llama, etc. BERT (the in-server intent
+// classifier) and the local Gemma options stay on-device. Each branded entry
+// resolves its OpenRouter slug from a dedicated env var, else its own verified
+// default slug. NOTE: the generic OPENROUTER_MODEL is intentionally NOT a middle
+// fallback here — otherwise setting it on the server (e.g. to Llama) would
+// collapse the GPT and Claude entries onto that one model. OPENROUTER_MODEL only
+// drives the generic `openrouter_chat` entry below.
+const openRouterModel = (envVar, fallbackSlug) =>
+  process.env[envVar]?.trim() || fallbackSlug;
+
 const MODEL_CATALOG = [
   {
     id: 'bert_local',
@@ -55,29 +62,29 @@ const MODEL_CATALOG = [
   },
   {
     id: 'gemma4_local',
-    label: 'Gemma 4 (local)',
+    label: 'Gemma 4',
     kind: 'generative',
     is_default: false,
-    description: 'Local generative chat, newest Gemma. Set GEMMA4_MODEL to the tag you pulled.',
-    target: { provider: gemmaRuntime(), model: process.env.GEMMA4_MODEL || 'gemma3' },
-    eta_ms: { gpu: 5000, cpu: 20000 },
+    description: 'Google Gemma 4 via OpenRouter. Runs on the cloud (no local install) with the same LifeSync memory + context.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GEMMA4_MODEL', 'google/gemma-4-31b-it') },
+    eta_ms: { gpu: 2200, cpu: 2200 },
   },
   {
     id: 'gemma3_local',
-    label: 'Gemma 3 (local)',
+    label: 'Gemma 3',
     kind: 'generative',
     is_default: false,
-    description: 'Local generative chat. Richer prose, slower than the classifier.',
-    target: { provider: gemmaRuntime(), model: process.env.GEMMA3_MODEL || 'gemma3' },
-    eta_ms: { gpu: 4000, cpu: 16000 },
+    description: 'Google Gemma 3 via OpenRouter. Runs on the cloud (no local install) with the same LifeSync memory + context.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GEMMA3_MODEL', 'google/gemma-3-27b-it') },
+    eta_ms: { gpu: 2000, cpu: 2000 },
   },
   {
     id: 'openai_chat',
     label: 'OpenAI GPT',
     kind: 'generative',
     is_default: false,
-    description: 'Cloud conversational model via OpenAI. Uses the same LifeSync memory, history, and data context.',
-    target: { provider: 'openai', model: process.env.OPENAI_MODEL || 'gpt-5.4-mini' },
+    description: 'GPT via OpenRouter (one shared key). Uses the same LifeSync memory, history, and cross-domain data context. Set OPENROUTER_GPT_MODEL to change the slug.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GPT_MODEL', 'openai/gpt-5.4-mini') },
     eta_ms: { gpu: 1800, cpu: 1800 },
   },
   {
@@ -85,8 +92,8 @@ const MODEL_CATALOG = [
     label: 'Claude Opus',
     kind: 'generative',
     is_default: false,
-    description: 'Anthropic Opus tier for deeper reasoning. Context transfers from the current chat and LifeSync memory.',
-    target: { provider: 'anthropic', model: process.env.ANTHROPIC_OPUS_MODEL || 'claude-opus-4-8' },
+    description: 'Claude Opus via OpenRouter for deeper reasoning. Context + memory transfer from the current chat. Set OPENROUTER_CLAUDE_OPUS_MODEL to change the slug.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_CLAUDE_OPUS_MODEL', 'anthropic/claude-opus-4.8') },
     eta_ms: { gpu: 3500, cpu: 3500 },
   },
   {
@@ -94,16 +101,16 @@ const MODEL_CATALOG = [
     label: 'Claude Sonnet',
     kind: 'generative',
     is_default: false,
-    description: 'Anthropic Sonnet tier for fast daily conversation. Shares the same LifeSync context as every model.',
-    target: { provider: 'anthropic', model: process.env.ANTHROPIC_SONNET_MODEL || 'claude-sonnet-4-6' },
+    description: 'Claude Sonnet via OpenRouter for fast daily conversation. Shares the same LifeSync context as every model. Set OPENROUTER_CLAUDE_SONNET_MODEL to change the slug.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_CLAUDE_SONNET_MODEL', 'anthropic/claude-sonnet-4.6') },
     eta_ms: { gpu: 2200, cpu: 2200 },
   },
   {
     id: 'openrouter_chat',
-    label: 'OpenRouter',
+    label: 'OpenRouter (Llama 3.3)',
     kind: 'generative',
     is_default: false,
-    description: 'Cloud conversational model via OpenRouter (one key, many models). Set OPENROUTER_MODEL to pick the model. Shares the same LifeSync memory, history, and data context.',
+    description: 'Open-weight cloud chat via OpenRouter (one key, many models). Set OPENROUTER_MODEL to pick any model. Shares the same LifeSync memory, history, and data context.',
     target: { provider: 'openrouter', model: process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct' },
     eta_ms: { gpu: 2000, cpu: 2000 },
   },
@@ -401,6 +408,16 @@ const activateBert = async () => {
   return status;
 };
 
+// A hosted backend (Railway/etc.) has no local Ollama/LM Studio runtime, so a
+// local-runtime model can never start there — 127.0.0.1:11434 is the container,
+// not the user's machine.
+const isHostedEnv = () => Boolean(
+  process.env.RAILWAY_ENVIRONMENT
+  || process.env.RAILWAY_SERVICE_ID
+  || process.env.RAILWAY_PROJECT_ID
+  || ['1', 'true', 'yes', 'on'].includes(String(process.env.HOSTED || '').toLowerCase())
+);
+
 // Activate exactly the requested model. No silent fallback to another model:
 // if it fails, the failure is surfaced so the user/dev knows.
 const activate = async (entry) => {
@@ -409,6 +426,14 @@ const activate = async (entry) => {
 
   if (entry.target.provider === 'bert_local') {
     return activateBert();
+  }
+
+  // On a hosted server, local runtimes (Ollama/LM Studio) don't exist. Surface a
+  // clear, actionable message instead of a raw "127.0.0.1 not reachable" error.
+  const usesLocalRuntime = ['ollama', 'lmstudio'].includes(entry.target.provider)
+    || (entry.id === 'custom_local' && ['ollama', 'lmstudio'].includes(customModelState.runtime || customRuntime()));
+  if (isHostedEnv() && usesLocalRuntime) {
+    throw new Error(`${entry.label} needs a local Ollama/LM Studio runtime, which the hosted server doesn't have. Pick a cloud model (BERT, Gemma, GPT, Claude, or OpenRouter), or run LifeSync locally to use your own model.`);
   }
 
   // Custom user-supplied model: resolve its runtime + name at activation time.

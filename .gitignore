@@ -38,3 +38,6 @@ output/
 
 # Misc personal/docs scratch (move real docs into docs/)
 osama/
+
+# Local agent tooling
+.claude/

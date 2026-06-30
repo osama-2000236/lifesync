@@ -101,7 +101,8 @@ export const chatAPI = {
         Authorization: `Bearer ${token}`,
       },
       // `model` = the picker selection, so each turn uses the chosen model.
-      body: JSON.stringify({ message, session_id, model: options.model }),
+      // `lang` = UI locale hint so the model replies natively (e.g. Arabic).
+      body: JSON.stringify({ message, session_id, model: options.model, lang: options.lang }),
       signal: controller.signal,
     })
       .then(async (response) => {
@@ -215,6 +216,7 @@ export const insightsAPI = {
   getHistory: (limit) => api.get('/insights/history', { params: { limit } }),
   generate: (config = {}) => api.post('/insights/generate', {}, { timeout: INSIGHTS_REQUEST_TIMEOUT_MS, ...config }),
   markRead: (id) => api.put(`/insights/${id}/read`),
+  getGamification: () => api.get('/insights/gamification'),
 };
 
 // ─── External Integrations API ───

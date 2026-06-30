@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "lifesync",
+  "account_id": "673a82249cc2db40e12e81d6bd793927",
   "compatibility_date": "2026-03-31",
   "observability": {
     "enabled": true

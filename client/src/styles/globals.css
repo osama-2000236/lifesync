@@ -1,6 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Outfit:wght@300;400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
+/* Class-based dark mode (toggled on <html class="dark"> by SettingsContext). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-navy-50: #f0f4f8;
   --color-navy-100: #d9e2ec;
@@ -138,3 +141,79 @@ h1, h2, h3, h4, h5, h6 {
 }
 .typing-dot:nth-child(2) { animation-delay: 0.16s; }
 .typing-dot:nth-child(3) { animation-delay: 0.32s; }
+
+/* ─── Dark mode ───────────────────────────────────────────────────────────
+   Coherent baseline: most components style text/borders/surfaces from the
+   `navy` ramp + surface tokens, which are CSS variables. Inverting the ramp
+   under .dark flips them automatically (dark surfaces, light text) without
+   touching every component. `bg-white` is a literal, so it's mapped explicitly.
+   NOTE: per-component `dark:` polish (charts, gradients, brand accents) is a
+   design pass — see docs/VOICE_RTL_DARKMODE_HANDOFF.md. */
+.dark {
+  --color-navy-50: #0b1626;
+  --color-navy-100: #15263c;
+  --color-navy-200: #20354f;
+  --color-navy-300: #2f4868;
+  --color-navy-400: #8aa0b8;
+  --color-navy-500: #a3b6cc;
+  --color-navy-600: #bccadb;
+  --color-navy-700: #d3deea;
+  --color-navy-800: #e6edf5;
+  --color-navy-900: #f2f6fb;
+  --color-navy-950: #ffffff;
+
+  --color-surface: #0a1320;
+  --color-surface-raised: #14233b;
+
+  color-scheme: dark;
+}
+
+.dark body {
+  background: var(--color-surface);
+  color: var(--color-navy-900);
+}
+
+/* Cards / sidebars / headers that hardcode white → raised dark surface.
+   Unlayered compound selectors outrank Tailwind's layered .bg-white, so no
+   !important is needed (avoids stomping intentional white-on-gradient cases). */
+.dark .bg-white { background-color: var(--color-surface-raised); }
+.dark .bg-surface { background-color: var(--color-surface); }
+
+.dark .chat-bubble-assistant {
+  background: var(--color-surface-raised);
+  color: var(--color-navy-800);
+  border-color: var(--color-navy-200);
+}
+.dark ::-webkit-scrollbar-thumb { background: var(--color-navy-300); }
+.dark ::placeholder { color: var(--color-navy-400); }
+
+/* Colored badge/pill literals (emerald/blue/purple/amber/coral) aren't part of
+   the inverted navy ramp, so tone their -50 fills down and lighten accent text
+   for contrast on dark. Baseline — full palette is a design pass (see handoff). */
+.dark .bg-emerald-50 { background-color: color-mix(in srgb, #10b981 16%, transparent); }
+.dark .bg-blue-50    { background-color: color-mix(in srgb, #3b82f6 16%, transparent); }
+.dark .bg-purple-50  { background-color: color-mix(in srgb, #a855f7 16%, transparent); }
+.dark .bg-amber-50   { background-color: color-mix(in srgb, #f59e0b 16%, transparent); }
+.dark .bg-coral-50, .dark .bg-red-50 { background-color: color-mix(in srgb, #f43f5e 16%, transparent); }
+.dark .text-emerald-600, .dark .text-emerald-700 { color: #6ee7b7; }
+.dark .text-blue-600,    .dark .text-blue-700    { color: #93c5fd; }
+.dark .text-purple-600,  .dark .text-purple-700  { color: #d8b4fe; }
+.dark .text-amber-600,   .dark .text-amber-700   { color: #fcd34d; }
+.dark .border-emerald-100, .dark .border-emerald-200 { border-color: color-mix(in srgb, #10b981 30%, transparent); }
+.dark .border-blue-100,  .dark .border-blue-200  { border-color: color-mix(in srgb, #3b82f6 30%, transparent); }
+.dark .border-purple-100 { border-color: color-mix(in srgb, #a855f7 30%, transparent); }
+.dark .border-amber-200  { border-color: color-mix(in srgb, #f59e0b 30%, transparent); }
+
+/* ─── RTL base ────────────────────────────────────────────────────────────
+   dir="rtl" (set on <html> for Arabic) flips text + logical flow. These tweaks
+   cover the common LTR-only utilities used in the shell. Full visual mirroring
+   (icon flips, directional margins per page) is a design pass — see handoff. */
+[dir="rtl"] body { text-align: right; }
+[dir="rtl"] .chat-bubble-user {
+  border-radius: var(--radius-bubble) var(--radius-bubble) var(--radius-bubble) 6px;
+}
+[dir="rtl"] .chat-bubble-assistant {
+  border-radius: var(--radius-bubble) var(--radius-bubble) 6px var(--radius-bubble);
+}
+/* App sidebar sits on the right in RTL. */
+[dir="rtl"] aside.fixed { left: auto; right: 0; }

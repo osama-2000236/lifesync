@@ -18,6 +18,36 @@ const round = (value, digits = 2) => {
 
 const plain = (row) => (row?.get ? row.get({ plain: true }) : row);
 
+const clampInt = (raw, fallback, min, max) => {
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+};
+
+// Configurable, switchable context window. Env sets the standard window; a
+// per-request `window: 'deep'|'max'` scales history + data up (clamped) so the
+// assistant can reason over a longer span when the user asks for depth. Larger
+// defaults than before (20 messages / 120 rows) make every model smarter.
+const resolveWindow = (option) => {
+  const base = {
+    days: clampInt(process.env.CONTEXT_WINDOW_DAYS, 30, 1, 365),
+    messages: clampInt(process.env.CONTEXT_MESSAGES, 20, 4, 80),
+    entries: clampInt(process.env.CONTEXT_MAX_ENTRIES, 120, 20, 500),
+    recent: clampInt(process.env.CONTEXT_RECENT_ENTRIES, 16, 6, 60),
+  };
+  if (option === 'deep' || option === 'max') {
+    const scale = option === 'max' ? { d: 6, m: 2, e: 3, r: 2 } : { d: 3, m: 2, e: 3, r: 2 };
+    return {
+      days: Math.min(365, base.days * scale.d),
+      messages: Math.min(80, base.messages * scale.m),
+      entries: Math.min(500, base.entries * scale.e),
+      recent: Math.min(60, base.recent * scale.r),
+      mode: option,
+    };
+  }
+  return { ...base, mode: 'standard' };
+};
+
 const summarizeHealth = (rows) => {
   const metrics = {};
   for (const rawRow of rows.map(plain)) {
@@ -55,7 +85,7 @@ const summarizeFinance = (rows) => {
 };
 
 const emptyContext = () => ({
-  window_days: 30,
+  window_days: clampInt(process.env.CONTEXT_WINDOW_DAYS, 30, 1, 365),
   profile: null,
   active_goals: [],
   recent_messages: [],
@@ -71,9 +101,10 @@ const emptyContext = () => ({
 const buildBertContext = async (
   userId,
   sessionId,
-  { excludeChatId = null, excludeChatIds = [] } = {}
+  { excludeChatId = null, excludeChatIds = [], window: windowOption = null } = {}
 ) => {
-  const since = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
+  const win = resolveWindow(windowOption);
+  const since = new Date(Date.now() - (win.days * 24 * 60 * 60 * 1000));
   const chatWhere = { user_id: userId, session_id: sessionId };
   const excludedIds = [...new Set([excludeChatId, ...excludeChatIds].filter(Boolean))];
   if (excludedIds.length) chatWhere.id = { [Op.notIn]: excludedIds };
@@ -95,19 +126,19 @@ const buildBertContext = async (
       ChatLog.findAll({
         where: chatWhere,
         order: [['created_at', 'DESC']],
-        limit: 16,
+        limit: win.messages,
         attributes: ['id', 'role', 'message', 'intent', 'created_at'],
       }),
       HealthLog.findAll({
         where: { user_id: userId, logged_at: { [Op.gte]: since } },
         order: [['logged_at', 'DESC']],
-        limit: 100,
+        limit: win.entries,
         attributes: ['type', 'value', 'value_text', 'unit', 'duration', 'notes', 'logged_at'],
       }),
       FinancialLog.findAll({
         where: { user_id: userId, logged_at: { [Op.gte]: since } },
         order: [['logged_at', 'DESC']],
-        limit: 100,
+        limit: win.entries,
         attributes: ['type', 'amount', 'currency', 'description', 'logged_at'],
       }),
       buildMemoryContext(userId),
@@ -118,7 +149,8 @@ const buildBertContext = async (
     const financePlain = financeRows.map(plain);
 
     return {
-      window_days: 30,
+      window_days: win.days,
+      context_window: { mode: win.mode, days: win.days, messages: win.messages, entries: win.entries },
       profile: userPlain ? {
         name: userPlain.name || userPlain.username || null,
         username: userPlain.username || null,
@@ -145,7 +177,7 @@ const buildBertContext = async (
           role: row.role === 'assistant' ? 'assistant' : 'user',
           content: String(row.message).slice(0, 2000),
         })),
-      recent_health_entries: healthPlain.slice(0, 12).map((row) => ({
+      recent_health_entries: healthPlain.slice(0, win.recent).map((row) => ({
         type: row.type,
         value: numeric(row.value),
         value_text: row.value_text ? String(row.value_text).slice(0, 160) : null,
@@ -154,7 +186,7 @@ const buildBertContext = async (
         notes: row.notes ? String(row.notes).slice(0, 160) : null,
         logged_at: row.logged_at,
       })),
-      recent_finance_entries: financePlain.slice(0, 12).map((row) => ({
+      recent_finance_entries: financePlain.slice(0, win.recent).map((row) => ({
         type: row.type,
         amount: numeric(row.amount),
         currency: row.currency || 'USD',
@@ -181,4 +213,5 @@ module.exports = {
   buildAssistantContext: buildBertContext,
   _summarizeHealth: summarizeHealth,
   _summarizeFinance: summarizeFinance,
+  _resolveWindow: resolveWindow,
 };

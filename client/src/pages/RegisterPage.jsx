@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
+import SettingsControls from '../components/common/SettingsControls';
 import { authAPI } from '../services/api';
 import { Activity, ArrowRight, ArrowLeft, Loader2, Mail, KeyRound, User, Check } from 'lucide-react';
 import GoogleSignInButton from '../components/auth/GoogleSignInButton';
@@ -10,6 +12,7 @@ const STEPS = ['email', 'otp', 'credentials'];
 
 export default function RegisterPage() {
   const { register, loginWithGoogle, googleAuthEnabled } = useAuth();
+  const { t } = useSettings();
   const navigate = useNavigate();
 
   const [step, setStep] = useState(0);
@@ -31,7 +34,7 @@ export default function RegisterPage() {
       await authAPI.sendOTP(email);
       setStep(1);
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to send verification code.'));
+      setError(getApiErrorMessage(err, t('reg.err.sendOtp')));
     } finally {
       setLoading(false);
     }
@@ -46,7 +49,7 @@ export default function RegisterPage() {
       await authAPI.verifyOTP(email, code);
       setStep(2);
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Invalid verification code.'));
+      setError(getApiErrorMessage(err, t('reg.err.invalidOtp')));
     } finally {
       setLoading(false);
     }
@@ -77,7 +80,7 @@ export default function RegisterPage() {
       await register({ email, username, password, name: name || undefined });
       navigate('/dashboard');
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Registration failed.'));
+      setError(getApiErrorMessage(err, t('reg.err.failed')));
     } finally {
       setLoading(false);
     }
@@ -109,16 +112,19 @@ export default function RegisterPage() {
   ];
 
   const passwordChecks = [
-    { label: '8+ characters', ok: password.length >= 8 },
-    { label: 'Uppercase', ok: /[A-Z]/.test(password) },
-    { label: 'Lowercase', ok: /[a-z]/.test(password) },
-    { label: 'Number', ok: /\d/.test(password) },
+    { label: t('reg.check.len'), ok: password.length >= 8 },
+    { label: t('reg.check.upper'), ok: /[A-Z]/.test(password) },
+    { label: t('reg.check.lower'), ok: /[a-z]/.test(password) },
+    { label: t('reg.check.number'), ok: /\d/.test(password) },
   ];
   const passwordStrength = passwordChecks.filter((item) => item.ok).length;
   const strengthColor = ['bg-coral-500', 'bg-coral-500', 'bg-amber-400', 'bg-amber-400', 'bg-emerald-500'][passwordStrength];
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface p-6">
+    <div className="min-h-screen flex items-center justify-center bg-surface p-6 relative">
+      <div className="absolute top-4 end-4 z-20">
+        <SettingsControls compact />
+      </div>
       <div className="w-full max-w-md">
         <div className="flex items-center gap-3 mb-8 justify-center">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-md">
@@ -152,11 +158,11 @@ export default function RegisterPage() {
                 onError={() => setError('Google sign-up is unavailable right now. Please use email.')}
               />
               {googleLoading && (
-                <p className="mt-3 text-center text-sm text-navy-500" role="status" aria-live="polite">Creating your account with Google...</p>
+                <p className="mt-3 text-center text-sm text-navy-500" role="status" aria-live="polite">{t('reg.creatingGoogle')}</p>
               )}
               <div className="mt-6 flex items-center gap-3 text-xs uppercase tracking-[0.22em] text-navy-300">
                 <div className="h-px flex-1 bg-navy-200" />
-                <span>Or verify by email</span>
+                <span>{t('reg.orVerifyEmail')}</span>
                 <div className="h-px flex-1 bg-navy-200" />
               </div>
             </div>
@@ -171,11 +177,11 @@ export default function RegisterPage() {
           {step === 0 && (
             <form onSubmit={handleSendOTP} className="space-y-5">
               <div>
-                <h2 className="font-display text-xl font-bold text-navy-900 mb-1">Create your account</h2>
-                <p className="text-navy-500 text-sm">We&apos;ll send a verification code to your email.</p>
+                <h2 className="font-display text-xl font-bold text-navy-900 mb-1">{t('reg.createAccount')}</h2>
+                <p className="text-navy-500 text-sm">{t('reg.sendSub')}</p>
               </div>
               <div>
-                <label htmlFor="register-email" className="block text-sm font-medium text-navy-700 mb-1.5">Email address</label>
+                <label htmlFor="register-email" className="block text-sm font-medium text-navy-700 mb-1.5">{t('reg.emailAddr')}</label>
                 <input
                   id="register-email"
                   name="email"
@@ -195,7 +201,7 @@ export default function RegisterPage() {
                 disabled={loading || googleLoading}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50"
               >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Send Code <ArrowRight className="w-4 h-4" /></>}
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{t('reg.sendCode')} <ArrowRight className="w-4 h-4 rtl:rotate-180" /></>}
               </button>
             </form>
           )}
@@ -203,8 +209,8 @@ export default function RegisterPage() {
           {step === 1 && (
             <form onSubmit={handleVerifyOTP} className="space-y-5">
               <div>
-                <h2 className="font-display text-xl font-bold text-navy-900 mb-1">Check your email</h2>
-                <p className="text-navy-500 text-sm">Enter the 6-digit code sent to <strong className="text-navy-700">{email}</strong></p>
+                <h2 className="font-display text-xl font-bold text-navy-900 mb-1">{t('reg.checkEmail')}</h2>
+                <p className="text-navy-500 text-sm">{t('reg.enterCode')} <strong className="text-navy-700">{email}</strong></p>
               </div>
               <div className="flex gap-2 justify-center">
                 {otp.map((digit, i) => (
@@ -229,14 +235,14 @@ export default function RegisterPage() {
                   onClick={() => { setStep(0); setOtp(['', '', '', '', '', '']); setError(''); }}
                   className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-navy-200 text-navy-600 font-medium hover:bg-navy-50 transition-colors"
                 >
-                  <ArrowLeft className="w-4 h-4" /> Back
+                  <ArrowLeft className="w-4 h-4 rtl:rotate-180" /> {t('reg.back')}
                 </button>
                 <button
                   type="submit"
                   disabled={loading || googleLoading || otp.some((digit) => !digit)}
                   className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 disabled:opacity-50"
                 >
-                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Verify <ArrowRight className="w-4 h-4" /></>}
+                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{t('reg.verify')} <ArrowRight className="w-4 h-4 rtl:rotate-180" /></>}
                 </button>
               </div>
             </form>
@@ -245,11 +251,11 @@ export default function RegisterPage() {
           {step === 2 && (
             <form onSubmit={handleComplete} className="space-y-5">
               <div>
-                <h2 className="font-display text-xl font-bold text-navy-900 mb-1">Almost there!</h2>
-                <p className="text-navy-500 text-sm">Choose a username and set your password.</p>
+                <h2 className="font-display text-xl font-bold text-navy-900 mb-1">{t('reg.almostThere')}</h2>
+                <p className="text-navy-500 text-sm">{t('reg.chooseCreds')}</p>
               </div>
               <div>
-                <label htmlFor="register-name" className="block text-sm font-medium text-navy-700 mb-1.5">Full Name <span className="text-navy-400">(optional)</span></label>
+                <label htmlFor="register-name" className="block text-sm font-medium text-navy-700 mb-1.5">{t('reg.fullName')} <span className="text-navy-400">{t('reg.optional')}</span></label>
                 <input
                   id="register-name"
                   name="name"
@@ -258,11 +264,11 @@ export default function RegisterPage() {
                   onChange={(e) => setName(e.target.value)}
                   autoComplete="name"
                   className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                  placeholder="Your name"
+                  placeholder={t('reg.yourName')}
                 />
               </div>
               <div>
-                <label htmlFor="register-username" className="block text-sm font-medium text-navy-700 mb-1.5">Username</label>
+                <label htmlFor="register-username" className="block text-sm font-medium text-navy-700 mb-1.5">{t('reg.username')}</label>
                 <input
                   id="register-username"
                   name="username"
@@ -275,11 +281,11 @@ export default function RegisterPage() {
                   aria-invalid={Boolean(error)}
                   aria-describedby={error ? 'register-form-error' : undefined}
                   className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                  placeholder="Choose a username"
+                  placeholder={t('reg.chooseUsername')}
                 />
               </div>
               <div>
-                <label htmlFor="register-password" className="block text-sm font-medium text-navy-700 mb-1.5">Password</label>
+                <label htmlFor="register-password" className="block text-sm font-medium text-navy-700 mb-1.5">{t('auth.password')}</label>
                 <input
                   id="register-password"
                   name="password"
@@ -292,7 +298,7 @@ export default function RegisterPage() {
                   aria-invalid={Boolean(error)}
                   aria-describedby={error ? 'register-form-error' : undefined}
                   className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                  placeholder="Min 8 chars, uppercase, lowercase, number"
+                  placeholder={t('reg.passwordHint')}
                 />
                 {password && (
                   <div className="mt-2 space-y-1.5">
@@ -317,15 +323,15 @@ export default function RegisterPage() {
                 disabled={loading || googleLoading}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50"
               >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Create Account <ArrowRight className="w-4 h-4" /></>}
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>{t('reg.createAccountBtn')} <ArrowRight className="w-4 h-4 rtl:rotate-180" /></>}
               </button>
             </form>
           )}
         </div>
 
         <p className="mt-6 text-center text-navy-500 text-sm">
-          Already have an account?{' '}
-          <Link to="/login" className="text-emerald-600 font-semibold hover:text-emerald-700">Sign in</Link>
+          {t('reg.haveAccount')}{' '}
+          <Link to="/login" className="text-emerald-600 font-semibold hover:text-emerald-700">{t('auth.signin')}</Link>
         </p>
       </div>
     </div>
