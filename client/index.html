@@ -14,7 +14,11 @@
           if (t !== 'light' && t !== 'dark') {
             t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
           }
-          var l = localStorage.getItem('lifesync.locale') === 'ar' ? 'ar' : 'en';
+          var l = localStorage.getItem('lifesync.locale');
+          if (l !== 'ar' && l !== 'en') {
+            var langs = navigator.languages || [navigator.language || ''];
+            l = langs.some(function (x) { return x && x.toLowerCase().indexOf('ar') === 0; }) ? 'ar' : 'en';
+          }
           var r = document.documentElement;
           if (t === 'dark') r.classList.add('dark');
           r.setAttribute('dir', l === 'ar' ? 'rtl' : 'ltr');

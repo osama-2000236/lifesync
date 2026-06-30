@@ -20,7 +20,11 @@ const readInitialTheme = () => {
 const readInitialLocale = () => {
   if (typeof window === 'undefined') return 'en';
   const saved = localStorage.getItem(LOCALE_KEY);
-  return saved === 'ar' ? 'ar' : 'en';
+  if (saved === 'ar' || saved === 'en') return saved;
+  // No explicit choice yet — honor the browser's language so Arabic-speaking
+  // visitors see Arabic on first load instead of having to find the toggle.
+  const browserLangs = navigator.languages || [navigator.language || ''];
+  return browserLangs.some((lang) => lang?.toLowerCase().startsWith('ar')) ? 'ar' : 'en';
 };
 
 const applyToDocument = (theme, locale) => {
