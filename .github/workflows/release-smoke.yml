@@ -30,6 +30,8 @@ jobs:
 
       - name: Probe external dependencies
         run: npm run probe:external
+        env:
+          PROBE_BASE_URL: https://lifesync-production-fdf9.up.railway.app
 
       - name: Smoke production routes
         run: npm run smoke:workers

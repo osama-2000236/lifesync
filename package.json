@@ -18,6 +18,7 @@
     "probe:external": "node scripts/probe-external-services.mjs",
     "smoke:workers": "node scripts/smoke-workers.mjs",
     "test:e2e:mysql": "jest --runInBand --runTestsByPath tests/e2e/mysql.e2e.test.js --forceExit --detectOpenHandles",
+    "test:e2e:full": "playwright test",
     "db:wait": "node scripts/wait-for-mysql.js",
     "seed": "node server/seeders/seed.js",
     "migrate": "npx sequelize-cli db:migrate",
@@ -73,6 +74,7 @@
     "mysql2": "^3.16.3",
     "nodemailer": "^9.0.1",
     "openai": "^6.18.0",
+    "resend": "^4.8.0",
     "sequelize": "^6.37.7",
     "uuid": "^13.0.0"
   },
@@ -81,6 +83,7 @@
     "@babel/preset-env": "^7.29.0",
     "@playwright/test": "^1.61.0",
     "babel-jest": "^30.2.0",
+    "cross-env": "^10.1.0",
     "jest": "^30.2.0",
     "nodemon": "^3.1.11",
     "sequelize-cli": "^6.6.5",

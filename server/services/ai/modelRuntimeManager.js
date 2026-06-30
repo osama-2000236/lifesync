@@ -408,32 +408,15 @@ const activateBert = async () => {
   return status;
 };
 
-// A hosted backend (Railway/etc.) has no local Ollama/LM Studio runtime, so a
-// local-runtime model can never start there — 127.0.0.1:11434 is the container,
-// not the user's machine.
-const isHostedEnv = () => Boolean(
-  process.env.RAILWAY_ENVIRONMENT
-  || process.env.RAILWAY_SERVICE_ID
-  || process.env.RAILWAY_PROJECT_ID
-  || ['1', 'true', 'yes', 'on'].includes(String(process.env.HOSTED || '').toLowerCase())
-);
-
 // Activate exactly the requested model. No silent fallback to another model:
-// if it fails, the failure is surfaced so the user/dev knows.
+// if it fails, the failure is surfaced so the user/dev knows. (Hosted-env local
+// runtimes are short-circuited earlier in startModel via isHostedEnv.)
 const activate = async (entry) => {
   activation.provider = entry.target.provider;
   activation.message = `Checking ${entry.label}…`;
 
   if (entry.target.provider === 'bert_local') {
     return activateBert();
-  }
-
-  // On a hosted server, local runtimes (Ollama/LM Studio) don't exist. Surface a
-  // clear, actionable message instead of a raw "127.0.0.1 not reachable" error.
-  const usesLocalRuntime = ['ollama', 'lmstudio'].includes(entry.target.provider)
-    || (entry.id === 'custom_local' && ['ollama', 'lmstudio'].includes(customModelState.runtime || customRuntime()));
-  if (isHostedEnv() && usesLocalRuntime) {
-    throw new Error(`${entry.label} needs a local Ollama/LM Studio runtime, which the hosted server doesn't have. Pick a cloud model (BERT, Gemma, GPT, Claude, or OpenRouter), or run LifeSync locally to use your own model.`);
   }
 
   // Custom user-supplied model: resolve its runtime + name at activation time.
@@ -500,11 +483,38 @@ const runActivation = async (entry) => {
   }
 };
 
+// Local generative runtimes (Ollama / LM Studio) live on the user's own machine
+// at 127.0.0.1. On a hosted backend (Railway/containers) they can never be
+// reached, so a stored gemma*/custom preference would otherwise hard-fail every
+// login with a confusing "install ollama" message. Detect hosted via Railway env.
+const LOCAL_RUNTIME_PROVIDERS = new Set(['ollama', 'lmstudio']);
+const isHostedEnv = () => Boolean(
+  process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_SERVICE_ID || process.env.HOSTED === '1'
+);
+
 const startModel = async (requestedId = DEFAULT_MODEL_ID) => {
   // 'auto' resolves to the default model only — never hops between models.
   const id = (!requestedId || requestedId === 'auto') ? DEFAULT_MODEL_ID : requestedId;
-  const entry = catalogEntry(id);
+  let entry = catalogEntry(id);
   if (!entry) throw new Error(`Unknown model: ${requestedId}`);
+  // On a hosted backend, a local-runtime model is unreachable by definition.
+  // Resolve to the always-available default instead of throwing the localhost
+  // "Ollama not reachable" error a remote user can do nothing about.
+  if (isHostedEnv() && LOCAL_RUNTIME_PROVIDERS.has(entry.target.provider)) {
+    const fallback = catalogEntry(DEFAULT_MODEL_ID);
+    activation = {
+      ...activation,
+      status: 'ready',
+      model_id: fallback.id,
+      provider: fallback.target.provider,
+      message: `${entry.label} runs locally and isn't available on the hosted server — using ${fallback.label} instead. Pick a cloud model (OpenRouter, OpenAI, Claude) for generative chat.`,
+      started_at: new Date().toISOString(),
+      finished_at: new Date().toISOString(),
+      error: null,
+    };
+    entry = fallback;
+    return activation;
+  }
   if (activationPromise) return activation;
   activation = {
     status: 'starting',

@@ -8,6 +8,7 @@ jest.mock('../server/services/ai/providerClient', () => ({
 const {
   _hardwareSnapshot,
   _capabilitiesFor,
+  startModel,
 } = require('../server/services/ai/modelRuntimeManager');
 
 describe('AI model runtime manager metadata', () => {
@@ -27,5 +28,32 @@ describe('AI model runtime manager metadata', () => {
       classifier_only: true,
     });
     expect(_capabilitiesFor('ollama').conversation).toBe(true);
+  });
+});
+
+describe('startModel hosted-environment guard', () => {
+  const ENV = process.env.RAILWAY_ENVIRONMENT;
+  afterEach(() => {
+    if (ENV === undefined) delete process.env.RAILWAY_ENVIRONMENT;
+    else process.env.RAILWAY_ENVIRONMENT = ENV;
+  });
+
+  test('a local-runtime model resolves to the default instead of failing on a hosted backend', async () => {
+    process.env.RAILWAY_ENVIRONMENT = 'production';
+    // custom_local is the only local-runtime entry now (Gemma moved to OpenRouter).
+    const activation = await startModel('custom_local');
+    // Must NOT surface the localhost "Ollama not reachable" error to remote users.
+    expect(activation.status).toBe('ready');
+    expect(activation.error).toBeNull();
+    expect(activation.model_id).toBe('bert_local');
+    expect(activation.message).toMatch(/hosted server/i);
+  });
+
+  test('a cloud Gemma (OpenRouter) does NOT fall back on a hosted backend', async () => {
+    process.env.RAILWAY_ENVIRONMENT = 'production';
+    const activation = await startModel('gemma4_local');
+    // Gemma is OpenRouter now — it starts normally, no localhost fallback.
+    expect(activation.model_id).toBe('gemma4_local');
+    expect(activation.provider).toBe('openrouter');
   });
 });
