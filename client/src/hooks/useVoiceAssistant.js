@@ -189,30 +189,36 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
   }, [locale, stopBargeListener, startListening]);
 
   // Speaks the queue sequentially; resumes listening once it's drained AND the
-  // caller has signaled no more chunks are coming (finishSpeechStream).
-  const drainQueue = useCallback(() => {
-    if (speakingRef.current || !activeRef.current) return;
-    const next = speechQueueRef.current.shift();
-    if (!next) {
-      stopBargeListener();
-      if (streamDoneRef.current && activeRef.current) startListening();
-      return;
-    }
-    speakingRef.current = true;
-    setPhase('speaking');
-    if (!bargeRecRef.current) startBargeListener(); // keep one barge listener alive across the whole speaking turn, not per-sentence
-    try {
-      const u = new SpeechSynthesisUtterance(next);
-      u.lang = langTag(locale);
-      const wanted = langTag(locale).slice(0, 2);
-      const pool = voicesRef.current.length ? voicesRef.current : (window.speechSynthesis.getVoices() || []);
-      const voice = pool.find((v) => v.lang?.toLowerCase().startsWith(wanted));
-      if (voice) u.voice = voice;
-      u.onend = () => { speakingRef.current = false; drainQueue(); };
-      u.onerror = () => { speakingRef.current = false; drainQueue(); };
-      window.speechSynthesis.speak(u);
-    } catch { speakingRef.current = false; drainQueue(); }
+  // caller has signaled no more chunks are coming (finishSpeechStream). Recurses
+  // through a ref (not its own name) so the self-call doesn't reference the
+  // `const` binding before it's fully assigned.
+  const drainQueueImplRef = useRef(() => {});
+  useEffect(() => {
+    drainQueueImplRef.current = () => {
+      if (speakingRef.current || !activeRef.current) return;
+      const next = speechQueueRef.current.shift();
+      if (!next) {
+        stopBargeListener();
+        if (streamDoneRef.current && activeRef.current) startListening();
+        return;
+      }
+      speakingRef.current = true;
+      setPhase('speaking');
+      if (!bargeRecRef.current) startBargeListener(); // keep one barge listener alive across the whole speaking turn, not per-sentence
+      try {
+        const u = new SpeechSynthesisUtterance(next);
+        u.lang = langTag(locale);
+        const wanted = langTag(locale).slice(0, 2);
+        const pool = voicesRef.current.length ? voicesRef.current : (window.speechSynthesis.getVoices() || []);
+        const voice = pool.find((v) => v.lang?.toLowerCase().startsWith(wanted));
+        if (voice) u.voice = voice;
+        u.onend = () => { speakingRef.current = false; drainQueueImplRef.current(); };
+        u.onerror = () => { speakingRef.current = false; drainQueueImplRef.current(); };
+        window.speechSynthesis.speak(u);
+      } catch { speakingRef.current = false; drainQueueImplRef.current(); }
+    };
   }, [locale, setPhase, startListening, startBargeListener, stopBargeListener]);
+  const drainQueue = useCallback(() => drainQueueImplRef.current(), []);
 
   // Enqueue one finished sentence/chunk for speech (called as the reply streams in).
   const enqueueSpeech = useCallback((text) => {

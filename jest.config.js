@@ -19,11 +19,13 @@ module.exports = {
   },
   testTimeout: 10000,
   // Playwright owns the TypeScript QA specs (tests/qa) and all .spec files;
-  // keep jest discovery isolated and off stale worktree copies.
+  // client/ has its own Vitest pipeline (client/src/**/*.test.jsx) — keep
+  // root Jest scoped to the backend so the two runners never collide.
   testPathIgnorePatterns: [
     '/node_modules/',
     '/.claude/worktrees/',
     '/tests/qa/',
+    '/client/',
     '\\.spec\\.js$',
     '\\.spec\\.ts$',
   ],
