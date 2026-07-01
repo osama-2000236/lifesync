@@ -83,8 +83,29 @@ describe('parseMessage two-track routing', () => {
     expect(result.model_runtime).toMatchObject({ responder: 'deterministic_fallback', chat_provider: 'anthropic' });
   });
 
-  test('a clarification turn is never sent to the generative model', async () => {
+  test('an ambiguous turn still converses on a generative model (no canned chips, nothing logged)', async () => {
+    generateChat.mockResolvedValue({ provider: 'openai', model: 'gpt', text: 'Was that $10 spent, or something else?' });
     const result = await parseMessage('I spent 10', null, ctx(), { provider: 'openai', model: 'gpt' });
+    expect(generateChat).toHaveBeenCalledTimes(1);
+    // The model is told about the detected ambiguity via the system prompt.
+    expect(generateChat.mock.calls[0][0].system).toMatch(/ambiguous/i);
+    expect(result.needs_clarification).toBe(false);
+    expect(result.clarification_options).toEqual([]);
+    expect(result.entities).toEqual([]); // ambiguous data is never logged
+    expect(result.response).toMatch(/\$10/);
+    expect(result.model_runtime).toMatchObject({ responder: 'generative' });
+  });
+
+  test('an ambiguous turn falls back to the clarification chips when the model fails', async () => {
+    generateChat.mockRejectedValue(new Error('down'));
+    const result = await parseMessage('I spent 10', null, ctx(), { provider: 'openai', model: 'gpt' });
+    expect(result.needs_clarification).toBe(true);
+    expect(result.clarification_question).toBeTruthy();
+    expect(result.model_runtime).toMatchObject({ responder: 'deterministic_fallback' });
+  });
+
+  test('bert_local keeps the canned clarification flow', async () => {
+    const result = await parseMessage('I spent 10', null, ctx(), { provider: 'bert_local' });
     expect(result.needs_clarification).toBe(true);
     expect(generateChat).not.toHaveBeenCalled();
   });

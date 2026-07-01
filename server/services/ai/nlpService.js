@@ -726,11 +726,19 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
   // Track A — deterministic actions + a safe baseline reply.
   const actions = await parseMessageWithBert(message, pendingClarification, context);
 
-  // BERT default, or a clarification turn → keep the deterministic reply as-is.
-  if (provider === 'bert_local' || actions.needs_clarification) {
+  // BERT-as-responder keeps the deterministic reply (template + clarification
+  // chips). Generative models do NOT short-circuit on clarification: BERT's
+  // ambiguity detector false-positives on ordinary questions ("which model are
+  // you RUNNING on" → exercise?), and returning the same canned chips for
+  // every model was the single biggest "all models reply the same" source.
+  // Instead the chosen model answers with full context, told about the
+  // ambiguity, while the ambiguous entities stay UNLOGGED either way.
+  if (provider === 'bert_local') {
     if (onDelta && actions.response) onDelta(actions.response);
     return actions;
   }
+
+  const ambiguity = actions.needs_clarification ? (actions.clarification_question || null) : null;
 
   // Track B — conversational reply from the chosen model (history + memory).
   const reply = onDelta
@@ -741,6 +749,7 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
         loggedEntities: actions.entities,
         message: actions.original_message || message,
         locale: options.lang || context.locale || null,
+        ambiguity,
         onDelta,
         signal: options.signal,
       })
@@ -751,11 +760,25 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
         loggedEntities: actions.entities,
         message: actions.original_message || message,
         locale: options.lang || context.locale || null,
+        ambiguity,
       });
 
   if (reply && reply.text) {
+    const base = actions.needs_clarification
+      ? {
+          ...actions,
+          // The model owns the conversation now — no canned chips. Entities
+          // were already withheld by the clarification contract, so nothing
+          // ambiguous gets logged.
+          needs_clarification: false,
+          clarification_question: null,
+          clarification_options: [],
+          entities: [],
+          success: false,
+        }
+      : actions;
     return {
-      ...actions,
+      ...base,
       response: reply.text,
       model_runtime: {
         ...(actions.model_runtime || {}),
