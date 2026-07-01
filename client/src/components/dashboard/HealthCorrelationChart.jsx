@@ -4,6 +4,7 @@ import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement,
   LineElement, Tooltip, Legend, Filler,
 } from 'chart.js';
+import { useSettings } from '../../contexts/SettingsContext';
 import ChartEmptyState from './ChartEmptyState';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
@@ -11,6 +12,7 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip,
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export default function HealthCorrelationChart({ healthData = [], loading }) {
+  const { t } = useSettings();
   const { hasData, chartData } = useMemo(() => {
     const dayMap = Object.fromEntries(DAYS.map((day) => [day, { steps: 0, sleep: 0 }]));
     let hasRelevantData = false;
@@ -36,7 +38,7 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
         labels: DAYS,
         datasets: [
           {
-            label: 'Steps',
+            label: t('chart.steps'),
             data: DAYS.map((day) => dayMap[day].steps),
             borderColor: '#10b981',
             backgroundColor: 'rgba(16, 185, 129, 0.08)',
@@ -50,7 +52,7 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
             yAxisID: 'y',
           },
           {
-            label: 'Sleep (hrs)',
+            label: t('chart.sleepHrs'),
             data: DAYS.map((day) => dayMap[day].sleep),
             borderColor: '#6366f1',
             backgroundColor: 'rgba(99, 102, 241, 0.08)',
@@ -66,7 +68,7 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
         ],
       },
     };
-  }, [healthData]);
+  }, [healthData, t]);
 
   const options = {
     responsive: true,
@@ -102,14 +104,14 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
       y: {
         type: 'linear',
         position: 'left',
-        title: { display: true, text: 'Steps', font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#10b981' },
+        title: { display: true, text: t('chart.steps'), font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#10b981' },
         grid: { color: 'rgba(188, 204, 220, 0.3)', drawBorder: false },
         ticks: { font: { family: "'DM Sans'", size: 11 }, color: '#829ab1' },
       },
       y1: {
         type: 'linear',
         position: 'right',
-        title: { display: true, text: 'Sleep (hours)', font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#6366f1' },
+        title: { display: true, text: t('chart.sleepHrs'), font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#6366f1' },
         grid: { display: false },
         ticks: { font: { family: "'DM Sans'", size: 11 }, color: '#829ab1' },
         min: 0,
@@ -123,10 +125,10 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
   if (!hasData) {
     return (
       <ChartEmptyState
-        title="No health trends yet"
-        description="Add health logs or sync Google Fit to unlock your weekly steps and sleep chart."
+        title={t('chart.noHealthTrends')}
+        description={t('chart.noHealthTrendsDesc')}
         actionTo="/health"
-        actionLabel="Add health data"
+        actionLabel={t('chart.addHealthData')}
       />
     );
   }

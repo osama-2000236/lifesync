@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
 import { Scatter } from 'react-chartjs-2';
 import { Chart as ChartJS, LinearScale, PointElement, Tooltip, Legend } from 'chart.js';
+import { useSettings } from '../../contexts/SettingsContext';
 import ChartEmptyState from './ChartEmptyState';
 
 ChartJS.register(LinearScale, PointElement, Tooltip, Legend);
 
 export default function MoodActivityChart({ healthData = [], loading }) {
+  const { t } = useSettings();
   const points = useMemo(() => {
     const dayBuckets = {};
 
@@ -27,7 +29,7 @@ export default function MoodActivityChart({ healthData = [], loading }) {
 
   const chartData = {
     datasets: [{
-      label: 'Mood vs. Activity',
+      label: t('dash.moodVsActivity'),
       data: points,
       backgroundColor: points.map((point) => {
         if (point.y >= 8) return 'rgba(16, 185, 129, 0.7)';
@@ -53,20 +55,20 @@ export default function MoodActivityChart({ healthData = [], loading }) {
         padding: 12,
         cornerRadius: 10,
         callbacks: {
-          title: () => 'Daily Correlation',
-          label: (ctx) => [`Activity: ${ctx.parsed.x.toFixed(0)} min`, `Mood: ${ctx.parsed.y.toFixed(1)}/10`],
+          title: () => t('chart.dailyCorrelation'),
+          label: (ctx) => [`${t('chart.activityMin')}: ${ctx.parsed.x.toFixed(0)}`, `${t('insight.mood')}: ${ctx.parsed.y.toFixed(1)}/10`],
         },
       },
     },
     scales: {
       x: {
-        title: { display: true, text: 'Activity (minutes)', font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#627d98' },
+        title: { display: true, text: t('chart.activityMin'), font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#627d98' },
         grid: { color: 'rgba(188, 204, 220, 0.2)', drawBorder: false },
         ticks: { font: { family: "'DM Sans'", size: 11 }, color: '#829ab1' },
         min: 0,
       },
       y: {
-        title: { display: true, text: 'Mood (1-10)', font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#627d98' },
+        title: { display: true, text: t('chart.moodScale'), font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#627d98' },
         grid: { color: 'rgba(188, 204, 220, 0.2)', drawBorder: false },
         ticks: { font: { family: "'DM Sans'", size: 11 }, color: '#829ab1', stepSize: 1 },
         min: 0,
@@ -80,10 +82,10 @@ export default function MoodActivityChart({ healthData = [], loading }) {
   if (!points.length) {
     return (
       <ChartEmptyState
-        title="Not enough mood and activity data"
-        description="Log mood and exercise or steps on the same day to unlock this chart."
+        title={t('chart.noMoodActivity')}
+        description={t('chart.noMoodActivityDesc')}
         actionTo="/health"
-        actionLabel="Add health data"
+        actionLabel={t('chart.addHealthData')}
       />
     );
   }
@@ -92,10 +94,10 @@ export default function MoodActivityChart({ healthData = [], loading }) {
     <div>
       <div className="flex gap-3 mb-4">
         {[
-          { label: 'Great', color: '#10b981' },
-          { label: 'Good', color: '#6366f1' },
-          { label: 'Okay', color: '#f59e0b' },
-          { label: 'Low', color: '#f43f5e' },
+          { label: t('chart.moodGreat'), color: '#10b981' },
+          { label: t('chart.moodGood'), color: '#6366f1' },
+          { label: t('chart.moodOkay'), color: '#f59e0b' },
+          { label: t('chart.moodLow'), color: '#f43f5e' },
         ].map(({ label, color }) => (
           <div key={label} className="flex items-center gap-1.5 text-xs text-navy-500">
             <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />

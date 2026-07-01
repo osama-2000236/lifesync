@@ -9,11 +9,21 @@ import SpendingChart from '../components/dashboard/SpendingChart';
 import MoodActivityChart from '../components/dashboard/MoodActivityChart';
 import InsightCards from '../components/dashboard/InsightCards';
 import StreakCard from '../components/dashboard/StreakCard';
+import CorrelationPanel from '../components/dashboard/CorrelationPanel';
+import CrossDomainTimeline from '../components/dashboard/CrossDomainTimeline';
 import { SkeletonCard } from '../components/ui/Skeleton';
+import { Card } from '../components/ui';
 import {
   Footprints, Moon, SmilePlus, Droplets,
-  Wallet, Heart, BarChart3, Activity,
+  Wallet, Heart, BarChart3, Activity, Link2,
 } from 'lucide-react';
+
+const STAT_ACCENT = {
+  'text-emerald-500': 'bg-emerald-500',
+  'text-indigo-500': 'bg-indigo-500',
+  'text-amber-500': 'bg-amber-500',
+  'text-sky-500': 'bg-sky-500',
+};
 
 const mapHealthSummary = (payload) => {
   const rows = payload?.summary || [];
@@ -193,7 +203,7 @@ export default function DashboardPage() {
         <h1 className="font-display text-2xl lg:text-3xl font-bold text-navy-900">
           {greeting()}, {user?.name || user?.username} 👋
         </h1>
-        <p className="text-navy-500 mt-1">Here&apos;s your unified lifestyle overview.</p>
+        <p className="text-navy-500 mt-1">{t('dash.subtitle')}</p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -201,7 +211,8 @@ export default function DashboardPage() {
           [1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)
         ) : (
           quickStats.map(({ label, value, icon: Icon, color, bg }) => (
-            <div key={label} className="bg-white rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow border border-navy-50">
+            <Card key={label} interactive padding="none" className="p-5 overflow-hidden relative">
+              <span className={`absolute top-0 inset-x-0 h-0.5 ${STAT_ACCENT[color] || 'bg-navy-300'}`} />
               <div className="flex items-center justify-between mb-3">
                 <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center`}>
                   <Icon className={`w-5 h-5 ${color}`} />
@@ -209,7 +220,7 @@ export default function DashboardPage() {
               </div>
               <p className="text-2xl font-bold text-navy-900">{value}</p>
               <p className="text-xs text-navy-400 mt-1 font-medium">{label}</p>
-            </div>
+            </Card>
           ))
         )}
       </div>
@@ -231,6 +242,17 @@ export default function DashboardPage() {
               <span className="text-xs text-navy-400 font-medium px-3 py-1 rounded-full bg-navy-50">{t('dash.last7days')}</span>
             </div>
             <HealthCorrelationChart healthData={healthData} loading={dashboardLoading} />
+          </div>
+
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <Link2 className="w-5 h-5 text-indigo-500" />
+                <h2 className="font-display text-lg font-bold text-navy-800">{t('dash.correlations')}</h2>
+              </div>
+              <span className="text-xs text-navy-400 font-medium px-3 py-1 rounded-full bg-navy-50">{t('dash.correlationsSub')}</span>
+            </div>
+            <CrossDomainTimeline healthData={healthData} financeData={financeData} loading={dashboardLoading} />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -278,6 +300,7 @@ export default function DashboardPage() {
             <h2 className="font-display text-lg font-bold text-navy-800">{t('dash.insights')}</h2>
           </div>
           <InsightCards insights={insights} loading={insightsLoading} error={insightsError} />
+          <CorrelationPanel patterns={insights?.patterns || []} loading={insightsLoading} />
         </div>
       </div>
     </div>

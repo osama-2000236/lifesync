@@ -1,34 +1,41 @@
 // src/components/dashboard/InsightCards.jsx
 import { Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, ArrowUpRight } from 'lucide-react';
+import { useSettings } from '../../contexts/SettingsContext';
 import { getInsightCardsViewModel } from './insightCardModel';
 
 const trendIcons = {
   improving: <TrendingUp className="w-4 h-4 text-emerald-500" />,
+  decreasing: <TrendingDown className="w-4 h-4 text-emerald-500" />,
   stable: <Minus className="w-4 h-4 text-navy-400" />,
   declining: <TrendingDown className="w-4 h-4 text-coral-500" />,
+  increasing: <TrendingUp className="w-4 h-4 text-coral-500" />,
   insufficient_data: <AlertTriangle className="w-4 h-4 text-amber-500" />,
 };
 
 const trendColors = {
   improving: 'text-emerald-600 bg-emerald-50 border-emerald-100',
+  decreasing: 'text-emerald-600 bg-emerald-50 border-emerald-100',
   stable: 'text-navy-600 bg-navy-50 border-navy-100',
   declining: 'text-coral-500 bg-coral-500/5 border-coral-500/10',
+  increasing: 'text-coral-500 bg-coral-500/5 border-coral-500/10',
   insufficient_data: 'text-amber-600 bg-amber-50 border-amber-100',
 };
 
 const hasScore = (value) => value !== null && value !== undefined && value !== '';
 
 export default function InsightCards({ insights, loading, error }) {
+  const { t } = useSettings();
+
   if (loading) {
     return (
       <div className="space-y-4">
         <div className="rounded-2xl border border-navy-100 bg-white/80 p-4 shadow-sm">
           <div className="flex items-center gap-2 text-navy-700">
             <Lightbulb className="w-4 h-4 text-amber-500" />
-            <p className="text-sm font-semibold">Preparing local Gemma insights...</p>
+            <p className="text-sm font-semibold">{t('insight.preparing')}</p>
           </div>
           <p className="mt-1 text-xs text-navy-400">
-            The dashboard stays usable while your device generates the cards.
+            {t('insight.preparingSub')}
           </p>
         </div>
         {[1, 2, 3].map((i) => (
@@ -45,13 +52,13 @@ export default function InsightCards({ insights, loading, error }) {
       <div className="p-5 rounded-2xl border border-amber-200 bg-amber-50 space-y-2">
         <div className="flex items-center gap-2 text-amber-700">
           <AlertTriangle className="w-5 h-5" />
-          <h3 className="font-display font-semibold text-sm">Insights unavailable</h3>
+          <h3 className="font-display font-semibold text-sm">{t('insight.unavailable')}</h3>
         </div>
         <p className="text-sm text-amber-800 leading-relaxed">
           {view.error}
         </p>
         <p className="text-xs text-amber-700/80">
-          Gemma-only insight cards are generated on your device. The dashboard will keep retrying automatically while everything else stays usable.
+          {t('insight.unavailableSub')}
         </p>
       </div>
     );
@@ -62,10 +69,10 @@ export default function InsightCards({ insights, loading, error }) {
       <div className="p-5 rounded-2xl border border-dashed border-navy-200 bg-navy-50/60 space-y-2">
         <div className="flex items-center gap-2 text-navy-700">
           <Lightbulb className="w-5 h-5" />
-          <h3 className="font-display font-semibold text-sm">No insights yet</h3>
+          <h3 className="font-display font-semibold text-sm">{t('insight.empty')}</h3>
         </div>
         <p className="text-sm text-navy-600 leading-relaxed">
-          Keep logging health and finance activity to generate real weekly insights.
+          {t('insight.emptySub')}
         </p>
       </div>
     );
@@ -76,25 +83,25 @@ export default function InsightCards({ insights, loading, error }) {
   return (
     <div className="space-y-4">
       {/* Summary Card */}
-      <div className="p-5 rounded-2xl bg-gradient-to-br from-navy-800 to-navy-900 text-white">
+      <div className="p-5 rounded-2xl bg-gradient-to-br from-ink-800 to-ink-900 text-white">
         <div className="flex items-center gap-2 mb-3">
           <Lightbulb className="w-5 h-5 text-amber-400" />
-          <h3 className="font-display font-semibold text-sm">AI Weekly Insight</h3>
+          <h3 className="font-display font-semibold text-sm">{t('insight.weeklyTitle')}</h3>
         </div>
-        <p className="text-navy-200 text-sm leading-relaxed">{data.summary}</p>
+        <p className="text-white/70 text-sm leading-relaxed">{data.summary}</p>
 
         {/* Scores */}
         <div className="flex gap-4 mt-4">
           {hasScore(data.health_score) && (
             <div className="flex-1 text-center py-2 rounded-xl bg-white/10 backdrop-blur">
               <p className="text-2xl font-bold">{data.health_score}</p>
-              <p className="text-[10px] uppercase tracking-wider text-navy-300 mt-0.5">Health</p>
+              <p className="text-[10px] uppercase tracking-wider text-white/50 mt-0.5">{t('insight.health')}</p>
             </div>
           )}
           {hasScore(data.financial_health_score) && (
             <div className="flex-1 text-center py-2 rounded-xl bg-white/10 backdrop-blur">
               <p className="text-2xl font-bold">{data.financial_health_score}</p>
-              <p className="text-[10px] uppercase tracking-wider text-navy-300 mt-0.5">Finance</p>
+              <p className="text-[10px] uppercase tracking-wider text-white/50 mt-0.5">{t('insight.finance')}</p>
             </div>
           )}
         </div>
@@ -105,15 +112,15 @@ export default function InsightCards({ insights, loading, error }) {
         <div className={`flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border ${trendColors[data.mood_trend] || trendColors.stable}`}>
           {trendIcons[data.mood_trend]}
           <div>
-            <p className="text-[10px] uppercase tracking-wider opacity-70">Mood</p>
-            <p className="text-sm font-semibold capitalize">{data.mood_trend?.replace('_', ' ')}</p>
+            <p className="text-[10px] uppercase tracking-wider opacity-70">{t('insight.mood')}</p>
+            <p className="text-sm font-semibold">{t(`insight.trend.${data.mood_trend || 'stable'}`)}</p>
           </div>
         </div>
         <div className={`flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border ${trendColors[data.spending_trend] || trendColors.stable}`}>
           {trendIcons[data.spending_trend]}
           <div>
-            <p className="text-[10px] uppercase tracking-wider opacity-70">Spending</p>
-            <p className="text-sm font-semibold capitalize">{data.spending_trend?.replace('_', ' ')}</p>
+            <p className="text-[10px] uppercase tracking-wider opacity-70">{t('insight.spendingLabel')}</p>
+            <p className="text-sm font-semibold">{t(`insight.trend.${data.spending_trend || 'stable'}`)}</p>
           </div>
         </div>
       </div>
@@ -123,7 +130,7 @@ export default function InsightCards({ insights, loading, error }) {
         <div className="p-4 rounded-xl bg-purple-50 border border-purple-100">
           <div className="flex items-center gap-2 mb-2">
             <ArrowUpRight className="w-4 h-4 text-purple-500" />
-            <p className="text-[11px] uppercase tracking-wider font-semibold text-purple-600">Cross-Domain</p>
+            <p className="text-[11px] uppercase tracking-wider font-semibold text-purple-600">{t('insight.crossDomain')}</p>
           </div>
           <p className="text-sm text-purple-800 leading-relaxed">{data.cross_domain_insights}</p>
         </div>
@@ -132,7 +139,7 @@ export default function InsightCards({ insights, loading, error }) {
       {/* Recommendations */}
       {data.recommendations?.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[11px] uppercase tracking-wider font-semibold text-navy-400 px-1">Recommendations</p>
+          <p className="text-[11px] uppercase tracking-wider font-semibold text-navy-400 px-1">{t('insight.recommendations')}</p>
           {data.recommendations.map((rec, i) => (
             <div key={i} className="p-3.5 rounded-xl bg-white border border-navy-100 hover:shadow-sm transition-shadow">
               <div className="flex items-start gap-3">

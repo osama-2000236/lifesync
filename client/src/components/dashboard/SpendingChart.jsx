@@ -4,6 +4,7 @@ import {
   Chart as ChartJS, ArcElement, CategoryScale, LinearScale,
   BarElement, Tooltip, Legend,
 } from 'chart.js';
+import { useSettings } from '../../contexts/SettingsContext';
 import ChartEmptyState from './ChartEmptyState';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Tooltip, Legend);
@@ -21,6 +22,7 @@ const CATEGORY_COLORS = {
 };
 
 export default function SpendingChart({ financeData = [], financeSummary, loading, view = 'doughnut' }) {
+  const { t } = useSettings();
   const { categoryData, totalSpent, totalIncome } = useMemo(() => {
     if (financeSummary?.categoryBreakdown?.length || financeSummary?.totals?.length) {
       const categoryRows = financeSummary.categoryBreakdown || [];
@@ -75,7 +77,7 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
   const barData = {
     labels: categoryData.map(([category]) => category),
     datasets: [{
-      label: 'Spending ($)',
+      label: t('chart.spent'),
       data: categoryData.map(([, amount]) => amount),
       backgroundColor: categoryData.map(([category]) => CATEGORY_COLORS[category] || '#94a3b8'),
       borderRadius: 8,
@@ -129,10 +131,10 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
   if (!hasExpenseData) {
     return (
       <ChartEmptyState
-        title="No spending data yet"
-        description="Add expense logs to see real category breakdowns and weekly totals."
+        title={t('chart.noSpending')}
+        description={t('chart.noSpendingDesc')}
         actionTo="/finance"
-        actionLabel="Add finance data"
+        actionLabel={t('chart.addFinanceData')}
       />
     );
   }
@@ -141,11 +143,11 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
     <div>
       <div className="flex gap-3 mb-5">
         <div className="flex-1 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-100">
-          <p className="text-[11px] text-emerald-600 font-medium uppercase tracking-wider">Income</p>
+          <p className="text-[11px] text-emerald-600 font-medium uppercase tracking-wider">{t('chart.income')}</p>
           <p className="text-lg font-bold text-emerald-700">${totalIncome.toFixed(0)}</p>
         </div>
         <div className="flex-1 px-4 py-2.5 rounded-xl bg-coral-500/5 border border-coral-500/10">
-          <p className="text-[11px] text-coral-500 font-medium uppercase tracking-wider">Spent</p>
+          <p className="text-[11px] text-coral-500 font-medium uppercase tracking-wider">{t('chart.spent')}</p>
           <p className="text-lg font-bold text-coral-500">${totalSpent.toFixed(0)}</p>
         </div>
       </div>
@@ -155,7 +157,7 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
           <div className="w-44 h-44 relative">
             <Doughnut data={doughnutData} options={doughnutOptions} />
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <p className="text-[11px] text-navy-400 font-medium">Total</p>
+              <p className="text-[11px] text-navy-400 font-medium">{t('chart.total')}</p>
               <p className="text-xl font-bold text-navy-800">${totalSpent.toFixed(0)}</p>
             </div>
           </div>
