@@ -226,10 +226,21 @@ h1, h2, h3, h4, h5, h6 {
 .dark .bg-purple-50  { background-color: color-mix(in srgb, #a855f7 16%, transparent); }
 .dark .bg-amber-50   { background-color: color-mix(in srgb, #f59e0b 16%, transparent); }
 .dark .bg-coral-50, .dark .bg-red-50 { background-color: color-mix(in srgb, #f43f5e 16%, transparent); }
+.dark .bg-indigo-50  { background-color: color-mix(in srgb, #6366f1 16%, transparent); }
+.dark .bg-sky-50     { background-color: color-mix(in srgb, #0ea5e9 16%, transparent); }
+.dark .bg-orange-50  { background-color: color-mix(in srgb, #f97316 16%, transparent); }
+.dark .bg-red-100    { background-color: color-mix(in srgb, #ef4444 20%, transparent); }
+.dark .bg-sky-100    { background-color: color-mix(in srgb, #0ea5e9 20%, transparent); }
+.dark .bg-purple-100 { background-color: color-mix(in srgb, #a855f7 20%, transparent); }
+.dark .bg-indigo-100 { background-color: color-mix(in srgb, #6366f1 20%, transparent); }
 .dark .text-emerald-600, .dark .text-emerald-700 { color: #6ee7b7; }
 .dark .text-blue-600,    .dark .text-blue-700    { color: #93c5fd; }
 .dark .text-purple-600,  .dark .text-purple-700  { color: #d8b4fe; }
 .dark .text-amber-600,   .dark .text-amber-700   { color: #fcd34d; }
+.dark .text-indigo-500,  .dark .text-indigo-600  { color: #a5b4fc; }
+.dark .text-sky-500,     .dark .text-sky-700     { color: #7dd3fc; }
+.dark .text-orange-500   { color: #fdba74; }
+.dark .text-red-700      { color: #fca5a5; }
 .dark .border-emerald-100, .dark .border-emerald-200 { border-color: color-mix(in srgb, #10b981 30%, transparent); }
 .dark .border-blue-100,  .dark .border-blue-200  { border-color: color-mix(in srgb, #3b82f6 30%, transparent); }
 .dark .border-purple-100 { border-color: color-mix(in srgb, #a855f7 30%, transparent); }
