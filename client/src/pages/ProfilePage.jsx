@@ -1,70 +1,47 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { authAPI, aiAPI } from '../services/api';
 import { getApiErrorMessage } from '../utils/apiErrors';
 import { MODEL_OPTIONS } from '../config/models';
+import { Card, Alert, Button, FormField, Input } from '../components/ui';
 import {
-  User, Mail, Lock, Trash2, Save, Eye, EyeOff, Loader2,
-  CheckCircle, AlertTriangle, LogOut, ArrowLeft, Shield,
+  User, Mail, Lock, Trash2, Save, Loader2, Eye, EyeOff,
+  CheckCircle, LogOut, ArrowLeft, Shield,
   BrainCircuit, Cpu,
 } from 'lucide-react';
 
-function Card({ title, icon: Icon, iconColor = 'text-emerald-600', iconBg = 'bg-emerald-50', children }) {
-  return (
-    <div className="bg-white rounded-2xl border border-navy-100 overflow-hidden">
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-navy-50">
-        <div className={`w-8 h-8 rounded-lg ${iconBg} flex items-center justify-center`}>
-          <Icon className={`w-4 h-4 ${iconColor}`} />
-        </div>
-        <h2 className="font-display font-semibold text-navy-900">{title}</h2>
-      </div>
-      <div className="p-6">{children}</div>
-    </div>
-  );
-}
-
-function Alert({ type, message, onClose }) {
-  if (!message) return null;
-  const isError = type === 'error';
-  return (
-    <div className={`flex items-start gap-3 p-4 rounded-xl text-sm mb-4 ${
-      isError ? 'bg-coral-500/10 border border-coral-500/20 text-coral-600' : 'bg-emerald-50 border border-emerald-200 text-emerald-700'
-    }`}>
-      {isError ? <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
-      <span className="flex-1">{message}</span>
-      {onClose && <button onClick={onClose} className="ml-auto opacity-60 hover:opacity-100 text-lg leading-none">&times;</button>}
-    </div>
-  );
-}
-
-function PasswordField({ label, value, onChange, placeholder }) {
+function PasswordFieldRow({ id, label, value, onChange, placeholder }) {
   const [show, setShow] = useState(false);
   return (
-    <div>
-      <label className="block text-sm font-medium text-navy-700 mb-1.5">{label}</label>
+    <FormField id={id} label={label}>
       <div className="relative">
-        <input
+        <Input
+          id={id}
           type={show ? 'text' : 'password'}
           value={value}
           onChange={onChange}
           required
-          className="w-full px-4 py-3 pr-12 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
+          className="pe-12"
           placeholder={placeholder}
         />
         <button
           type="button"
           onClick={() => setShow(!show)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-navy-400 hover:text-navy-600 p-1"
+          className="absolute end-3 top-1/2 -translate-y-1/2 text-navy-400 hover:text-navy-600 p-1"
+          aria-label={show ? 'Hide password' : 'Show password'}
+          aria-pressed={show}
         >
           {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
         </button>
       </div>
-    </div>
+    </FormField>
   );
 }
 
 function ProfileInfoSection({ user, onUpdate }) {
+  const { t } = useSettings();
   const [name, setName] = useState(user?.name || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || '');
   const [loading, setLoading] = useState(false);
@@ -84,88 +61,66 @@ function ProfileInfoSection({ user, onUpdate }) {
     try {
       const { data } = await authAPI.updateProfile({ name: name || null, avatar_url: avatarUrl || null });
       onUpdate(data.data.user);
-      setOk('Profile updated successfully.');
+      setOk(t('profile.info.updated'));
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to update profile.'));
+      setError(getApiErrorMessage(err, t('profile.info.updateFailed')));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Card title="Profile Information" icon={User}>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <Alert type="error" message={error} onClose={() => setError('')} />
-        <Alert type="success" message={ok} onClose={() => setOk('')} />
+    <Card>
+      <Card.Header icon={User} title={t('profile.info.title')} />
+      <Card.Body>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && <Alert tone="error" onDismiss={() => setError('')}>{error}</Alert>}
+          {ok && <Alert tone="success" onDismiss={() => setOk('')}>{ok}</Alert>}
 
-        <div className="flex items-center gap-4 pb-4 border-b border-navy-50">
-          <div className="w-16 h-16 rounded-2xl overflow-hidden bg-gradient-to-br from-navy-300 to-navy-500 flex-shrink-0">
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-white text-2xl font-bold">
-                {(name || user?.username || '?')[0].toUpperCase()}
-              </div>
-            )}
+          <div className="flex items-center gap-4 pb-4 border-b border-navy-50">
+            <div className="w-16 h-16 rounded-2xl overflow-hidden bg-gradient-to-br from-navy-300 to-navy-500 flex-shrink-0">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-white text-2xl font-bold">
+                  {(name || user?.username || '?')[0].toUpperCase()}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="font-semibold text-navy-900">{user?.username}</p>
+              <p className="text-sm text-navy-400">{user?.email}</p>
+              <span className={`inline-block mt-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+                user?.role === 'admin' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'
+              }`}>
+                {user?.role}
+              </span>
+            </div>
           </div>
-          <div>
-            <p className="font-semibold text-navy-900">{user?.username}</p>
-            <p className="text-sm text-navy-400">{user?.email}</p>
-            <span className={`inline-block mt-1 text-xs font-medium px-2 py-0.5 rounded-full ${
-              user?.role === 'admin' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'
-            }`}>
-              {user?.role}
-            </span>
-          </div>
-        </div>
 
-        <div>
-          <label className="block text-sm font-medium text-navy-700 mb-1.5">Full name</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
-            placeholder="Your name"
-          />
-        </div>
+          <FormField id="profile-name" label={t('profile.info.fullName')}>
+            <Input id="profile-name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('profile.info.namePlaceholder')} />
+          </FormField>
 
-        <div>
-          <label className="block text-sm font-medium text-navy-700 mb-1.5">Avatar URL <span className="text-navy-400">(optional)</span></label>
-          <input
-            type="url"
-            value={avatarUrl}
-            onChange={(e) => setAvatarUrl(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
-            placeholder="https://..."
-          />
-        </div>
+          <FormField id="profile-avatar" label={<>{t('profile.info.avatarUrl')} <span className="text-navy-400">{t('reg.optional')}</span></>}>
+            <Input id="profile-avatar" type="url" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} placeholder="https://..." />
+          </FormField>
 
-        <div>
-          <label className="block text-sm font-medium text-navy-700 mb-1.5">Username</label>
-          <input
-            type="text"
-            value={user?.username || ''}
-            disabled
-            className="w-full px-4 py-3 rounded-xl border border-navy-100 bg-navy-50 text-navy-400 cursor-not-allowed"
-          />
-          <p className="text-xs text-navy-400 mt-1">Username cannot be changed.</p>
-        </div>
+          <FormField id="profile-username" label={t('reg.username')} hint={t('profile.info.usernameLocked')}>
+            <Input id="profile-username" type="text" value={user?.username || ''} disabled className="bg-navy-50 text-navy-400 cursor-not-allowed" />
+          </FormField>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-sm shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50"
-        >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Save changes
-        </button>
-      </form>
+          <Button type="submit" loading={loading} leftIcon={loading ? undefined : Save}>
+            {t('profile.info.save')}
+          </Button>
+        </form>
+      </Card.Body>
     </Card>
   );
 }
 
 function AssistantModelSection({ user, onUpdate }) {
+  const { t } = useSettings();
   const [selected, setSelected] = useState(user?.preferred_model || 'bert_local');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -185,9 +140,9 @@ function AssistantModelSection({ user, onUpdate }) {
       const { data } = await authAPI.updateProfile({ preferred_model: modelId });
       onUpdate(data.data.user);
       aiAPI.start(modelId).catch(() => {});
-      setOk('Default model updated. Your chat and dashboard now use it.');
+      setOk(t('profile.model.updated'));
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Could not update your model.'));
+      setError(getApiErrorMessage(err, t('profile.model.updateFailed')));
       setSelected(user?.preferred_model || 'bert_local');
     } finally {
       setLoading(false);
@@ -195,45 +150,49 @@ function AssistantModelSection({ user, onUpdate }) {
   };
 
   return (
-    <Card title="Assistant Model" icon={BrainCircuit} iconColor="text-navy-600" iconBg="bg-navy-50">
-      <div className="space-y-3">
-        <Alert type="error" message={error} onClose={() => setError('')} />
-        <Alert type="success" message={ok} onClose={() => setOk('')} />
-        <p className="text-sm text-navy-500 flex items-start gap-2">
-          <Cpu className="w-4 h-4 mt-0.5 flex-shrink-0 text-navy-400" />
-          LifeSync runs one model at a time, on your GPU automatically (CPU fallback). Your memory, history and data carry over when you switch.
-        </p>
-        {MODEL_OPTIONS.map((m) => {
-          const active = selected === m.id;
-          return (
-            <button
-              key={m.id}
-              type="button"
-              disabled={loading}
-              onClick={() => save(m.id)}
-              className={`w-full text-left p-4 rounded-xl border-2 transition-all disabled:opacity-60 ${
-                active ? 'border-emerald-500 bg-emerald-50/60' : 'border-navy-100 bg-white hover:border-navy-200'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-navy-800 flex items-center gap-2">
-                  {m.label}
-                  {m.tag && <span className="text-[10px] font-medium text-navy-400 uppercase tracking-wider">{m.tag}</span>}
-                </span>
-                {active && (loading
-                  ? <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
-                  : <CheckCircle className="w-4 h-4 text-emerald-500" />)}
-              </div>
-              <p className="text-xs text-navy-500 mt-1">{m.desc}</p>
-            </button>
-          );
-        })}
-      </div>
+    <Card>
+      <Card.Header icon={BrainCircuit} iconTone="navy" title={t('profile.model.title')} />
+      <Card.Body>
+        <div className="space-y-3">
+          {error && <Alert tone="error" onDismiss={() => setError('')}>{error}</Alert>}
+          {ok && <Alert tone="success" onDismiss={() => setOk('')}>{ok}</Alert>}
+          <p className="text-sm text-navy-500 flex items-start gap-2">
+            <Cpu className="w-4 h-4 mt-0.5 flex-shrink-0 text-navy-400" />
+            {t('profile.model.note')}
+          </p>
+          {MODEL_OPTIONS.map((m) => {
+            const active = selected === m.id;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                disabled={loading}
+                onClick={() => save(m.id)}
+                className={`w-full text-start p-4 rounded-xl border-2 transition-all duration-200 ease-[var(--ease-out-snap)] disabled:opacity-60 ${
+                  active ? 'border-emerald-500 bg-emerald-50/60' : 'border-navy-100 bg-white hover:border-navy-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-hover)]'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-navy-800 flex items-center gap-2">
+                    {m.label}
+                    {m.tag && <span className="text-[10px] font-medium text-navy-400 uppercase tracking-wider">{m.tag}</span>}
+                  </span>
+                  {active && (loading
+                    ? <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
+                    : <CheckCircle className="w-4 h-4 text-emerald-500" />)}
+                </div>
+                <p className="text-xs text-navy-500 mt-1">{m.desc}</p>
+              </button>
+            );
+          })}
+        </div>
+      </Card.Body>
     </Card>
   );
 }
 
 function EmailChangeSection({ user, isGoogleUser, onUpdate }) {
+  const { t } = useSettings();
   const [newEmail, setNewEmail] = useState('');
   const [code, setCode] = useState('');
   const [otpSent, setOtpSent] = useState(false);
@@ -250,9 +209,9 @@ function EmailChangeSection({ user, isGoogleUser, onUpdate }) {
     try {
       await authAPI.changeEmailSendOTP(newEmail);
       setOtpSent(true);
-      setOk('Verification code sent to your new email.');
+      setOk(t('profile.email.codeSent'));
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to send verification code.'));
+      setError(getApiErrorMessage(err, t('profile.email.sendFailed')));
     } finally {
       setSending(false);
     }
@@ -266,12 +225,12 @@ function EmailChangeSection({ user, isGoogleUser, onUpdate }) {
     try {
       const { data } = await authAPI.changeEmailVerifyOTP(newEmail, code);
       onUpdate(data.data.user);
-      setOk('Email updated successfully.');
+      setOk(t('profile.email.updated'));
       setNewEmail('');
       setCode('');
       setOtpSent(false);
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to verify code.'));
+      setError(getApiErrorMessage(err, t('profile.email.verifyFailed')));
     } finally {
       setVerifying(false);
     }
@@ -279,85 +238,75 @@ function EmailChangeSection({ user, isGoogleUser, onUpdate }) {
 
   if (isGoogleUser) {
     return (
-      <Card title="Email" icon={Mail} iconColor="text-navy-600" iconBg="bg-navy-50">
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-navy-50 border border-navy-100">
-          <Shield className="w-5 h-5 text-navy-400 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-navy-700">Google-managed email</p>
-            <p className="text-sm text-navy-500 mt-0.5">This account uses Google Sign-In. Email changes are handled by Google.</p>
+      <Card>
+        <Card.Header icon={Mail} iconTone="navy" title={t('profile.email.title')} />
+        <Card.Body>
+          <div className="flex items-start gap-3 p-4 rounded-xl bg-navy-50 border border-navy-100">
+            <Shield className="w-5 h-5 text-navy-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-navy-700">{t('profile.email.googleManaged')}</p>
+              <p className="text-sm text-navy-500 mt-0.5">{t('profile.email.googleManagedDesc')}</p>
+            </div>
           </div>
-        </div>
+        </Card.Body>
       </Card>
     );
   }
 
   return (
-    <Card title="Change Email" icon={Mail} iconColor="text-sky-600" iconBg="bg-sky-50">
-      <div className="space-y-4">
-        <Alert type="error" message={error} onClose={() => setError('')} />
-        <Alert type="success" message={ok} onClose={() => setOk('')} />
+    <Card>
+      <Card.Header icon={Mail} iconTone="blue" title={t('profile.email.changeTitle')} />
+      <Card.Body>
+        <div className="space-y-4">
+          {error && <Alert tone="error" onDismiss={() => setError('')}>{error}</Alert>}
+          {ok && <Alert tone="success" onDismiss={() => setOk('')}>{ok}</Alert>}
 
-        <div>
-          <label className="block text-sm font-medium text-navy-700 mb-1.5">Current email</label>
-          <input
-            type="email"
-            value={user?.email || ''}
-            disabled
-            className="w-full px-4 py-3 rounded-xl border border-navy-100 bg-navy-50 text-navy-400 cursor-not-allowed"
-          />
-        </div>
+          <FormField id="profile-current-email" label={t('profile.email.current')}>
+            <Input id="profile-current-email" type="email" value={user?.email || ''} disabled className="bg-navy-50 text-navy-400 cursor-not-allowed" />
+          </FormField>
 
-        <form onSubmit={handleSend} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-navy-700 mb-1.5">New email</label>
-            <input
-              type="email"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              required
-              className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
-              placeholder="new@example.com"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={sending || !newEmail}
-            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-sky-600 text-white font-semibold text-sm shadow-md shadow-sky-500/20 hover:from-sky-600 hover:to-sky-700 transition-all disabled:opacity-50"
-          >
-            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-            Send code
-          </button>
-        </form>
-
-        {otpSent && (
-          <form onSubmit={handleVerify} className="space-y-4 pt-4 border-t border-navy-50">
-            <div>
-              <label className="block text-sm font-medium text-navy-700 mb-1.5">Verification code</label>
-              <input
-                type="text"
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+          <form onSubmit={handleSend} className="space-y-4">
+            <FormField id="profile-new-email" label={t('profile.email.new')}>
+              <Input
+                id="profile-new-email"
+                type="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
                 required
-                className="w-full px-4 py-3 rounded-xl border border-navy-200 bg-white text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all tracking-[0.35em]"
-                placeholder="123456"
+                placeholder="new@example.com"
               />
-            </div>
-            <button
-              type="submit"
-              disabled={verifying || code.length !== 6}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-sm shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50"
-            >
-              {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-              Verify & update email
-            </button>
+            </FormField>
+            <Button type="submit" variant="secondary" loading={sending} disabled={!newEmail} leftIcon={sending ? undefined : Mail}>
+              {t('profile.email.sendCode')}
+            </Button>
           </form>
-        )}
-      </div>
+
+          {otpSent && (
+            <form onSubmit={handleVerify} className="space-y-4 pt-4 border-t border-navy-50">
+              <FormField id="profile-email-code" label={t('profile.email.verifyCode')}>
+                <Input
+                  id="profile-email-code"
+                  type="text"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  required
+                  className="tracking-[0.35em]"
+                  placeholder="123456"
+                />
+              </FormField>
+              <Button type="submit" loading={verifying} disabled={code.length !== 6} leftIcon={verifying ? undefined : CheckCircle}>
+                {t('profile.email.verifyAndUpdate')}
+              </Button>
+            </form>
+          )}
+        </div>
+      </Card.Body>
     </Card>
   );
 }
 
 function ChangePasswordSection({ isGoogleUser }) {
+  const { t } = useSettings();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -366,10 +315,10 @@ function ChangePasswordSection({ isGoogleUser }) {
   const [ok, setOk] = useState('');
 
   const passwordChecks = [
-    { label: 'At least 8 characters', ok: newPassword.length >= 8 },
-    { label: 'Uppercase letter', ok: /[A-Z]/.test(newPassword) },
-    { label: 'Lowercase letter', ok: /[a-z]/.test(newPassword) },
-    { label: 'Number', ok: /\d/.test(newPassword) },
+    { label: t('reg.check.len'), ok: newPassword.length >= 8 },
+    { label: t('reg.check.upper'), ok: /[A-Z]/.test(newPassword) },
+    { label: t('reg.check.lower'), ok: /[a-z]/.test(newPassword) },
+    { label: t('reg.check.number'), ok: /\d/.test(newPassword) },
   ];
   const passwordStrength = passwordChecks.filter((item) => item.ok).length;
   const strengthColor = ['bg-coral-500', 'bg-coral-500', 'bg-amber-400', 'bg-amber-400', 'bg-emerald-500'][passwordStrength];
@@ -377,11 +326,11 @@ function ChangePasswordSection({ isGoogleUser }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (newPassword !== confirm) {
-      setError('New passwords do not match.');
+      setError(t('profile.password.newMismatch'));
       return;
     }
     if (passwordStrength < 4) {
-      setError('Password does not meet all requirements.');
+      setError(t('fp.err.weak'));
       return;
     }
 
@@ -390,12 +339,12 @@ function ChangePasswordSection({ isGoogleUser }) {
     setLoading(true);
     try {
       await authAPI.changePassword(currentPassword, newPassword);
-      setOk('Password changed successfully.');
+      setOk(t('profile.password.changed'));
       setCurrentPassword('');
       setNewPassword('');
       setConfirm('');
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to change password.'));
+      setError(getApiErrorMessage(err, t('profile.password.changeFailed')));
     } finally {
       setLoading(false);
     }
@@ -403,62 +352,64 @@ function ChangePasswordSection({ isGoogleUser }) {
 
   if (isGoogleUser) {
     return (
-      <Card title="Password" icon={Lock} iconColor="text-navy-600" iconBg="bg-navy-50">
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-navy-50 border border-navy-100">
-          <Shield className="w-5 h-5 text-navy-400 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-navy-700">Google account</p>
-            <p className="text-sm text-navy-500 mt-0.5">Your account uses Google Sign-In. Password management is handled by Google.</p>
+      <Card>
+        <Card.Header icon={Lock} iconTone="navy" title={t('profile.password.title')} />
+        <Card.Body>
+          <div className="flex items-start gap-3 p-4 rounded-xl bg-navy-50 border border-navy-100">
+            <Shield className="w-5 h-5 text-navy-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-navy-700">{t('profile.password.googleAccount')}</p>
+              <p className="text-sm text-navy-500 mt-0.5">{t('profile.password.googleAccountDesc')}</p>
+            </div>
           </div>
-        </div>
+        </Card.Body>
       </Card>
     );
   }
 
   return (
-    <Card title="Change Password" icon={Lock} iconColor="text-navy-600" iconBg="bg-navy-50">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <Alert type="error" message={error} onClose={() => setError('')} />
-        <Alert type="success" message={ok} onClose={() => setOk('')} />
+    <Card>
+      <Card.Header icon={Lock} iconTone="navy" title={t('profile.password.title')} />
+      <Card.Body>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && <Alert tone="error" onDismiss={() => setError('')}>{error}</Alert>}
+          {ok && <Alert tone="success" onDismiss={() => setOk('')}>{ok}</Alert>}
 
-        <PasswordField label="Current password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Your current password" />
-        <PasswordField label="New password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" />
+          <PasswordFieldRow id="profile-current-password" label={t('profile.password.current')} value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder={t('profile.password.currentPlaceholder')} />
+          <PasswordFieldRow id="profile-new-password" label={t('fp.newPasswordLabel')} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={t('fp.newPasswordLabel')} />
 
-        {newPassword && (
-          <div className="space-y-1.5">
-            <div className="flex gap-1">
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-300 ${i < passwordStrength ? strengthColor : 'bg-navy-100'}`} />
-              ))}
+          {newPassword && (
+            <div className="space-y-1.5">
+              <div className="flex gap-1">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-300 ${i < passwordStrength ? strengthColor : 'bg-navy-100'}`} />
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                {passwordChecks.map((check) => (
+                  <div key={check.label} className={`text-xs flex items-center gap-1.5 ${check.ok ? 'text-emerald-600' : 'text-navy-400'}`}>
+                    <div className={`w-1.5 h-1.5 rounded-full ${check.ok ? 'bg-emerald-500' : 'bg-navy-300'}`} />
+                    {check.label}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
-              {passwordChecks.map((check) => (
-                <div key={check.label} className={`text-xs flex items-center gap-1.5 ${check.ok ? 'text-emerald-600' : 'text-navy-400'}`}>
-                  <div className={`w-1.5 h-1.5 rounded-full ${check.ok ? 'bg-emerald-500' : 'bg-navy-300'}`} />
-                  {check.label}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+          )}
 
-        <PasswordField label="Confirm new password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Repeat new password" />
-        {confirm && newPassword !== confirm && <p className="text-xs text-coral-500 -mt-2">Passwords don&apos;t match.</p>}
+          <PasswordFieldRow id="profile-confirm-password" label={t('profile.password.confirmNew')} value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={t('fp.confirmPlaceholder')} />
+          {confirm && newPassword !== confirm && <p className="text-xs text-coral-500 -mt-2">{t('fp.mismatch')}</p>}
 
-        <button
-          type="submit"
-          disabled={loading || passwordStrength < 4 || newPassword !== confirm}
-          className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-navy-700 to-navy-900 text-white font-semibold text-sm hover:from-navy-800 hover:to-navy-950 transition-all disabled:opacity-50"
-        >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-          Update password
-        </button>
-      </form>
+          <Button type="submit" variant="secondary" loading={loading} disabled={passwordStrength < 4 || newPassword !== confirm} leftIcon={loading ? undefined : Lock}>
+            {t('profile.password.update')}
+          </Button>
+        </form>
+      </Card.Body>
     </Card>
   );
 }
 
 function DangerZoneSection({ onDeleteAccount }) {
+  const { t } = useSettings();
   const [confirm, setConfirm] = useState('');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -466,7 +417,7 @@ function DangerZoneSection({ onDeleteAccount }) {
 
   const handleDelete = async () => {
     if (confirm !== 'DELETE') {
-      setError('Type DELETE to confirm.');
+      setError(t('profile.danger.typeDelete'));
       return;
     }
 
@@ -474,61 +425,63 @@ function DangerZoneSection({ onDeleteAccount }) {
     try {
       await onDeleteAccount();
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to delete account.'));
+      setError(getApiErrorMessage(err, t('profile.danger.deleteFailed')));
       setLoading(false);
     }
   };
 
   return (
-    <Card title="Danger Zone" icon={Trash2} iconColor="text-coral-500" iconBg="bg-coral-50">
-      <div className="space-y-4">
-        <p className="text-sm text-navy-500">
-          Deleting your account deactivates sign-in immediately. Existing data stays unavailable to the user after deletion.
-        </p>
+    <Card>
+      <Card.Header icon={Trash2} iconTone="coral" title={t('profile.danger.title')} />
+      <Card.Body>
+        <div className="space-y-4">
+          <p className="text-sm text-navy-500">
+            {t('profile.danger.desc')}
+          </p>
 
-        {!open ? (
-          <button
-            onClick={() => setOpen(true)}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-coral-300 text-coral-600 font-medium text-sm hover:bg-coral-50 transition-colors"
-          >
-            <Trash2 className="w-4 h-4" /> Delete my account
-          </button>
-        ) : (
-          <div className="space-y-3 p-4 rounded-xl border border-coral-200 bg-coral-50/50">
-            <Alert type="error" message={error} onClose={() => setError('')} />
-            <p className="text-sm font-medium text-coral-700">Type <code className="font-mono bg-coral-100 px-1 rounded">DELETE</code> to confirm account deletion:</p>
-            <input
-              type="text"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl border border-coral-300 bg-white text-navy-900 focus:outline-none focus:ring-2 focus:ring-coral-400/30 focus:border-coral-400 transition-all text-sm"
-              placeholder="DELETE"
-            />
-            <div className="flex gap-3">
-              <button
-                onClick={() => { setOpen(false); setConfirm(''); setError(''); }}
-                className="flex-1 py-2.5 rounded-xl border border-navy-200 text-navy-600 text-sm font-medium hover:bg-navy-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={loading || confirm !== 'DELETE'}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-coral-500 text-white text-sm font-semibold hover:bg-coral-600 transition-colors disabled:opacity-50"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                Delete account
-              </button>
+          {!open ? (
+            <Button variant="danger" leftIcon={Trash2} onClick={() => setOpen(true)}>
+              {t('profile.danger.deleteBtn')}
+            </Button>
+          ) : (
+            <div className="space-y-3 p-4 rounded-xl border border-coral-200 bg-coral-50/50">
+              {error && <Alert tone="error" onDismiss={() => setError('')}>{error}</Alert>}
+              <p className="text-sm font-medium text-coral-700">
+                {t('profile.danger.confirmPrompt')} <code className="font-mono bg-coral-100 px-1 rounded">DELETE</code>
+              </p>
+              <Input
+                type="text"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                error
+                placeholder="DELETE"
+              />
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => { setOpen(false); setConfirm(''); setError(''); }}>
+                  {t('profile.danger.cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  className="flex-1"
+                  loading={loading}
+                  disabled={confirm !== 'DELETE'}
+                  leftIcon={loading ? undefined : Trash2}
+                  onClick={handleDelete}
+                >
+                  {t('profile.danger.deleteAccount')}
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </Card.Body>
     </Card>
   );
 }
 
 export default function ProfilePage() {
   const { user, logout, updateCurrentUser } = useAuth();
+  const { t } = useSettings();
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(user);
 
@@ -563,18 +516,18 @@ export default function ProfilePage() {
             onClick={() => navigate(-1)}
             className="p-2 rounded-lg hover:bg-navy-50 text-navy-400 hover:text-navy-700 transition-colors"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5 rtl:rotate-180" />
           </button>
           <div>
-            <h1 className="font-display text-xl font-bold text-navy-900">Account Settings</h1>
-            <p className="text-navy-400 text-sm">Manage your profile and account</p>
+            <h1 className="font-display text-xl font-bold text-navy-900">{t('profile.title')}</h1>
+            <p className="text-navy-400 text-sm">{t('profile.subtitle')}</p>
           </div>
           <button
             onClick={handleLogout}
-            className="ml-auto flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-navy-500 hover:text-coral-500 hover:bg-coral-50 border border-navy-200 hover:border-coral-200 transition-all font-medium"
+            className="ms-auto flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-navy-500 hover:text-coral-500 hover:bg-coral-50 border border-navy-200 hover:border-coral-200 transition-all font-medium"
           >
             <LogOut className="w-4 h-4" />
-            Sign out
+            {t('nav.signOut')}
           </button>
         </div>
       </div>

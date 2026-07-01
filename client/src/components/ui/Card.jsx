@@ -4,6 +4,7 @@ const ICON_TONE_CLASSES = {
   coral: 'bg-coral-50 text-coral-500',
   amber: 'bg-amber-50 text-amber-500',
   navy: 'bg-navy-50 text-navy-600',
+  blue: 'bg-blue-50 text-blue-600',
 };
 
 const PADDING_CLASSES = {

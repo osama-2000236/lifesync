@@ -1,69 +1,37 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { externalAPI, healthAPI, financeAPI } from '../services/api';
+import { useSettings } from '../contexts/SettingsContext';
 import { getApiErrorMessage } from '../utils/apiErrors';
 import { getPaginatedItems } from '../utils/paginatedResponse';
+import { Card, Alert, Button } from '../components/ui';
 import {
-  ArrowLeft, RefreshCw, Unlink, CheckCircle, AlertCircle,
+  ArrowLeft, RefreshCw, Unlink, CheckCircle,
   Loader2, Download, FileJson, FileSpreadsheet, Heart,
   Smartphone, Cloud, Zap, Info,
 } from 'lucide-react';
 
-function Card({ children, className = '' }) {
-  return (
-    <div className={`bg-white rounded-2xl border border-navy-100 overflow-hidden ${className}`}>
-      {children}
-    </div>
-  );
-}
-
-function CardHeader({ icon: Icon, iconBg = 'bg-emerald-50', iconColor = 'text-emerald-600', title, subtitle }) {
-  return (
-    <div className="flex items-center gap-3 px-6 py-4 border-b border-navy-50">
-      <div className={`w-9 h-9 rounded-xl ${iconBg} flex items-center justify-center flex-shrink-0`}>
-        <Icon className={`w-5 h-5 ${iconColor}`} />
-      </div>
-      <div>
-        <h2 className="font-display font-semibold text-navy-900">{title}</h2>
-        {subtitle && <p className="text-xs text-navy-400 mt-0.5">{subtitle}</p>}
-      </div>
-    </div>
-  );
-}
-
-function StatusBadge({ connected }) {
+function StatusBadge({ connected, t }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${
       connected ? 'bg-emerald-50 text-emerald-700' : 'bg-navy-100 text-navy-500'
     }`}>
       <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-500' : 'bg-navy-400'}`} />
-      {connected ? 'Connected' : 'Not connected'}
+      {connected ? t('integrations.connected') : t('integrations.notConnected')}
     </span>
   );
 }
 
-function Alert({ type, message, onClose }) {
-  if (!message) return null;
-  const isError = type === 'error';
-  return (
-    <div className={`flex items-start gap-2.5 p-3.5 rounded-xl text-sm ${
-      isError ? 'bg-coral-50 border border-coral-200 text-coral-700' : 'bg-emerald-50 border border-emerald-200 text-emerald-700'
-    }`}>
-      {isError ? <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
-      <span className="flex-1">{message}</span>
-      {onClose && <button onClick={onClose} className="opacity-50 hover:opacity-100 text-base leading-none">&times;</button>}
-    </div>
-  );
+/** Splits a translated "...{token}..." string around a unique marker so a styled
+ * value can be inserted at the right position regardless of language word order. */
+function splitAroundToken(translated, marker) {
+  const idx = translated.indexOf(marker);
+  if (idx === -1) return [translated, ''];
+  return [translated.slice(0, idx), translated.slice(idx + marker.length)];
 }
 
-const GOOGLE_FIT_TYPES = [
-  { id: 'steps', label: 'Steps' },
-  { id: 'calories', label: 'Calories' },
-  { id: 'sleep', label: 'Sleep' },
-  { id: 'heart_rate', label: 'Heart Rate' },
-];
-
 function GoogleFitPanel({ status, onRefreshStatus }) {
+  const { t } = useSettings();
   const connected = status?.connected;
   const connectedAt = status?.connectedAt;
   const [syncing, setSyncing] = useState(false);
@@ -74,6 +42,13 @@ function GoogleFitPanel({ status, onRefreshStatus }) {
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
 
+  const GOOGLE_FIT_TYPES = [
+    { id: 'steps', label: t('health.type.steps') },
+    { id: 'calories', label: t('integrations.calories') },
+    { id: 'sleep', label: t('health.type.sleep') },
+    { id: 'heart_rate', label: t('health.type.heart_rate') },
+  ];
+
   const handleConnect = async () => {
     setConnecting(true);
     setError('');
@@ -82,10 +57,10 @@ function GoogleFitPanel({ status, onRefreshStatus }) {
       if (data.data?.url) {
         window.location.href = data.data.url;
       } else {
-        setError('Google Fit connection URL not available. Ensure GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set on Railway.');
+        setError(t('integrations.connectUrlMissing'));
       }
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to start Google Fit connection.'));
+      setError(getApiErrorMessage(err, t('integrations.connectFailed')));
     } finally {
       setConnecting(false);
     }
@@ -99,7 +74,7 @@ function GoogleFitPanel({ status, onRefreshStatus }) {
 
   const handleSync = async () => {
     if (!selectedTypes.length) {
-      setError('Select at least one data type.');
+      setError(t('integrations.selectAtLeastOne'));
       return;
     }
 
@@ -109,73 +84,70 @@ function GoogleFitPanel({ status, onRefreshStatus }) {
     try {
       const { data } = await externalAPI.sync('google_fit', { dataTypes: selectedTypes, days });
       const payload = data.data;
-      setOk(`Synced ${payload.new_entries} new entries (${payload.duplicates_skipped} already up to date).`);
+      setOk(t('integrations.syncResult', { new: payload.new_entries, dup: payload.duplicates_skipped }));
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Sync failed. Try reconnecting.'));
+      setError(getApiErrorMessage(err, t('integrations.syncFailed')));
     } finally {
       setSyncing(false);
     }
   };
 
   const handleDisconnect = async () => {
-    if (!window.confirm('Disconnect Google Fit? Your existing health logs will be kept.')) return;
+    if (!window.confirm(t('integrations.disconnectConfirm'))) return;
 
     setDisconnecting(true);
     setError('');
     try {
       await externalAPI.disconnect('google_fit');
-      setOk('Google Fit disconnected.');
+      setOk(t('integrations.disconnected'));
       onRefreshStatus();
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to disconnect.'));
+      setError(getApiErrorMessage(err, t('integrations.disconnectFailed')));
     } finally {
       setDisconnecting(false);
     }
   };
 
+  const [daysBefore, daysAfter] = splitAroundToken(t('integrations.syncLastDays', { days: '@@DAYS@@' }), '@@DAYS@@');
+
   return (
     <Card>
-      <CardHeader
-        icon={Heart}
-        iconBg="bg-red-50"
-        iconColor="text-red-500"
-        title="Google Fit"
-        subtitle="Sync steps, sleep, calories, and heart rate"
-      />
-      <div className="p-6 space-y-4">
+      <Card.Header icon={Heart} iconTone="coral" title={t('integrations.googleFit')} subtitle={t('integrations.googleFitDesc')} />
+      <Card.Body className="space-y-4">
         <div className="flex items-center justify-between">
-          <StatusBadge connected={connected} />
+          <StatusBadge connected={connected} t={t} />
           {connected && connectedAt && (
             <span className="text-xs text-navy-400">
-              Connected {new Date(connectedAt).toLocaleDateString()}
+              {t('integrations.connectedOn', { date: new Date(connectedAt).toLocaleDateString() })}
             </span>
           )}
         </div>
 
-        <Alert type="error" message={error} onClose={() => setError('')} />
-        <Alert type="success" message={ok} onClose={() => setOk('')} />
+        {error && <Alert tone="error" onDismiss={() => setError('')}>{error}</Alert>}
+        {ok && <Alert tone="success" onDismiss={() => setOk('')}>{ok}</Alert>}
 
         {!connected ? (
           <div className="space-y-4">
             <div className="p-4 rounded-xl bg-navy-50 border border-navy-100 flex gap-3">
               <Info className="w-4 h-4 text-navy-400 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-navy-500">
-                Connect Google Fit to automatically import your health data. This requires OAuth credentials on the backend and a Google account with Fit data.
+                {t('integrations.googleFitInfo')}
               </p>
             </div>
-            <button
+            <Button
+              variant="danger"
+              className="w-full"
+              loading={connecting}
+              leftIcon={connecting ? undefined : Heart}
               onClick={handleConnect}
-              disabled={connecting}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-red-500 to-red-600 text-white font-semibold text-sm shadow-md shadow-red-500/20 hover:from-red-600 hover:to-red-700 transition-all disabled:opacity-50"
             >
-              {connecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Heart className="w-4 h-4" />}
-              Connect Google Fit
-            </button>
+              {t('integrations.connectGoogleFit')}
+            </Button>
           </div>
         ) : (
           <div className="space-y-4">
             <div>
-              <p className="text-sm font-medium text-navy-700 mb-2">Data to sync</p>
+              <p className="text-sm font-medium text-navy-700 mb-2">{t('integrations.dataToSync')}</p>
               <div className="grid grid-cols-2 gap-2">
                 {GOOGLE_FIT_TYPES.map(({ id, label }) => (
                   <button
@@ -205,40 +177,44 @@ function GoogleFitPanel({ status, onRefreshStatus }) {
 
             <div>
               <label className="text-sm font-medium text-navy-700">
-                Sync last <span className="text-emerald-600 font-bold">{days}</span> days
+                {daysBefore}
+                <span className="text-emerald-600 font-bold">{days}</span>
+                {daysAfter}
               </label>
               <input type="range" min={1} max={30} value={days} onChange={(e) => setDays(Number(e.target.value))} className="w-full mt-2 accent-emerald-500" />
               <div className="flex justify-between text-xs text-navy-400 mt-1">
-                <span>1 day</span><span>30 days</span>
+                <span>{t('integrations.oneDay')}</span><span>{t('integrations.thirtyDays')}</span>
               </div>
             </div>
 
             <div className="flex gap-3 pt-1">
-              <button
+              <Button
+                className="flex-1"
+                loading={syncing}
+                disabled={!selectedTypes.length}
+                leftIcon={syncing ? undefined : RefreshCw}
                 onClick={handleSync}
-                disabled={syncing || !selectedTypes.length}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-sm shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50"
               >
-                {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                Sync now
-              </button>
-              <button
+                {t('integrations.syncNow')}
+              </Button>
+              <Button
+                variant="secondary"
+                loading={disconnecting}
+                leftIcon={disconnecting ? undefined : Unlink}
                 onClick={handleDisconnect}
-                disabled={disconnecting}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-navy-200 text-navy-500 text-sm font-medium hover:border-coral-300 hover:text-coral-500 hover:bg-coral-50 transition-all disabled:opacity-50"
               >
-                {disconnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Unlink className="w-4 h-4" />}
-                Disconnect
-              </button>
+                {t('integrations.disconnect')}
+              </Button>
             </div>
           </div>
         )}
-      </div>
+      </Card.Body>
     </Card>
   );
 }
 
 function AppleHealthPanel() {
+  const { t } = useSettings();
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
@@ -255,7 +231,7 @@ function AppleHealthPanel() {
         setFileContent(Array.isArray(parsed) ? parsed : parsed.data || []);
         setError('');
       } catch {
-        setError('Invalid JSON file. Export from your health app as JSON.');
+        setError(t('integrations.invalidJson'));
       }
     };
     reader.readAsText(file);
@@ -263,7 +239,7 @@ function AppleHealthPanel() {
 
   const handleSync = async () => {
     if (!fileContent?.length) {
-      setError('No data to sync.');
+      setError(t('integrations.noDataToSync'));
       return;
     }
 
@@ -273,10 +249,10 @@ function AppleHealthPanel() {
     try {
       const { data } = await externalAPI.sync('apple_health', { payload: fileContent });
       const payload = data.data;
-      setOk(`Synced ${payload.new_entries} new entries (${payload.duplicates_skipped} already up to date).`);
+      setOk(t('integrations.syncResult', { new: payload.new_entries, dup: payload.duplicates_skipped }));
       setFileContent(null);
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Sync failed. Check your file format.'));
+      setError(getApiErrorMessage(err, t('integrations.appleSyncFailed')));
     } finally {
       setSyncing(false);
     }
@@ -284,31 +260,25 @@ function AppleHealthPanel() {
 
   return (
     <Card>
-      <CardHeader
-        icon={Smartphone}
-        iconBg="bg-gray-100"
-        iconColor="text-gray-600"
-        title="Apple Health"
-        subtitle="Import from iPhone Health export"
-      />
-      <div className="p-6 space-y-4">
+      <Card.Header icon={Smartphone} iconTone="navy" title={t('integrations.appleHealth')} subtitle={t('integrations.appleHealthDesc')} />
+      <Card.Body className="space-y-4">
         <div className="p-4 rounded-xl bg-navy-50 border border-navy-100 flex gap-3">
           <Info className="w-4 h-4 text-navy-400 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-navy-500 space-y-1">
-            <p>Apple HealthKit requires a native iOS app to read data. To import:</p>
+            <p>{t('integrations.appleHealthInfo1')}</p>
             <ol className="list-decimal list-inside space-y-0.5 text-xs mt-1">
-              <li>Export your data from Health app</li>
-              <li>Convert the export to JSON</li>
-              <li>Upload the JSON file below</li>
+              <li>{t('integrations.appleStep1')}</li>
+              <li>{t('integrations.appleStep2')}</li>
+              <li>{t('integrations.appleStep3')}</li>
             </ol>
           </div>
         </div>
 
-        <Alert type="error" message={error} onClose={() => setError('')} />
-        <Alert type="success" message={ok} onClose={() => setOk('')} />
+        {error && <Alert tone="error" onDismiss={() => setError('')}>{error}</Alert>}
+        {ok && <Alert tone="success" onDismiss={() => setOk('')}>{ok}</Alert>}
 
         <div>
-          <label className="block text-sm font-medium text-navy-700 mb-2">Upload health data (JSON)</label>
+          <label className="block text-sm font-medium text-navy-700 mb-2">{t('integrations.uploadLabel')}</label>
           <label className={`flex flex-col items-center justify-center gap-3 p-6 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
             fileContent ? 'border-emerald-400 bg-emerald-50' : 'border-navy-200 hover:border-navy-300 hover:bg-navy-50'
           }`}
@@ -318,36 +288,39 @@ function AppleHealthPanel() {
               <>
                 <CheckCircle className="w-8 h-8 text-emerald-500" />
                 <div className="text-center">
-                  <p className="text-sm font-medium text-emerald-700">{fileContent.length} records loaded</p>
-                  <p className="text-xs text-emerald-600">Click to replace file</p>
+                  <p className="text-sm font-medium text-emerald-700">{t('integrations.recordsLoaded', { count: fileContent.length })}</p>
+                  <p className="text-xs text-emerald-600">{t('integrations.clickToReplace')}</p>
                 </div>
               </>
             ) : (
               <>
                 <Cloud className="w-8 h-8 text-navy-300" />
                 <div className="text-center">
-                  <p className="text-sm font-medium text-navy-600">Drop JSON file here</p>
-                  <p className="text-xs text-navy-400">or click to browse</p>
+                  <p className="text-sm font-medium text-navy-600">{t('integrations.dropFile')}</p>
+                  <p className="text-xs text-navy-400">{t('integrations.orBrowse')}</p>
                 </div>
               </>
             )}
           </label>
         </div>
 
-        <button
+        <Button
+          variant="secondary"
+          className="w-full"
+          loading={syncing}
+          disabled={!fileContent?.length}
+          leftIcon={syncing ? undefined : RefreshCw}
           onClick={handleSync}
-          disabled={syncing || !fileContent?.length}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-navy-700 to-navy-900 text-white font-semibold text-sm hover:from-navy-800 hover:to-navy-950 transition-all disabled:opacity-50"
         >
-          {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          Import to LifeSync
-        </button>
-      </div>
+          {t('integrations.importBtn')}
+        </Button>
+      </Card.Body>
     </Card>
   );
 }
 
 function DataExportPanel() {
+  const { t } = useSettings();
   const [exporting, setExporting] = useState(null);
   const [error, setError] = useState('');
 
@@ -376,7 +349,7 @@ function DataExportPanel() {
     return [header, ...lines].join('\n');
   };
 
-  const exportData = async (domain, format) => {
+  const exportData = async (domain, format, domainLabel) => {
     const exportKey = `${domain}-${format}`;
     setExporting(exportKey);
     setError('');
@@ -419,7 +392,7 @@ function DataExportPanel() {
 
       downloadFile(toCSV(flatRows, columns), `lifesync-${domain}-${date}.csv`, 'text/csv');
     } catch (err) {
-      setError(getApiErrorMessage(err, `Failed to export ${domain} data.`));
+      setError(getApiErrorMessage(err, t('integrations.exportFailed', { domain: domainLabel })));
     } finally {
       setExporting(null);
     }
@@ -428,15 +401,15 @@ function DataExportPanel() {
   const exportCards = [
     {
       domain: 'health',
-      label: 'Health Logs',
-      desc: 'Steps, sleep, mood, water, exercise',
+      label: t('integrations.healthLogs'),
+      desc: t('integrations.healthLogsDesc'),
       color: 'text-coral-500',
       bg: 'bg-coral-50',
     },
     {
       domain: 'finance',
-      label: 'Finance Logs',
-      desc: 'Transactions, categories, amounts',
+      label: t('integrations.financeLogs'),
+      desc: t('integrations.financeLogsDesc'),
       color: 'text-amber-500',
       bg: 'bg-amber-50',
     },
@@ -444,15 +417,9 @@ function DataExportPanel() {
 
   return (
     <Card>
-      <CardHeader
-        icon={Download}
-        iconBg="bg-navy-50"
-        iconColor="text-navy-600"
-        title="Export Your Data"
-        subtitle="Download your data in JSON or CSV format"
-      />
-      <div className="p-6 space-y-4">
-        <Alert type="error" message={error} onClose={() => setError('')} />
+      <Card.Header icon={Download} iconTone="navy" title={t('integrations.exportTitle')} subtitle={t('integrations.exportSubtitle')} />
+      <Card.Body className="space-y-4">
+        {error && <Alert tone="error" onDismiss={() => setError('')}>{error}</Alert>}
 
         {exportCards.map(({ domain, label, desc, color, bg }) => (
           <div key={domain} className="flex items-center gap-4 p-4 rounded-xl border border-navy-100 bg-navy-50/40">
@@ -465,7 +432,7 @@ function DataExportPanel() {
             </div>
             <div className="flex gap-2 flex-shrink-0">
               <button
-                onClick={() => exportData(domain, 'json')}
+                onClick={() => exportData(domain, 'json', label)}
                 disabled={!!exporting}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-navy-200 text-navy-600 text-xs font-medium hover:bg-white hover:border-navy-300 transition-all disabled:opacity-50"
               >
@@ -473,7 +440,7 @@ function DataExportPanel() {
                 JSON
               </button>
               <button
-                onClick={() => exportData(domain, 'csv')}
+                onClick={() => exportData(domain, 'csv', label)}
                 disabled={!!exporting}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-navy-200 text-navy-600 text-xs font-medium hover:bg-white hover:border-navy-300 transition-all disabled:opacity-50"
               >
@@ -485,14 +452,15 @@ function DataExportPanel() {
         ))}
 
         <p className="text-xs text-navy-400">
-          JSON preserves the full payload. CSV is flattened for spreadsheet use.
+          {t('integrations.exportNote')}
         </p>
-      </div>
+      </Card.Body>
     </Card>
   );
 }
 
 export default function IntegrationsPage() {
+  const { t } = useSettings();
   const navigate = useNavigate();
   const [status, setStatus] = useState(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -531,13 +499,13 @@ export default function IntegrationsPage() {
             onClick={() => navigate(-1)}
             className="p-2 rounded-lg hover:bg-navy-50 text-navy-400 hover:text-navy-700 transition-colors"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5 rtl:rotate-180" />
           </button>
           <div>
-            <h1 className="font-display text-xl font-bold text-navy-900">Integrations & Export</h1>
-            <p className="text-navy-400 text-sm">Connect health platforms and download your data</p>
+            <h1 className="font-display text-xl font-bold text-navy-900">{t('integrations.title')}</h1>
+            <p className="text-navy-400 text-sm">{t('integrations.subtitle')}</p>
           </div>
-          {loadingStatus && <Loader2 className="w-4 h-4 text-navy-400 animate-spin ml-auto" />}
+          {loadingStatus && <Loader2 className="w-4 h-4 text-navy-400 animate-spin ms-auto" />}
         </div>
       </div>
 
@@ -547,7 +515,10 @@ export default function IntegrationsPage() {
             <Zap className="w-5 h-5 text-emerald-500 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-medium text-navy-800">
-                {Object.values(status).filter((platform) => platform.connected).length} of {Object.keys(status).length} platforms connected
+                {t('integrations.platformsConnected', {
+                  connected: Object.values(status).filter((platform) => platform.connected).length,
+                  total: Object.keys(status).length,
+                })}
               </p>
             </div>
             <button onClick={fetchStatus} className="p-1.5 rounded-lg hover:bg-navy-50 text-navy-400 transition-colors">
