@@ -20,11 +20,14 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
-      // The voice-assistant surface is the QA contract — gated at 100% per file.
+      // The voice-assistant + rebuilt chat surfaces are the QA contract —
+      // gated at 100% per file.
       include: [
         'src/hooks/useDictation.js',
         'src/components/assistant/**/*.jsx',
         'src/pages/AssistantPage.jsx',
+        'src/components/chat/**/*.jsx',
+        'src/pages/ChatPage.jsx',
       ],
       exclude: ['**/*.test.{js,jsx}'],
       thresholds: { perFile: true, statements: 100, branches: 100, functions: 100, lines: 100 },

@@ -215,6 +215,30 @@ describe('AssistantPage — converse + dictate', () => {
     expect(screen.getByText('va.err.streamFailed')).toBeInTheDocument();
   });
 
+  it('converses with the stored generative chat model', async () => {
+    localStorage.setItem('lifesync.chat.model', 'openai_chat');
+    await renderPage();
+    act(() => voiceArgs.onUtterance('hi'));
+    expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('openai_chat');
+    localStorage.removeItem('lifesync.chat.model');
+  });
+
+  it('never converses with BERT — a stored bert pick maps to the free default', async () => {
+    localStorage.setItem('lifesync.chat.model', 'bert_local');
+    await renderPage();
+    act(() => voiceArgs.onUtterance('hi'));
+    expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('gemma4_local');
+    localStorage.removeItem('lifesync.chat.model');
+  });
+
+  it('falls back to the free default when storage is unavailable', async () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
+    await renderPage();
+    act(() => voiceArgs.onUtterance('hi'));
+    expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('gemma4_local');
+    spy.mockRestore();
+  });
+
   it('dictate mode sends a typed message without speaking', async () => {
     await renderPage();
     fireEvent.click(screen.getByTestId('mode-dictate'));

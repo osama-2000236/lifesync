@@ -1,1111 +1,399 @@
 // src/pages/ChatPage.jsx
 // ============================================
-// Cross-Domain Chat — Health + Finance in one conversation
-// Features: SSE streaming, domain indicators, entity badges,
-//           retry on error, animated transitions, status stages
+// LifeSync Chat — rebuilt from scratch around the project's core idea:
+// ONE cross-domain conversation (health + money together) with
+//   • voice-to-text in the composer (speak → review → send),
+//   • an honest model picker (in-server BERT or verified FREE OpenRouter
+//     models — each turn really answers with the model you picked),
+//   • streamed replies with per-message model attribution,
+//   • "receipts" showing exactly what was logged, mirrored to the dashboard,
+//   • switchable context depth (standard / deep / max) and DB-backed memory.
 // ============================================
-
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { aiAPI, chatAPI } from '../services/api';
-import { subscribeToChatSession } from '../services/firebase';
-import { MODEL_OPTIONS } from '../config/models';
-import { useSettings } from '../contexts/SettingsContext';
-import { useVoice } from '../hooks/useVoice';
-import VoiceAssistantOverlay from '../components/voice/VoiceAssistantOverlay';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Send, Loader2, Sparkles, Plus, Clock, MessageCircle,
-  Heart, Wallet, Link2, RotateCcw, AlertCircle, Zap,
-  ArrowRight, TrendingUp, Activity,
-  BrainCircuit, ChevronDown, RefreshCw, Cpu, ShieldCheck,
-  CheckCircle2, AlertTriangle, Upload, Info, HardDrive,
-  Mic, MicOff, Volume2, VolumeX, AudioLines,
+  Sparkles, History, Volume2, VolumeX, Layers, HeartPulse, Wallet, Link2,
 } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid';
+import { useSettings } from '../contexts/SettingsContext';
+import { chatAPI, aiAPI } from '../services/api';
+import { MODEL_OPTIONS, DEFAULT_CHAT_MODEL_ID } from '../config/models';
+import ChatComposer from '../components/chat/ChatComposer';
+import ModelPicker from '../components/chat/ModelPicker';
+import EntityReceipts from '../components/chat/EntityReceipts';
+import SessionsRail from '../components/chat/SessionsRail';
 
-// ============================================
-// DOMAIN COLORS & CONFIG
-// ============================================
+const MODEL_STORAGE_KEY = 'lifesync.chat.model';
+const DEPTHS = ['standard', 'deep', 'max'];
 
-const DOMAIN_CONFIG = {
-  health: { label: 'Health', color: 'emerald', icon: Heart, emoji: '❤️' },
-  finance: { label: 'Finance', color: 'blue', icon: Wallet, emoji: '💰' },
-  both: { label: 'Cross-Domain', color: 'purple', icon: Link2, emoji: '🔗' },
-  general: { label: 'General', color: 'navy', icon: MessageCircle, emoji: '💬' },
+const newSessionId = () => `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const loadStoredModel = () => {
+  try { return localStorage.getItem(MODEL_STORAGE_KEY) || DEFAULT_CHAT_MODEL_ID; }
+  catch { return DEFAULT_CHAT_MODEL_ID; }
 };
 
-const MODEL_LABELS = Object.fromEntries(MODEL_OPTIONS.map((m) => [m.id, m.label]));
-
-/** Small badge under an assistant reply showing which model produced it. */
-function ModelReplyBadge({ modelId, runtime }) {
-  const { t } = useSettings();
-  if (!modelId) return null;
-  const label = MODEL_LABELS[modelId] || modelId;
-  // A cloud model that couldn't run (no key) falls back to the on-device reply.
-  const fellBack = runtime?.responder === 'deterministic_fallback';
-  return (
-    <div className="flex items-center gap-1.5 mt-1 ms-9 text-[10px] text-navy-400">
-      <BrainCircuit className="w-3 h-3" />
-      <span>{label}</span>
-      {fellBack && (
-        <span className="text-amber-600">{t('model.needsApiKey')}</span>
-      )}
-    </div>
-  );
-}
-
-// ============================================
-// SUB-COMPONENTS
-// ============================================
-
-/** Domain pill badges on assistant messages */
-function DomainBadges({ domain, isCrossDomain }) {
-  const { t } = useSettings();
-  if (!domain || domain === 'general') return null;
-  const badges = [];
-
-  if (domain === 'health' || isCrossDomain) {
-    badges.push(
-      <span key="h" className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-semibold border border-emerald-100">
-        <Heart className="w-2.5 h-2.5" /> {t('nav.health')}
-      </span>
-    );
-  }
-  if (domain === 'finance' || isCrossDomain) {
-    badges.push(
-      <span key="f" className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-semibold border border-blue-100">
-        <Wallet className="w-2.5 h-2.5" /> {t('nav.finance')}
-      </span>
-    );
-  }
-  if (isCrossDomain) {
-    badges.push(
-      <span key="x" className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 font-semibold border border-purple-100 animate-pulse">
-        <Link2 className="w-2.5 h-2.5" /> {t('chat.domain.crossLinked')}
-      </span>
-    );
-  }
-
-  return <div className="flex flex-wrap gap-1 mt-1.5">{badges}</div>;
-}
-
-/** Entity badges showing what was logged */
-function EntitiesBadge({ entities }) {
-  if (!entities) return null;
-  const { health = [], finance = [], linked = [] } = entities;
-  if (health.length === 0 && finance.length === 0) return null;
-
-  return (
-    <div className="flex items-end gap-2 animate-fade-up">
-      <div className="w-7 h-7" />
-      <div className="flex flex-wrap gap-1.5">
-        {health.map((e, i) => (
-          <span
-            key={`h-${i}`}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-100 text-xs font-medium text-emerald-700 shadow-sm animate-fade-up"
-            style={{ animationDelay: `${i * 80}ms` }}
-          >
-            <Heart className="w-3 h-3 text-emerald-500" />
-            {e.type}: {e.value}
-          </span>
-        ))}
-        {finance.map((e, i) => (
-          <span
-            key={`f-${i}`}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-100 text-xs font-medium text-blue-700 shadow-sm animate-fade-up"
-            style={{ animationDelay: `${(health.length + i) * 80}ms` }}
-          >
-            <Wallet className="w-3 h-3 text-blue-500" />
-            {e.type}: ${e.amount}
-          </span>
-        ))}
-        {linked.length > 0 && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-100 text-xs font-medium text-purple-700 shadow-sm animate-fade-up">
-            <Link2 className="w-3 h-3 text-purple-500" />
-            {linked.length} cross-domain link{linked.length > 1 ? 's' : ''}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Single chat bubble */
-function ChatBubble({ message, onRetry }) {
-  const { t } = useSettings();
-  const isUser = message.role === 'user';
-  const isError = message.isError;
-  const retryableError = isError && message.retryable;
-
-  return (
-    <div className={`flex items-end gap-2 ${isUser ? 'justify-end' : ''} animate-fade-up`}>
-      {!isUser && (
-        <div className={`w-7 h-7 rounded-full bg-gradient-to-br ${
-          isError
-            ? retryableError ? 'from-amber-100 to-amber-200' : 'from-red-200 to-red-300'
-            : 'from-navy-200 to-navy-300'
-        } flex items-center justify-center flex-shrink-0`}>
-          {isError ? (
-            <AlertCircle className={`w-3.5 h-3.5 ${retryableError ? 'text-amber-600' : 'text-red-600'}`} />
-          ) : (
-            <Sparkles className="w-3.5 h-3.5 text-navy-600" />
-          )}
-        </div>
-      )}
-      <div className={`max-w-[75%] ${isUser ? '' : 'space-y-1'}`}>
-        <div className={`px-4 py-3 text-sm leading-relaxed ${
-          isUser
-            ? 'chat-bubble-user'
-            : isError
-              ? retryableError
-                ? 'chat-bubble-assistant border border-amber-200 bg-amber-50/80'
-                : 'chat-bubble-assistant border border-red-200 bg-red-50/80'
-              : 'chat-bubble-assistant'
-        }`}>
-          {message.content}
-        </div>
-
-        {/* Domain badges */}
-        {!isUser && !isError && message.domain && (
-          <DomainBadges domain={message.domain} isCrossDomain={message.isCrossDomain} />
-        )}
-
-        {/* Retry button on errors */}
-        {isError && message.retryable && onRetry && (
-          <div className="mt-2 space-y-2">
-            <p className="text-[11px] text-amber-700">
-              {t('chat.retry.savedHint')}
-            </p>
-            <button
-              onClick={() => onRetry(message.originalText)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors"
-            >
-              <RotateCcw className="w-3 h-3" /> {t('chat.retry.button')}
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** In-progress assistant bubble, filled token-by-token from the SSE `delta` stream. */
-function StreamingBubble({ text }) {
-  return (
-    <div className="flex items-end gap-2 animate-fade-up">
-      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-navy-200 to-navy-300 flex items-center justify-center flex-shrink-0">
-        <Sparkles className="w-3.5 h-3.5 text-navy-600" />
-      </div>
-      <div className="max-w-[75%]">
-        <div className="chat-bubble-assistant px-4 py-3 text-sm leading-relaxed">
-          {text}
-          <span className="inline-block w-1.5 h-4 -mb-0.5 ms-0.5 bg-navy-400 typing-dot" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Typing / status indicator */
-function TypingIndicator({ statusText }) {
-  return (
-    <div className="flex items-end gap-2 max-w-[80%] animate-fade-up">
-      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-navy-200 to-navy-300 flex items-center justify-center flex-shrink-0">
-        <Sparkles className="w-3.5 h-3.5 text-navy-600 animate-spin-slow" />
-      </div>
-      <div className="chat-bubble-assistant px-5 py-3.5">
-        {statusText ? (
-          <div className="flex items-center gap-2">
-            <Loader2 className="w-3.5 h-3.5 text-emerald-500 animate-spin" />
-            <p className="text-xs text-navy-500 font-medium">{statusText}</p>
-          </div>
-        ) : (
-          <div className="flex gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-navy-400 typing-dot" />
-            <div className="w-2 h-2 rounded-full bg-navy-400 typing-dot" />
-            <div className="w-2 h-2 rounded-full bg-navy-400 typing-dot" />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Clarification quick-action buttons */
-function ClarificationButtons({ options, onSelect, disabled }) {
-  if (!options || options.length === 0) return null;
-  return (
-    <div className="flex items-end gap-2 animate-fade-up">
-      <div className="w-7 h-7" />
-      <div className="flex flex-wrap gap-2 max-w-[75%]">
-        {options.map((option, i) => (
-          <button
-            key={i}
-            onClick={() => onSelect(option)}
-            disabled={disabled}
-            className="px-4 py-2.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-100 hover:border-emerald-300 hover:shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
-          >
-            {option}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** Session sidebar item */
-function SessionItem({ session, isActive, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full text-start px-3 py-2.5 rounded-xl text-sm transition-all ${
-        isActive ? 'bg-emerald-50 text-emerald-700 font-medium' : 'text-navy-600 hover:bg-navy-50'
-      }`}
-    >
-      <div className="flex items-center gap-2">
-        <MessageCircle className="w-3.5 h-3.5 flex-shrink-0" />
-        <span className="truncate">{session.message_count} messages</span>
-      </div>
-      <p className="text-[11px] text-navy-400 mt-0.5 flex items-center gap-1">
-        <Clock className="w-3 h-3" />
-        {new Date(session.last_message_at || session.started_at).toLocaleDateString()}
-      </p>
-    </button>
-  );
-}
-
-/** Welcome screen with cross-domain suggestions */
-function WelcomeScreen({ onSend }) {
-  const { t } = useSettings();
-  const suggestions = [
-    { text: t('chat.welcome.suggestion1'), domain: 'health', icon: Heart },
-    { text: t('chat.welcome.suggestion2'), domain: 'finance', icon: Wallet },
-    { text: t('chat.welcome.suggestion3'), domain: 'health', icon: Heart },
-    { text: t('chat.welcome.suggestion4'), domain: 'health', icon: Heart },
-    { text: t('chat.welcome.suggestion5'), domain: 'both', icon: Link2 },
-  ];
-
-  return (
-    <div className="flex flex-col items-center justify-center h-full text-center py-12 px-4">
-      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center mb-4 shadow-lg shadow-emerald-100">
-        <Activity className="w-8 h-8 text-emerald-600" />
-      </div>
-      <h3 className="font-display text-lg font-bold text-navy-800 mb-1">{t('chat.title')}</h3>
-      <p className="text-navy-400 text-xs mb-1 font-semibold uppercase tracking-wider">{t('chat.welcome.tagline')}</p>
-      <p className="text-navy-500 text-sm max-w-sm mb-6">
-        {t('chat.welcome.desc')}
-      </p>
-
-      {/* Domain legend */}
-      <div className="flex gap-3 mb-6">
-        <span className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">
-          <Heart className="w-3 h-3" /> {t('nav.health')}
-        </span>
-        <span className="flex items-center gap-1.5 text-xs text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100">
-          <Wallet className="w-3 h-3" /> {t('nav.finance')}
-        </span>
-        <span className="flex items-center gap-1.5 text-xs text-purple-600 bg-purple-50 px-3 py-1.5 rounded-full border border-purple-100">
-          <Link2 className="w-3 h-3" /> {t('chat.domain.crossDomain')}
-        </span>
-      </div>
-
-      {/* Suggestion pills */}
-      <div className="flex flex-wrap gap-2 justify-center max-w-md">
-        {suggestions.map(({ text, domain, icon: Icon }) => {
-          const cfg = DOMAIN_CONFIG[domain] || DOMAIN_CONFIG.general;
-          return (
-            <button
-              key={text}
-              onClick={() => onSend(text)}
-              className={`group flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white border text-sm transition-all hover:shadow-md active:scale-[0.97] ${
-                domain === 'health'
-                  ? 'border-emerald-100 text-navy-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700'
-                  : domain === 'finance'
-                    ? 'border-blue-100 text-navy-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700'
-                    : 'border-purple-100 text-navy-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700'
-              }`}
-            >
-              <Icon className={`w-3.5 h-3.5 opacity-60 group-hover:opacity-100 transition-opacity ${
-                domain === 'health' ? 'text-emerald-500' : domain === 'finance' ? 'text-blue-500' : 'text-purple-500'
-              }`} />
-              {text}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Cross-domain hint */}
-      <div className="mt-8 flex items-center gap-2 text-[11px] text-navy-400 bg-navy-50/50 px-4 py-2 rounded-xl">
-        <Zap className="w-3.5 h-3.5 text-purple-400" />
-        <span>{t('chat.welcome.hintPrefix')} <em className="text-navy-500">&quot;{t('chat.welcome.hintExample')}&quot;</em> {t('chat.welcome.hintSuffix')}</span>
-      </div>
-    </div>
-  );
-}
-
-/** Compact, inspectable model state and activation menu. */
-function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRefresh, onStart, onRegisterCustom }) {
-  const { t } = useSettings();
-  const active = runtime?.active;
-  const activation = runtime?.activation;
-  const customModel = runtime?.custom_model;
-  const fileInputRef = useRef(null);
-  const [customFile, setCustomFile] = useState('');
-  const [customEndpoint, setCustomEndpoint] = useState('');
-  const [customName, setCustomName] = useState('');
-  const [customBusy, setCustomBusy] = useState(false);
-  const [customMsg, setCustomMsg] = useState(null);
-
-  const submitCustom = async () => {
-    setCustomBusy(true);
-    setCustomMsg(null);
-    try {
-      await onRegisterCustom({
-        name: customName || customFile || undefined,
-        fileName: customFile || undefined,
-        endpoint: customEndpoint || undefined,
-      });
-      setCustomMsg(t('model.registeredStarting'));
-    } catch (e) {
-      setCustomMsg(e?.response?.data?.error || t('model.registerFailed'));
-    } finally {
-      setCustomBusy(false);
-    }
-  };
-  const isClassifier = active?.capabilities?.classifier_only;
-  const isReady = ['ready', 'configured'].includes(active?.status);
-  // The on-device BERT hybrid is a fully usable daily assistant — show it as
-  // ready (green), not "Limited".
-  const tone = starting ? 'amber' : isReady ? 'emerald' : 'red';
-  const label = starting ? t('model.starting') : isReady ? t('model.ready') : t('model.offline');
-  const toneClasses = {
-    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    amber: 'bg-amber-50 text-amber-700 border-amber-200',
-    red: 'bg-red-50 text-red-700 border-red-200',
-  };
-  const dotClasses = { emerald: 'bg-emerald-500', amber: 'bg-amber-400', red: 'bg-red-500' };
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        className={`h-9 flex items-center gap-2 px-3 rounded-xl border text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${toneClasses[tone]}`}
-      >
-        <span className={`w-2 h-2 rounded-full ${dotClasses[tone]} ${starting ? 'animate-pulse' : ''}`} />
-        <span className="hidden sm:inline">{loading ? t('model.checking') : label}</span>
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-
-      {isOpen && (
-        <div
-          role="dialog"
-          aria-label={t('model.pulse')}
-          className="absolute end-0 top-11 z-50 w-[min(22rem,calc(100vw-2rem))] max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-contain rounded-2xl border border-navy-100 bg-white p-4 shadow-xl shadow-navy-900/10"
-        >
-          <div className="flex items-start gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${toneClasses[tone]}`}>
-              <BrainCircuit className="w-5 h-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-bold text-navy-800">{t('model.pulse')}</p>
-                <button
-                  type="button"
-                  onClick={onRefresh}
-                  disabled={loading}
-                  aria-label={t('model.refresh')}
-                  className="p-1.5 rounded-lg text-navy-400 hover:text-navy-700 hover:bg-navy-50 disabled:opacity-40"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                </button>
-              </div>
-              <p className="text-xs text-navy-500 mt-0.5 truncate">
-                {active?.configured_model || t('model.noModel')} · {active?.provider || t('model.unknown')}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <div className="rounded-xl bg-navy-50/70 p-3">
-              <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400">{t('model.capability')}</p>
-              <p className="mt-1 text-xs font-semibold text-navy-700">
-                {isClassifier ? t('model.onDeviceAssistant') : isReady ? t('model.fullConversation') : t('model.unavailable')}
-              </p>
-            </div>
-            <div className="rounded-xl bg-navy-50/70 p-3">
-              <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400">{t('model.execution')}</p>
-              <p className="mt-1 text-xs font-semibold text-navy-700 truncate">
-                {active?.execution_provider || (active?.local ? t('model.localRuntime') : t('model.cloudApi'))}
-              </p>
-            </div>
-          </div>
-
-          {runtime?.hardware && (
-            <div className="mt-3 flex items-start gap-2 text-xs text-navy-500">
-              <Cpu className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-navy-400" />
-              <span>{t('model.hardware', { cores: runtime.hardware.logical_cores, mem: runtime.hardware.memory_gb, size: runtime.hardware.recommended_local_model_size })}</span>
-            </div>
-          )}
-          <div className="mt-2 flex items-start gap-2 text-xs text-navy-500">
-            <ShieldCheck className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-emerald-500" />
-            <span>{runtime?.privacy || t('model.privacyDefault')}</span>
-          </div>
-
-          {(error || activation?.status === 'error') && (
-            <div className="mt-3 flex items-start gap-2 rounded-xl bg-red-50 p-3 text-xs text-red-700">
-              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-              <span>{error || activation?.message}</span>
-            </div>
-          )}
-          {starting && (
-            <div className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
-              <Loader2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 animate-spin" />
-              <span>{activation?.message || t('model.startingBest')}</span>
-            </div>
-          )}
-          {activation?.status === 'ready' && !starting && (
-            <div className="mt-3 flex items-start gap-2 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-700">
-              <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-              <span>{activation.message}</span>
-            </div>
-          )}
-
-          <div className="mt-4">
-            <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400 mb-1">{t('model.chooseModel')}</p>
-            <p className="text-[11px] text-navy-400 mb-2">{t('model.switchAnytime')}</p>
-            <div className="space-y-2">
-              {(runtime?.catalog || []).map((m) => {
-                const isSwitchingTo = runtime?.switching_to === m.id || (starting && activation?.model_id === m.id);
-                const isActive = active?.model_id === m.id && !isSwitchingTo;
-                const etaText = active?.eta?.human;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => onStart(m.id)}
-                    disabled={starting}
-                    className={`w-full text-start rounded-xl border p-3 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-400/40 disabled:opacity-50 disabled:cursor-wait ${
-                      isSwitchingTo ? 'border-amber-300 bg-amber-50/70' : isActive ? 'border-emerald-300 bg-emerald-50/60' : 'border-navy-100 hover:bg-navy-50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-navy-800 flex items-center gap-1.5">
-                        {m.kind === 'classifier' ? <Cpu className="w-3.5 h-3.5" /> : <BrainCircuit className="w-3.5 h-3.5" />}
-                        {m.label}
-                        {m.is_default && <span className="text-[10px] font-medium text-navy-400">{t('model.default')}</span>}
-                      </span>
-                      {isSwitchingTo ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
-                      ) : isActive ? (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                      ) : null}
-                    </div>
-                    <p className="mt-1 text-xs text-navy-500">{m.description}</p>
-                    {isSwitchingTo && (
-                      <p className="mt-1 text-[11px] font-medium text-amber-700">{t('model.switchingBefore')}</p>
-                    )}
-                    {isActive && etaText && (
-                      <p className="mt-1 text-[11px] font-medium text-navy-600">{t('model.repliesEta', { eta: etaText })}</p>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Custom model: upload from device or point to an endpoint */}
-            <div className="mt-3 rounded-xl border border-dashed border-navy-200 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-navy-700 flex items-center gap-1.5">
-                  <HardDrive className="w-3.5 h-3.5" /> {t('model.customModel')}
-                </p>
-                <span className="relative group">
-                  <Info className="w-3.5 h-3.5 text-navy-400 cursor-help" aria-hidden="true" />
-                  <span
-                    role="tooltip"
-                    className="pointer-events-none absolute end-0 top-5 z-50 hidden group-hover:block w-60 rounded-lg bg-navy-800 text-white text-[11px] leading-relaxed p-2.5 shadow-xl"
-                  >
-                    {t('model.customTooltip')}
-                  </span>
-                </span>
-              </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".gguf,.bin,.safetensors,.onnx,.pt"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    setCustomFile(file.name);
-                    setCustomName(file.name.replace(/\.[^.]+$/, ''));
-                  }
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                title={t('model.uploadTitle')}
-                className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-navy-200 text-xs font-medium text-navy-700 hover:bg-navy-50 transition-colors truncate"
-              >
-                <Upload className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="truncate">{customFile || t('model.uploadFromDevice')}</span>
-              </button>
-
-              <p className="my-1.5 text-[10px] uppercase tracking-wider text-navy-300 text-center">{t('model.or')}</p>
-              <input
-                value={customEndpoint}
-                onChange={(e) => setCustomEndpoint(e.target.value)}
-                placeholder={t('model.endpointPlaceholder')}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-navy-200 text-xs focus:outline-none focus:ring-2 focus:ring-navy-400/30"
-              />
-              <input
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                placeholder={t('model.namePlaceholder')}
-                className="mt-1.5 w-full px-2.5 py-1.5 rounded-lg border border-navy-200 text-xs focus:outline-none focus:ring-2 focus:ring-navy-400/30"
-              />
-              <button
-                type="button"
-                disabled={customBusy || (!customFile && !customEndpoint && !customName)}
-                onClick={submitCustom}
-                className="mt-2 w-full py-2 rounded-lg bg-navy-700 text-white text-xs font-semibold hover:bg-navy-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {customBusy ? t('model.registering') : t('model.useThisModel')}
-              </button>
-              {customMsg && <p className="mt-1.5 text-[11px] text-navy-500">{customMsg}</p>}
-              {customModel?.configured && (
-                <p className="mt-1.5 text-[11px] text-emerald-600 truncate">
-                  {t('model.configured', { name: customModel.name || customModel.file_name, runtime: customModel.runtime })}
-                </p>
-              )}
-            </div>
-
-            <p className="mt-2 text-[11px] text-navy-400">{t('model.noFallback')}</p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================================
-// MAIN CHAT PAGE
-// ============================================
-
 export default function ChatPage() {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const [statusText, setStatusText] = useState(null);
-  const [sessionId, setSessionId] = useState(() => uuidv4());
+  const { t, locale, isRTL } = useSettings();
+
+  // ─── Model + depth ───
+  const [models, setModels] = useState(MODEL_OPTIONS);
+  const [modelId, setModelId] = useState(loadStoredModel);
+  const [depth, setDepth] = useState('standard');
+  const [speakReplies, setSpeakReplies] = useState(false);
+
+  // ─── Conversation state ───
+  const [sessionId, setSessionId] = useState(newSessionId);
   const [sessions, setSessions] = useState([]);
-  const [clarificationOptions, setClarificationOptions] = useState(null);
-  const [showSessions, setShowSessions] = useState(false);
-  const [showModelPulse, setShowModelPulse] = useState(false);
-  const [modelRuntime, setModelRuntime] = useState(null);
-  const [modelLoading, setModelLoading] = useState(true);
-  const [modelError, setModelError] = useState(null);
-  const [lastUserText, setLastUserText] = useState(''); // for retry
-  const [voiceAssistantOpen, setVoiceAssistantOpen] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [sending, setSending] = useState(false);
   const [streamingText, setStreamingText] = useState('');
-  const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
+  const [statusText, setStatusText] = useState(null);
+  const [clarification, setClarification] = useState(null);
+  const [railOpen, setRailOpen] = useState(false);
+
   const abortRef = useRef(null);
-  const statusTimersRef = useRef([]);
-  const streamBufferRef = useRef('');
+  const streamBufRef = useRef('');
   const streamRafRef = useRef(null);
+  const scrollRef = useRef(null);
+  const inputRef = useRef(null);
 
-  // ─── Settings (i18n + theme) + voice (browser STT/TTS) ───
-  const { t, locale } = useSettings();
-  const sendMessageRef = useRef(null);
-  const handleTranscript = useCallback((text) => sendMessageRef.current?.(text), []);
-  const voice = useVoice({ locale, onTranscript: handleTranscript });
-  // Read replies aloud without coupling sendMessage to the voice object identity.
-  const speakRef = useRef(null);
-  useEffect(() => { speakRef.current = voice.speak; }, [voice.speak]);
-
-  const clearStatusTimers = useCallback(() => {
-    statusTimersRef.current.forEach(clearTimeout);
-    statusTimersRef.current = [];
+  const chooseModel = useCallback((id) => {
+    setModelId(id);
+    try { localStorage.setItem(MODEL_STORAGE_KEY, id); } catch { /* private mode */ }
   }, []);
 
+  // ─── Load the live server catalog (fallback: static options) ───
+  useEffect(() => {
+    let alive = true;
+    aiAPI.getModels()
+      .then(({ data }) => {
+        const list = (data?.data?.models || []).filter((m) => m.id !== 'custom_local');
+        if (alive && list.length) setModels(list);
+      })
+      .catch(() => { /* static MODEL_OPTIONS already seeded */ });
+    return () => { alive = false; };
+  }, []);
+
+  // ─── Sessions ───
+  const refreshSessions = useCallback(() => {
+    chatAPI.getSessions()
+      .then(({ data }) => setSessions(data?.data?.sessions || []))
+      .catch(() => { /* rail stays empty */ });
+  }, []);
+  useEffect(() => { refreshSessions(); }, [refreshSessions]);
+
+  const openSession = useCallback((id) => {
+    setRailOpen(false);
+    if (id === sessionId) return;
+    if (abortRef.current) abortRef.current();
+    setSessionId(id);
+    setMessages([]);
+    setClarification(null);
+    chatAPI.getHistory({ session_id: id, limit: 100 })
+      .then(({ data }) => {
+        const rows = data?.data?.messages || [];
+        setMessages(rows
+          .filter((r) => r.message && String(r.message).trim())
+          .map((r) => ({
+            id: r.id,
+            role: r.role === 'assistant' ? 'assistant' : 'user',
+            content: r.message,
+          })));
+      })
+      .catch(() => { /* empty thread is fine */ });
+  }, [sessionId]);
+
+  const startNewChat = useCallback(() => {
+    if (abortRef.current) abortRef.current();
+    setSessionId(newSessionId());
+    setMessages([]);
+    setClarification(null);
+    setStreamingText('');
+    setRailOpen(false);
+    inputRef.current?.focus();
+  }, []);
+
+  // ─── Speech output (optional) ───
+  const speak = useCallback((text) => {
+    if (!speakReplies || !('speechSynthesis' in window) || !text) return;
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = locale === 'ar' ? 'ar-SA' : 'en-US';
+      window.speechSynthesis.speak(u);
+    } catch { /* speech is best-effort */ }
+  }, [speakReplies, locale]);
+  useEffect(() => () => { try { window.speechSynthesis?.cancel(); } catch { /* noop */ } }, []);
+
+  // ─── Streaming plumbing ───
   const resetStreaming = useCallback(() => {
-    streamBufferRef.current = '';
-    if (streamRafRef.current) cancelAnimationFrame(streamRafRef.current);
-    streamRafRef.current = null;
+    streamBufRef.current = '';
+    if (streamRafRef.current) { cancelAnimationFrame(streamRafRef.current); streamRafRef.current = null; }
     setStreamingText('');
   }, []);
 
-  const loadModelStatus = useCallback(async ({ quiet = false } = {}) => {
-    if (!quiet) setModelLoading(true);
-    try {
-      const { data } = await aiAPI.getStatus();
-      setModelRuntime(data.data?.runtime || null);
-      setModelError(null);
-    } catch (err) {
-      setModelError(err.response?.data?.error || t('model.statusReadFailed'));
-    } finally {
-      if (!quiet) setModelLoading(false);
-    }
-  }, [t]);
-
-  const startModel = useCallback(async (modelId = 'bert_local') => {
-    setModelError(null);
-    try {
-      const { data } = await aiAPI.start(modelId);
-      setModelRuntime((current) => ({
-        ...(current || {}),
-        activation: data.data?.activation,
-        switching_to: data.data?.activation?.model_id || modelId,
-      }));
-      loadModelStatus({ quiet: true });
-    } catch (err) {
-      setModelError(err.response?.data?.error || t('model.startFailed'));
-    }
-  }, [loadModelStatus, t]);
-
-  // Register a user-supplied custom model, then activate it. Throws on failure
-  // so the picker can surface the message inline.
-  const registerCustomModel = useCallback(async (payload) => {
-    const { data } = await aiAPI.registerCustomModel(payload);
-    await startModel('custom_local');
-    loadModelStatus({ quiet: true });
-    return data;
-  }, [startModel, loadModelStatus]);
-
-  // Auto-scroll to bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, sending]);
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages, streamingText]);
 
-  // Load sessions
-  useEffect(() => {
-    chatAPI.getSessions()
-      .then(({ data }) => setSessions(data.data?.sessions || []))
-      .catch(() => {});
+  useEffect(() => () => {
+    if (abortRef.current) abortRef.current();
+    if (streamRafRef.current) cancelAnimationFrame(streamRafRef.current);
   }, []);
 
-  // Runtime status on entry, then short polling only while a model is starting.
-  useEffect(() => {
-    loadModelStatus();
-  }, [loadModelStatus]);
+  const sendMessage = useCallback((rawText) => {
+    const text = String(rawText).trim();
+    if (!text || sending) return;
 
-  useEffect(() => {
-    if (modelRuntime?.activation?.status !== 'starting') return undefined;
-    const timer = setInterval(() => loadModelStatus({ quiet: true }), 2000);
-    return () => clearInterval(timer);
-  }, [modelRuntime?.activation?.status, loadModelStatus]);
-
-  // Firebase real-time subscription
-  useEffect(() => {
-    const unsubscribe = subscribeToChatSession(sessionId, (fbMessages) => {
-      if (messages.length === 0 && fbMessages.length > 0) {
-        setMessages(fbMessages.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-        })));
-      }
-    });
-    return () => unsubscribe();
-  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Send Message via SSE ───
-  const sendMessage = useCallback((text) => {
-    const messageText = text || input.trim();
-    if (!messageText || sending || modelRuntime?.activation?.status === 'starting') return;
-
-    // The model this turn runs on (switch target wins so a just-clicked model
-    // is used immediately, before the status poll catches up).
-    const activeModelId = modelRuntime?.switching_to || modelRuntime?.active?.model_id || 'bert_local';
-
-    setInput('');
-    setClarificationOptions(null);
-    setStatusText(null);
-    setShowModelPulse(false); // close the model menu so it can't overlap the chat
-    setLastUserText(messageText);
-
-    // Add user message to UI immediately
-    const userMsg = { id: Date.now(), role: 'user', content: messageText };
-    setMessages((prev) => [...prev, userMsg]);
+    setClarification(null);
     setSending(true);
-    clearStatusTimers();
-    resetStreaming();
+    setStatusText(t('chat.status.processing'));
+    setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: 'user', content: text }]);
 
-    statusTimersRef.current = [
-      setTimeout(() => {
-        setStatusText((current) => (
-          current === 'Logging your entries...'
-            ? current
-            : t('chat.status.checkingLocal')
-        ));
-      }, 15000),
-      setTimeout(() => {
-        setStatusText((current) => (
-          current === 'Logging your entries...'
-            ? current
-            : t('chat.status.slow')
-        ));
-      }, 35000),
-    ];
-
-    const abort = chatAPI.sendMessageStream(messageText, sessionId, {
+    const currentModel = modelId;
+    abortRef.current = chatAPI.sendMessageStream(text, sessionId, {
       onAck: (data) => {
-        if (data.session_id && data.session_id !== sessionId) {
-          setSessionId(data.session_id);
-        }
-        setStatusText(t('chat.status.processing'));
+        if (data.session_id && data.session_id !== sessionId) setSessionId(data.session_id);
       },
-
-      onStatus: (data) => {
-        setStatusText(data.message || t('chat.status.default'));
-      },
-
+      onStatus: (data) => setStatusText(data.message || t('chat.status.default')),
       onDelta: (data) => {
-        streamBufferRef.current += data.text || '';
+        streamBufRef.current += data.text || '';
         if (!streamRafRef.current) {
           streamRafRef.current = requestAnimationFrame(() => {
-            setStreamingText(streamBufferRef.current);
+            setStreamingText(streamBufRef.current);
             streamRafRef.current = null;
           });
         }
       },
-
       onComplete: (result) => {
         resetStreaming();
-        const assistantMsg = {
-          id: Date.now() + 1,
+        setMessages((prev) => [...prev, {
+          id: `a-${Date.now()}`,
           role: 'assistant',
           content: result.response,
           entities: result.entities_logged,
-          domain: result.domain,
           isCrossDomain: result.is_cross_domain,
-          needsClarification: result.needs_clarification,
-          // Which model produced this reply (for the per-message badge).
-          modelId: result.needs_clarification ? null : activeModelId,
           modelRuntime: result.model_runtime || null,
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
+          modelId: currentModel,
+        }]);
 
-        // Read the final reply aloud when voice output is on (skip clarification
-        // prompts; no-op when speakReplies is off).
-        if (result.response && !result.needs_clarification) speakRef.current?.(result.response);
+        if (result.needs_clarification && result.clarification_options?.length) {
+          setClarification(result.clarification_options);
+        } else {
+          speak(result.response);
+        }
 
-        // Recorded an intent that changed data → refresh the dashboard now.
         const logged = result.entities_logged || {};
-        if ((logged.health?.length || logged.finance?.length)) {
+        if (logged.health?.length || logged.finance?.length) {
           window.dispatchEvent(new CustomEvent('lifesync:data-changed', { detail: logged }));
         }
 
-        if (result.model_runtime) {
-          setModelRuntime((current) => current ? ({
-            ...current,
-            active: {
-              ...current.active,
-              provider: result.model_runtime.provider || current.active?.provider,
-              configured_model: result.model_runtime.model || current.active?.configured_model,
-              status: result.model_runtime.status === 'deterministic_fallback' ? 'unreachable' : 'ready',
-            },
-          }) : current);
-        }
-
-        if (result.needs_clarification && result.clarification_options) {
-          setClarificationOptions(result.clarification_options);
-        }
-
-        if (result.session_id && result.session_id !== sessionId) {
-          setSessionId(result.session_id);
-        }
-
-        clearStatusTimers();
         setSending(false);
         setStatusText(null);
+        refreshSessions();
         inputRef.current?.focus();
       },
-
       onError: (data) => {
         resetStreaming();
-        const errorMsg = {
-          id: Date.now() + 1,
+        setMessages((prev) => [...prev, {
+          id: `e-${Date.now()}`,
           role: 'assistant',
           content: data.message || t('chat.err.generic'),
           isError: true,
-          retryable: data.retryable !== false,
-          originalText: messageText,
-        };
-        setMessages((prev) => [...prev, errorMsg]);
-        clearStatusTimers();
+          retryText: data.retryable === false ? null : text,
+        }]);
         setSending(false);
         setStatusText(null);
-        inputRef.current?.focus();
       },
-    }, { model: activeModelId, lang: locale });
+    }, { model: currentModel, lang: locale, context_window: depth === 'standard' ? undefined : depth });
+  }, [sending, sessionId, modelId, locale, depth, t, speak, resetStreaming, refreshSessions]);
 
-    abortRef.current = abort;
-  }, [clearStatusTimers, resetStreaming, input, locale, modelRuntime?.activation?.status, modelRuntime?.active?.model_id, modelRuntime?.switching_to, sending, sessionId]);
+  // ─── Presentation helpers ───
+  const modelLabel = useMemo(() => {
+    const m = models.find((x) => x.id === modelId);
+    return m?.label || modelId;
+  }, [models, modelId]);
 
-  // Keep a stable ref so the voice hook's onTranscript can send messages.
-  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
-
-  // Cleanup abort on unmount or session switch
-  useEffect(() => {
-    return () => {
-      clearStatusTimers();
-      if (abortRef.current) abortRef.current();
-      if (streamRafRef.current) cancelAnimationFrame(streamRafRef.current);
-    };
-  }, [clearStatusTimers]);
-
-  // ─── Retry failed message ───
-  const handleRetry = useCallback((originalText) => {
-    if (!originalText || sending) return;
-    // Remove the error message
-    setMessages((prev) => prev.filter((m) => !m.isError));
-    sendMessage(originalText);
-  }, [sending, sendMessage]);
-
-  // ─── Quick Action ───
-  const handleQuickAction = (option) => sendMessage(option);
-
-  // ─── New Session ───
-  const startNewSession = () => {
-    if (abortRef.current) abortRef.current();
-    clearStatusTimers();
-    setMessages([]);
-    setSessionId(uuidv4());
-    setClarificationOptions(null);
-    setStatusText(null);
-    setShowSessions(false);
+  const attributionFor = (msg) => {
+    if (msg.role !== 'assistant' || msg.isError) return null;
+    const rt = msg.modelRuntime;
+    if (rt?.responder === 'deterministic_fallback') return t('chat.attribution.fallback');
+    if (rt?.model && rt.model !== 'model') return rt.model;
+    if (rt?.provider === 'bert_local') return t('chat.attribution.bert');
+    return null;
   };
 
-  // ─── Load Session ───
-  const loadSession = async (sid) => {
-    if (abortRef.current) abortRef.current();
-    clearStatusTimers();
-    setSessionId(sid);
-    setClarificationOptions(null);
-    setStatusText(null);
-    setShowSessions(false);
-    try {
-      const { data } = await chatAPI.getHistory({ session_id: sid });
-      setMessages((data.data?.messages || []).map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.message,
-      })));
-    } catch (err) {
-      console.error('Failed to load session:', err);
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-  const modelSwitching = modelRuntime?.activation?.status === 'starting';
-
-  // Map a speech-recognition error to a friendly, localized hint (ignore benign ones).
-  const VOICE_BENIGN = ['no-speech', 'aborted'];
-  const voiceErrorKey = voice.error && !VOICE_BENIGN.includes(voice.error)
-    ? (['not-allowed', 'service-not-allowed'].includes(voice.error)
-        ? 'voice.error.permission'
-        : voice.error === 'language-not-supported'
-          ? 'voice.error.lang'
-          : voice.error === 'unsupported'
-            ? 'voice.unsupported'
-            : 'voice.error.generic')
-    : null;
+  const suggestions = [1, 2, 3, 4].map((n) => t(`chat.welcome.suggestion${n}`));
 
   return (
-    <div className="flex flex-1 min-h-0 overflow-hidden">
-      {/* ─── Sessions Sidebar (Desktop) ─── */}
-      <aside className={`
-        ${showSessions ? 'block' : 'hidden'} lg:flex
-        w-64 border-e border-navy-100 bg-white flex-shrink-0 flex-col min-h-0
-        fixed lg:static inset-y-0 start-0 z-30
-      `}>
-        <div className="p-4 border-b border-navy-50">
-          <button
-            onClick={startNewSession}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors"
-          >
-            <Plus className="w-4 h-4" /> {t('chat.newChat')}
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-1">
-          {sessions.map((s) => (
-            <SessionItem
-              key={s.session_id}
-              session={s}
-              isActive={s.session_id === sessionId}
-              onClick={() => loadSession(s.session_id)}
-            />
-          ))}
-          {sessions.length === 0 && (
-            <p className="text-center text-navy-400 text-xs py-8">{t('chat.noChats')}</p>
-          )}
-        </div>
-      </aside>
+    <div className="flex-1 flex min-h-0" dir={isRTL ? 'rtl' : 'ltr'} data-testid="chat-page">
+      <SessionsRail
+        sessions={sessions}
+        activeId={sessionId}
+        onSelect={openSession}
+        onNew={startNewChat}
+        open={railOpen}
+        onClose={() => setRailOpen(false)}
+        t={t}
+      />
 
-      {/* ─── Chat Area ─── */}
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
-        {/* Chat Header */}
-        <div className="flex items-center gap-3 px-6 py-3 border-b border-navy-100 bg-white flex-shrink-0">
-          <button onClick={() => setShowSessions(!showSessions)} className="lg:hidden p-1.5 rounded-lg hover:bg-navy-50 text-navy-500">
-            <MessageCircle className="w-5 h-5" />
-          </button>
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center">
-            <Activity className="w-4 h-4 text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="font-display text-base font-bold text-navy-800">{t('chat.title')}</h2>
-            <p className="text-[11px] text-navy-400">{t('chat.subtitle')}</p>
-          </div>
-
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+        {/* ── Header ── */}
+        <header className="flex items-center gap-2 border-b border-navy-100 dark:border-navy-800 bg-surface-raised/80 dark:bg-surface-dark-raised/80 backdrop-blur px-4 py-2.5">
           <button
             type="button"
-            onClick={() => setVoiceAssistantOpen(true)}
-            aria-label={t('va.open')}
-            title={t('va.open')}
-            className="h-9 flex items-center gap-2 px-3 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+            onClick={() => setRailOpen(true)}
+            aria-label={t('chat.newChat')}
+            className="lg:hidden p-2 rounded-lg text-navy-400 hover:bg-navy-50 dark:hover:bg-navy-800"
+            data-testid="open-rail-button"
           >
-            <AudioLines className="w-4 h-4" />
-            <span className="hidden sm:inline">{t('va.open')}</span>
+            <History className="w-4.5 h-4.5" />
           </button>
 
-          <ModelPulse
-            runtime={modelRuntime}
-            loading={modelLoading}
-            starting={modelRuntime?.activation?.status === 'starting'}
-            error={modelError}
-            isOpen={showModelPulse}
-            onToggle={() => setShowModelPulse((value) => !value)}
-            onRefresh={() => loadModelStatus()}
-            onStart={startModel}
-            onRegisterCustom={registerCustomModel}
-          />
-        </div>
+          <div className="min-w-0">
+            <h1 className="font-display text-sm font-bold text-navy-900 dark:text-navy-100 truncate">{t('chat.title')}</h1>
+            <p className="hidden sm:block text-[11px] text-navy-400 truncate">{t('chat.welcome.tagline')}</p>
+          </div>
 
-        {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4 bg-surface min-h-0">
-          {messages.length === 0 ? (
-            <WelcomeScreen onSend={sendMessage} />
-          ) : (
-            <>
-              {messages.map((msg) => (
-                <div key={msg.id}>
-                  <ChatBubble message={msg} onRetry={handleRetry} />
-                  {msg.role === 'assistant' && !msg.isError && msg.modelId && (
-                    <ModelReplyBadge modelId={msg.modelId} runtime={msg.modelRuntime} />
-                  )}
-                  {msg.entities && (
-                    <div className="mt-2">
-                      <EntitiesBadge entities={msg.entities} />
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {/* Clarification Quick Actions */}
-              {clarificationOptions && !sending && (
-                <ClarificationButtons
-                  options={clarificationOptions}
-                  onSelect={handleQuickAction}
-                  disabled={sending}
-                />
-              )}
-
-              {sending && (streamingText ? <StreamingBubble text={streamingText} /> : <TypingIndicator statusText={statusText} />)}
-            </>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input Area */}
-        <div className="px-6 py-3 bg-white border-t border-navy-100 flex-shrink-0">
-          <div className="flex items-end gap-3 max-w-3xl mx-auto">
-            {/* Read-replies-aloud toggle */}
-            {voice.ttsSupported && (
-              <button
-                type="button"
-                onClick={() => { voice.setSpeakReplies((v) => !v); voice.cancelSpeech(); }}
-                aria-pressed={voice.speakReplies}
-                aria-label={voice.speakReplies ? t('voice.muteReplies') : t('voice.speakReplies')}
-                title={voice.speakReplies ? t('voice.muteReplies') : t('voice.speakReplies')}
-                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all flex-shrink-0 border ${
-                  voice.speakReplies
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
-                    : 'bg-surface border-navy-200 text-navy-400 hover:text-navy-600'
-                }`}
-              >
-                {voice.speakReplies ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-              </button>
-            )}
-
-            <div className="flex-1 relative">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={modelSwitching}
-                placeholder={modelSwitching ? t('chat.switching') : (voice.listening ? t('voice.listening') : t('chat.placeholder'))}
-                rows={1}
-                dir="auto"
-                className="w-full px-4 py-3 pe-12 rounded-2xl border border-navy-200 bg-surface text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 resize-none text-sm transition-all disabled:opacity-60 disabled:cursor-wait"
-                style={{ minHeight: '44px', maxHeight: '120px' }}
-                onInput={(e) => {
-                  e.target.style.height = 'auto';
-                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-                }}
-              />
-            </div>
-
-            {/* Microphone (browser speech-to-text) */}
-            {voice.sttSupported && (
-              <button
-                type="button"
-                onClick={() => (voice.listening ? voice.stopListening() : voice.startListening())}
-                disabled={sending || modelSwitching}
-                aria-pressed={voice.listening}
-                aria-label={voice.listening ? t('voice.stop') : t('voice.start')}
-                title={voice.listening ? t('voice.stop') : t('voice.start')}
-                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all flex-shrink-0 border disabled:opacity-40 disabled:cursor-not-allowed ${
-                  voice.listening
-                    ? 'bg-coral-500 border-coral-500 text-white animate-pulse'
-                    : 'bg-surface border-navy-200 text-navy-500 hover:text-emerald-600 hover:border-emerald-300'
-                }`}
-              >
-                {voice.listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-              </button>
-            )}
+          <div className="ms-auto flex items-center gap-1.5">
+            {/* Context depth: standard → deep → max */}
+            <button
+              type="button"
+              onClick={() => setDepth((d) => DEPTHS[(DEPTHS.indexOf(d) + 1) % DEPTHS.length])}
+              title={t('chat.depth.hint')}
+              aria-label={t('chat.depth.hint')}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${depth === 'standard' ? 'border-navy-100 dark:border-navy-700 text-navy-500 dark:text-navy-300' : 'border-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}
+              data-testid="depth-toggle"
+            >
+              <Layers className="w-3.5 h-3.5" /> {t(`chat.depth.${depth}`)}
+            </button>
 
             <button
-              onClick={() => sendMessage()}
-              disabled={!input.trim() || sending || modelSwitching}
-              aria-label={t('chat.send')}
-              className="w-11 h-11 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white flex items-center justify-center hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/20 flex-shrink-0"
+              type="button"
+              onClick={() => setSpeakReplies((s) => !s)}
+              aria-pressed={speakReplies}
+              aria-label={t('chat.speakReplies')}
+              title={t('chat.speakReplies')}
+              className={`p-2 rounded-full transition-colors ${speakReplies ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600' : 'text-navy-400 hover:bg-navy-50 dark:hover:bg-navy-800'}`}
+              data-testid="speak-toggle"
             >
-              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {speakReplies ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </button>
+
+            <ModelPicker models={models} value={modelId} onChange={chooseModel} disabled={sending} t={t} />
           </div>
-          {voiceErrorKey && (
-            <p role="status" className="max-w-3xl mx-auto mt-1.5 text-[11px] text-coral-500">{t(voiceErrorKey)}</p>
-          )}
+        </header>
+
+        {/* ── Thread ── */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto" data-testid="chat-thread">
+          <div className="mx-auto max-w-3xl px-4 py-6 space-y-5">
+            {messages.length === 0 && !streamingText && (
+              <div className="pt-10 text-center" data-testid="chat-welcome">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-navy-700 shadow-lg shadow-emerald-500/20">
+                  <Sparkles className="h-6 w-6 text-white" />
+                </div>
+                <h2 className="font-display text-xl font-bold text-navy-900 dark:text-navy-100">{t('chat.welcome.tagline')}</h2>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-navy-400">{t('chat.welcome.desc')}</p>
+
+                <div className="mx-auto mt-6 flex max-w-lg flex-wrap justify-center gap-2">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => sendMessage(s)}
+                      className="rounded-full border border-navy-100 dark:border-navy-700 bg-surface-raised dark:bg-surface-dark-raised px-3.5 py-2 text-xs font-medium text-navy-600 dark:text-navy-300 hover:border-emerald-300 hover:text-emerald-700 transition-colors"
+                      data-testid="welcome-suggestion"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+
+                <p className="mt-6 inline-flex flex-wrap items-center justify-center gap-1.5 text-[11px] text-navy-300 dark:text-navy-500">
+                  <HeartPulse className="w-3.5 h-3.5 text-emerald-400" />
+                  <Link2 className="w-3 h-3" />
+                  <Wallet className="w-3.5 h-3.5 text-amber-400" />
+                  {t('chat.welcome.hintPrefix')} “{t('chat.welcome.hintExample')}” — {t('chat.welcome.hintSuffix')}
+                </p>
+              </div>
+            )}
+
+            {messages.map((m) => (
+              m.role === 'user' ? (
+                <div key={m.id} className="flex justify-end">
+                  <div className="max-w-[85%] rounded-2xl rounded-ee-md bg-navy-900 dark:bg-emerald-600 px-4 py-2.5 text-[15px] leading-6 text-white shadow-sm" dir="auto" data-testid="user-message">
+                    {m.content}
+                  </div>
+                </div>
+              ) : (
+                <div key={m.id} className="flex flex-col" data-testid="assistant-message">
+                  <div className={`max-w-[92%] border-s-2 ps-4 ${m.isError ? 'border-coral-400' : m.isCrossDomain ? 'border-amber-400' : 'border-emerald-400'}`}>
+                    <div className={`whitespace-pre-wrap text-[15px] leading-7 ${m.isError ? 'text-coral-500' : 'text-navy-800 dark:text-navy-100'}`} dir="auto">
+                      {m.content}
+                    </div>
+                    {m.entities && <EntityReceipts entities={m.entities} t={t} />}
+                    {attributionFor(m) && (
+                      <p className="mt-1.5 text-[10px] uppercase tracking-wide text-navy-300 dark:text-navy-500" data-testid="model-attribution">
+                        {attributionFor(m)}
+                      </p>
+                    )}
+                    {m.isError && m.retryText && (
+                      <button
+                        type="button"
+                        onClick={() => sendMessage(m.retryText)}
+                        className="mt-2 rounded-lg border border-coral-200 px-3 py-1.5 text-xs font-semibold text-coral-500 hover:bg-coral-50 transition-colors"
+                        data-testid="retry-button"
+                      >
+                        {t('chat.retry.button')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            ))}
+
+            {streamingText && (
+              <div className="border-s-2 border-emerald-400 ps-4" data-testid="streaming-message">
+                <div className="whitespace-pre-wrap text-[15px] leading-7 text-navy-800 dark:text-navy-100" dir="auto">
+                  {streamingText}
+                  <span className="ms-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-emerald-400 align-middle" />
+                </div>
+              </div>
+            )}
+
+            {sending && !streamingText && statusText && (
+              <p className="flex items-center gap-2 text-xs text-navy-400" data-testid="status-text">
+                <span className="inline-flex h-1.5 w-1.5 animate-ping rounded-full bg-emerald-400" />
+                {statusText}
+              </p>
+            )}
+
+            {clarification && (
+              <div className="flex flex-wrap gap-2" data-testid="clarification-options">
+                {clarification.map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => sendMessage(opt)}
+                    className="rounded-full border border-amber-200 bg-amber-50 dark:bg-amber-500/10 px-3.5 py-2 text-xs font-medium text-amber-700 dark:text-amber-400 hover:border-amber-400 transition-colors"
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Composer ── */}
+        <div className="border-t border-navy-100 dark:border-navy-800 bg-surface/80 dark:bg-surface-dark/80 backdrop-blur px-4 py-3">
+          <div className="mx-auto max-w-3xl">
+            <ChatComposer locale={locale} busy={sending} onSubmit={sendMessage} t={t} inputRef={inputRef} />
+            <p className="mt-1.5 text-center text-[10px] text-navy-300 dark:text-navy-500">
+              {t('chat.footer.modelNote')} · {modelLabel}
+            </p>
+          </div>
         </div>
       </div>
-
-      <VoiceAssistantOverlay
-        open={voiceAssistantOpen}
-        onClose={() => setVoiceAssistantOpen(false)}
-        sessionId={sessionId}
-        model={modelRuntime?.switching_to || modelRuntime?.active?.model_id || 'bert_local'}
-      />
     </div>
   );
 }

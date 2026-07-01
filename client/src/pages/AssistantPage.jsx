@@ -13,6 +13,7 @@ import { Sparkles, Mic, MessageSquareText, Square, RefreshCw } from 'lucide-reac
 import { useSettings } from '../contexts/SettingsContext';
 import { useVoiceAssistant } from '../hooks/useVoiceAssistant';
 import { chatAPI, assistantAPI } from '../services/api';
+import { DEFAULT_CHAT_MODEL_ID } from '../config/models';
 import VoiceOrb from '../components/assistant/VoiceOrb';
 import ConsentCard from '../components/assistant/ConsentCard';
 import InterviewPanel from '../components/assistant/InterviewPanel';
@@ -20,6 +21,16 @@ import AdviceCards from '../components/assistant/AdviceCards';
 import DictationComposer from '../components/assistant/DictationComposer';
 
 const SENTENCE_END = /[.!?؟\n]/;
+
+// The voice assistant must CONVERSE, so it uses the user's chat model choice
+// (or the free generative default) — never the template-reply BERT classifier.
+const voiceModel = () => {
+  try {
+    const stored = localStorage.getItem('lifesync.chat.model');
+    // BERT is a classifier with template replies — useless to talk to.
+    return stored && stored !== 'bert_local' ? stored : DEFAULT_CHAT_MODEL_ID;
+  } catch { return DEFAULT_CHAT_MODEL_ID; }
+};
 
 // Let the dashboard (and other tabs) know new data landed so they refresh.
 const notifyDataChanged = () => window.dispatchEvent(new CustomEvent('lifesync:data-changed'));
@@ -95,7 +106,7 @@ export default function AssistantPage() {
       onError: (err) => {
         setMessages((prev) => [...prev.slice(-5), { role: 'assistant', text: err.message || t('va.err.streamFailed') }]);
       },
-    }, { model: undefined, lang: locale });
+    }, { model: voiceModel(), lang: locale });
   }, [sessionId, locale, t]);
 
   // ─── Converse: hands-free loop ───

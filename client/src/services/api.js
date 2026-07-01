@@ -102,7 +102,15 @@ export const chatAPI = {
       },
       // `model` = the picker selection, so each turn uses the chosen model.
       // `lang` = UI locale hint so the model replies natively (e.g. Arabic).
-      body: JSON.stringify({ message, session_id, model: options.model, lang: options.lang }),
+      // `context_window` = optional depth ('standard'|'deep'|'max') for how much
+      // history + data the server assembles for this turn.
+      body: JSON.stringify({
+        message,
+        session_id,
+        model: options.model,
+        lang: options.lang,
+        context_window: options.context_window,
+      }),
       signal: controller.signal,
     })
       .then(async (response) => {

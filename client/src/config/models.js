@@ -1,19 +1,21 @@
 // Shared assistant-model menu. Keep ids in sync with the server catalog
 // (server/services/ai/modelRuntimeManager.js).
 //
-// Routing: BERT is the private in-server intent classifier; the local Gemma
-// options run on-device. Every other (cloud) model is served through OpenRouter
-// with a single OPENROUTER_API_KEY, and all of them share the same LifeSync
-// memory, chat history, and cross-domain data context.
+// Routing: BERT is the private in-server intent classifier; every generative
+// model is a VERIFIED FREE OpenRouter model (zero inference cost) served with
+// one OPENROUTER_API_KEY. All of them share the same LifeSync memory, chat
+// history, and cross-domain data context. When a free pool is briefly
+// rate-limited, the server hops to the next free model automatically.
 export const MODEL_OPTIONS = [
-  { id: 'bert_local', label: 'LifeSync BERT', tag: 'default', desc: 'Private, on-device, fastest. Powers chat + dashboard fully offline.' },
-  { id: 'gemma4_local', label: 'Gemma 4', tag: 'OpenRouter', desc: 'Google Gemma 4 via OpenRouter — cloud, no local install.' },
-  { id: 'gemma3_local', label: 'Gemma 3', tag: 'OpenRouter', desc: 'Google Gemma 3 via OpenRouter — cloud, no local install.' },
-  { id: 'openai_chat', label: 'OpenAI GPT', tag: 'OpenRouter', desc: 'GPT via OpenRouter, with full LifeSync memory and chat-history transfer.' },
-  { id: 'anthropic_opus', label: 'Claude Opus', tag: 'OpenRouter', desc: 'Claude Opus via OpenRouter — deeper reasoning with the same LifeSync context.' },
-  { id: 'anthropic_sonnet', label: 'Claude Sonnet', tag: 'OpenRouter', desc: 'Claude Sonnet via OpenRouter — fast daily conversation with transferred context.' },
-  { id: 'openrouter_chat', label: 'OpenRouter (Llama 3.3)', tag: 'OpenRouter', desc: 'Open-weight cloud chat via OpenRouter. One key, many models — shares LifeSync memory + context.' },
+  { id: 'bert_local', label: 'LifeSync BERT', tag: 'local', desc: 'Private, in-server, fastest logging. Template replies — pick a cloud model for real conversation.' },
+  { id: 'gemma4_local', label: 'Gemma 4 31B', tag: 'free', desc: 'Google Gemma 4 31B — free via OpenRouter. Best default for conversation with full LifeSync context.' },
+  { id: 'gemma3_local', label: 'Gemma 4 Flash 26B', tag: 'free', desc: 'Google Gemma 4 26B — free via OpenRouter. Lighter and quicker, same memory and context.' },
+  { id: 'openai_chat', label: 'GPT-OSS 120B', tag: 'free', desc: 'OpenAI GPT-OSS 120B open-weight — free via OpenRouter. Strong reasoning with LifeSync context.' },
+  { id: 'openrouter_chat', label: 'Llama 3.3 70B', tag: 'free', desc: 'Meta Llama 3.3 70B — free via OpenRouter. Auto-falls back to another free model when the pool is busy.' },
   { id: 'custom_local', label: 'Custom model', desc: 'Bring your own — upload a file or set an endpoint in the chat model menu.' },
 ];
 
 export const DEFAULT_MODEL_ID = 'bert_local';
+
+// Best default for actual conversation (voice + chat): free generative model.
+export const DEFAULT_CHAT_MODEL_ID = 'gemma4_local';

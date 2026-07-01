@@ -38,17 +38,24 @@ const customModelState = {
   file_name: null,
 };
 
-// ─── Cloud routing: one key, many models ──────────────────────────────────
-// Every non-local assistant model is served through OpenRouter so a single
-// OPENROUTER_API_KEY powers GPT, Claude, Llama, etc. BERT (the in-server intent
-// classifier) and the local Gemma options stay on-device. Each branded entry
-// resolves its OpenRouter slug from a dedicated env var, else its own verified
-// default slug. NOTE: the generic OPENROUTER_MODEL is intentionally NOT a middle
-// fallback here — otherwise setting it on the server (e.g. to Llama) would
-// collapse the GPT and Claude entries onto that one model. OPENROUTER_MODEL only
-// drives the generic `openrouter_chat` entry below.
+// ─── Cloud routing: one key, many FREE models ─────────────────────────────
+// Every non-local assistant model is served through OpenRouter's free tier so
+// the app runs at zero inference cost (graduation-project constraint, ≤10
+// concurrent users). BERT (the in-server intent classifier) stays on the
+// Python sidecar. Each entry resolves its OpenRouter slug from a dedicated env
+// var, else a default slug that was VERIFIED live against the OpenRouter API
+// (2026-07-02: gemma-4-31b/gpt-oss-120b/gemma-4-26b answered; llama-3.3:free is
+// pool-rate-limited at times — the conversation service hops to the free
+// fallback chain on 429 so a busy pool never breaks chat).
 const openRouterModel = (envVar, fallbackSlug) =>
   process.env[envVar]?.trim() || fallbackSlug;
+
+// Ordered retry chain used when a :free model is rate-limited upstream.
+const FREE_FALLBACK_SLUGS = [
+  'google/gemma-4-31b-it:free',
+  'openai/gpt-oss-120b:free',
+  'google/gemma-4-26b-a4b-it:free',
+];
 
 const MODEL_CATALOG = [
   {
@@ -56,62 +63,49 @@ const MODEL_CATALOG = [
     label: 'LifeSync BERT (local)',
     kind: 'classifier',
     is_default: true,
-    description: 'Private on-device intent classifier + deterministic engine. Fastest, fully offline.',
+    pricing: 'local',
+    description: 'Private in-server intent classifier + deterministic engine. Fastest logging, fully offline — replies are template-based, not conversational.',
     target: { provider: 'bert_local', model: null },
     eta_ms: { gpu: 80, cpu: 300 },
   },
   {
     id: 'gemma4_local',
-    label: 'Gemma 4',
+    label: 'Gemma 4 31B',
     kind: 'generative',
     is_default: false,
-    description: 'Google Gemma 4 via OpenRouter. Runs on the cloud (no local install) with the same LifeSync memory + context.',
-    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GEMMA4_MODEL', 'google/gemma-4-31b-it') },
+    pricing: 'free',
+    description: 'Google Gemma 4 31B — free via OpenRouter. Best default for conversation; shares LifeSync memory, history, and cross-domain context.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GEMMA4_MODEL', 'google/gemma-4-31b-it:free') },
     eta_ms: { gpu: 2200, cpu: 2200 },
   },
   {
     id: 'gemma3_local',
-    label: 'Gemma 3',
+    label: 'Gemma 4 Flash 26B',
     kind: 'generative',
     is_default: false,
-    description: 'Google Gemma 3 via OpenRouter. Runs on the cloud (no local install) with the same LifeSync memory + context.',
-    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GEMMA3_MODEL', 'google/gemma-3-27b-it') },
-    eta_ms: { gpu: 2000, cpu: 2000 },
+    pricing: 'free',
+    description: 'Google Gemma 4 26B (A4B) — free via OpenRouter. Lighter and quicker; same LifeSync memory and context.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GEMMA3_MODEL', 'google/gemma-4-26b-a4b-it:free') },
+    eta_ms: { gpu: 1500, cpu: 1500 },
   },
   {
     id: 'openai_chat',
-    label: 'OpenAI GPT',
+    label: 'GPT-OSS 120B',
     kind: 'generative',
     is_default: false,
-    description: 'GPT via OpenRouter (one shared key). Uses the same LifeSync memory, history, and cross-domain data context. Set OPENROUTER_GPT_MODEL to change the slug.',
-    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GPT_MODEL', 'openai/gpt-5.4-mini') },
+    pricing: 'free',
+    description: 'OpenAI GPT-OSS 120B open-weight — free via OpenRouter. Strong reasoning with the same LifeSync memory and data context.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GPT_MODEL', 'openai/gpt-oss-120b:free') },
     eta_ms: { gpu: 1800, cpu: 1800 },
   },
   {
-    id: 'anthropic_opus',
-    label: 'Claude Opus',
-    kind: 'generative',
-    is_default: false,
-    description: 'Claude Opus via OpenRouter for deeper reasoning. Context + memory transfer from the current chat. Set OPENROUTER_CLAUDE_OPUS_MODEL to change the slug.',
-    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_CLAUDE_OPUS_MODEL', 'anthropic/claude-opus-4.8') },
-    eta_ms: { gpu: 3500, cpu: 3500 },
-  },
-  {
-    id: 'anthropic_sonnet',
-    label: 'Claude Sonnet',
-    kind: 'generative',
-    is_default: false,
-    description: 'Claude Sonnet via OpenRouter for fast daily conversation. Shares the same LifeSync context as every model. Set OPENROUTER_CLAUDE_SONNET_MODEL to change the slug.',
-    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_CLAUDE_SONNET_MODEL', 'anthropic/claude-sonnet-4.6') },
-    eta_ms: { gpu: 2200, cpu: 2200 },
-  },
-  {
     id: 'openrouter_chat',
-    label: 'OpenRouter (Llama 3.3)',
+    label: 'Llama 3.3 70B',
     kind: 'generative',
     is_default: false,
-    description: 'Open-weight cloud chat via OpenRouter (one key, many models). Set OPENROUTER_MODEL to pick any model. Shares the same LifeSync memory, history, and data context.',
-    target: { provider: 'openrouter', model: process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct' },
+    pricing: 'free',
+    description: 'Meta Llama 3.3 70B — free via OpenRouter. Popular open model; when its free pool is busy, replies hop to another free model automatically.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_MODEL', 'meta-llama/llama-3.3-70b-instruct:free') },
     eta_ms: { gpu: 2000, cpu: 2000 },
   },
   {
@@ -127,7 +121,18 @@ const MODEL_CATALOG = [
 ];
 
 const DEFAULT_MODEL_ID = 'bert_local';
-const catalogEntry = (id) => MODEL_CATALOG.find((m) => m.id === id) || null;
+
+// Retired catalog ids (paid Claude entries) stored in user preferences resolve
+// to a working free model instead of silently degrading to the classifier.
+const LEGACY_MODEL_ALIASES = {
+  anthropic_opus: 'openai_chat',
+  anthropic_sonnet: 'gemma4_local',
+};
+
+const catalogEntry = (id) => {
+  const resolvedId = LEGACY_MODEL_ALIASES[id] || id;
+  return MODEL_CATALOG.find((m) => m.id === resolvedId) || null;
+};
 
 // Register a custom model from the upload button or endpoint field.
 const registerCustomModel = ({ name, runtime, endpoint, fileName } = {}) => {
@@ -550,6 +555,7 @@ const getModelCatalog = () => MODEL_CATALOG.map((m) => ({
   label: m.label,
   kind: m.kind,
   is_default: m.is_default,
+  pricing: m.pricing || 'local',
   uploadable: Boolean(m.uploadable),
   description: m.description,
   provider: m.id === 'custom_local' ? customModelState.runtime : m.target.provider,
@@ -591,6 +597,7 @@ module.exports = {
   resolveModel,
   startBestAvailableModel: startModel,
   startModel,
+  FREE_FALLBACK_SLUGS,
   _hardwareSnapshot: hardwareSnapshot,
   _capabilitiesFor: capabilitiesFor,
   _estimateEta: estimateEta,
