@@ -4,9 +4,10 @@ import { healthAPI } from '../services/api';
 import { useSettings } from '../contexts/SettingsContext';
 import { getPaginatedItems, getPaginatedTotalPages } from '../utils/paginatedResponse';
 import { SkeletonCard } from '../components/ui/Skeleton';
+import { Card, FilterBar, EmptyListState, Pagination } from '../components/ui';
 import {
   Heart, Footprints, Moon, SmilePlus, Droplets, Dumbbell,
-  ActivitySquare, Search, Filter, Trash2, ChevronLeft, ChevronRight
+  ActivitySquare, Trash2,
 } from 'lucide-react';
 
 const typeConfig = {
@@ -59,6 +60,13 @@ export default function HealthPage() {
     }
   };
 
+  const filters = ['all', ...Object.keys(typeConfig)].map((tp) => ({
+    key: tp,
+    label: typeLabel(tp),
+    active: typeFilter === tp,
+    onClick: () => { setTypeFilter(tp); setPage(1); },
+  }));
+
   return (
     <div className="flex-1 overflow-y-auto">
     <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-up">
@@ -71,42 +79,26 @@ export default function HealthPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-navy-300" />
-          <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            placeholder={t('healthpage.search')}
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-navy-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400" />
-        </div>
-        <div className="flex gap-1.5 flex-wrap">
-          {['all', ...Object.keys(typeConfig)].map((tp) => (
-            <button key={tp} onClick={() => { setTypeFilter(tp); setPage(1); }}
-              className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                typeFilter === tp ? 'bg-emerald-500 text-white shadow-sm' : 'bg-white border border-navy-100 text-navy-500 hover:bg-navy-50'
-              }`}>
-              {typeLabel(tp)}
-            </button>
-          ))}
-        </div>
-      </div>
+      <FilterBar
+        search={search}
+        onSearchChange={(value) => { setSearch(value); setPage(1); }}
+        searchPlaceholder={t('healthpage.search')}
+        filters={filters}
+        className="mb-6"
+      />
 
       {/* List */}
       <div className="space-y-3">
         {loading ? (
           [1, 2, 3, 4, 5].map((i) => <SkeletonCard key={i} />)
         ) : logs.length === 0 ? (
-          <div className="text-center py-16">
-            <Heart className="w-12 h-12 text-navy-200 mx-auto mb-3" />
-            <p className="text-navy-500 font-medium">{t('healthpage.empty')}</p>
-            <p className="text-navy-400 text-sm mt-1">{t('healthpage.emptyHint')}</p>
-          </div>
+          <EmptyListState icon={Heart} title={t('healthpage.empty')} subtitle={t('healthpage.emptyHint')} />
         ) : (
           logs.map((log) => {
             const config = typeConfig[log.type] || typeConfig.steps;
             const Icon = config.icon;
             return (
-              <div key={log.id} className="bg-white rounded-2xl p-4 shadow-sm border border-navy-50 flex items-center gap-4 hover:shadow-md transition-shadow">
+              <Card key={log.id} interactive padding="sm" className="flex items-center gap-4">
                 <div className={`w-11 h-11 rounded-xl ${config.bg} flex items-center justify-center flex-shrink-0`}>
                   <Icon className={`w-5 h-5 ${config.color}`} />
                 </div>
@@ -116,33 +108,20 @@ export default function HealthPage() {
                     {log.value_text || log.notes || ''} · {new Date(log.logged_at || log.created_at).toLocaleDateString()}
                   </p>
                 </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-lg font-bold text-navy-800">{log.value}<span className="text-xs text-navy-400 ml-1">{config.unit}</span></p>
+                <div className="text-end flex-shrink-0">
+                  <p className="text-lg font-bold text-navy-800">{log.value}<span className="text-xs text-navy-400 ms-1">{config.unit}</span></p>
                   {log.duration && <p className="text-xs text-navy-400">{log.duration} {t('common.min')}</p>}
                 </div>
                 <button onClick={() => handleDelete(log.id)} className="p-2 rounded-lg hover:bg-coral-500/5 text-navy-300 hover:text-coral-500 transition-colors">
                   <Trash2 className="w-4 h-4" />
                 </button>
-              </div>
+              </Card>
             );
           })
         )}
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 mt-6">
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-            className="p-2 rounded-lg bg-white border border-navy-100 text-navy-500 hover:bg-navy-50 disabled:opacity-30">
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <span className="text-sm text-navy-500">{page} / {totalPages}</span>
-          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-            className="p-2 rounded-lg bg-white border border-navy-100 text-navy-500 hover:bg-navy-50 disabled:opacity-30">
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-6" />
     </div>
     </div>
   );
