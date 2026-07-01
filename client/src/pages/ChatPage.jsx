@@ -37,16 +37,17 @@ const MODEL_LABELS = Object.fromEntries(MODEL_OPTIONS.map((m) => [m.id, m.label]
 
 /** Small badge under an assistant reply showing which model produced it. */
 function ModelReplyBadge({ modelId, runtime }) {
+  const { t } = useSettings();
   if (!modelId) return null;
   const label = MODEL_LABELS[modelId] || modelId;
   // A cloud model that couldn't run (no key) falls back to the on-device reply.
   const fellBack = runtime?.responder === 'deterministic_fallback';
   return (
-    <div className="flex items-center gap-1.5 mt-1 ml-9 text-[10px] text-navy-400">
+    <div className="flex items-center gap-1.5 mt-1 ms-9 text-[10px] text-navy-400">
       <BrainCircuit className="w-3 h-3" />
       <span>{label}</span>
       {fellBack && (
-        <span className="text-amber-600">· needs an API key — replied on-device</span>
+        <span className="text-amber-600">{t('model.needsApiKey')}</span>
       )}
     </div>
   );
@@ -58,27 +59,28 @@ function ModelReplyBadge({ modelId, runtime }) {
 
 /** Domain pill badges on assistant messages */
 function DomainBadges({ domain, isCrossDomain }) {
+  const { t } = useSettings();
   if (!domain || domain === 'general') return null;
   const badges = [];
 
   if (domain === 'health' || isCrossDomain) {
     badges.push(
       <span key="h" className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-semibold border border-emerald-100">
-        <Heart className="w-2.5 h-2.5" /> Health
+        <Heart className="w-2.5 h-2.5" /> {t('nav.health')}
       </span>
     );
   }
   if (domain === 'finance' || isCrossDomain) {
     badges.push(
       <span key="f" className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-semibold border border-blue-100">
-        <Wallet className="w-2.5 h-2.5" /> Finance
+        <Wallet className="w-2.5 h-2.5" /> {t('nav.finance')}
       </span>
     );
   }
   if (isCrossDomain) {
     badges.push(
       <span key="x" className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 font-semibold border border-purple-100 animate-pulse">
-        <Link2 className="w-2.5 h-2.5" /> Cross-Linked
+        <Link2 className="w-2.5 h-2.5" /> {t('chat.domain.crossLinked')}
       </span>
     );
   }
@@ -129,6 +131,7 @@ function EntitiesBadge({ entities }) {
 
 /** Single chat bubble */
 function ChatBubble({ message, onRetry }) {
+  const { t } = useSettings();
   const isUser = message.role === 'user';
   const isError = message.isError;
   const retryableError = isError && message.retryable;
@@ -170,16 +173,33 @@ function ChatBubble({ message, onRetry }) {
         {isError && message.retryable && onRetry && (
           <div className="mt-2 space-y-2">
             <p className="text-[11px] text-amber-700">
-              Your message is saved here. You can retry it, or send a clearer version like "Spent $20 on food".
+              {t('chat.retry.savedHint')}
             </p>
             <button
               onClick={() => onRetry(message.originalText)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors"
             >
-              <RotateCcw className="w-3 h-3" /> Retry message
+              <RotateCcw className="w-3 h-3" /> {t('chat.retry.button')}
             </button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** In-progress assistant bubble, filled token-by-token from the SSE `delta` stream. */
+function StreamingBubble({ text }) {
+  return (
+    <div className="flex items-end gap-2 animate-fade-up">
+      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-navy-200 to-navy-300 flex items-center justify-center flex-shrink-0">
+        <Sparkles className="w-3.5 h-3.5 text-navy-600" />
+      </div>
+      <div className="max-w-[75%]">
+        <div className="chat-bubble-assistant px-4 py-3 text-sm leading-relaxed">
+          {text}
+          <span className="inline-block w-1.5 h-4 -mb-0.5 ms-0.5 bg-navy-400 typing-dot" />
+        </div>
       </div>
     </div>
   );
@@ -237,7 +257,7 @@ function SessionItem({ session, isActive, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all ${
+      className={`w-full text-start px-3 py-2.5 rounded-xl text-sm transition-all ${
         isActive ? 'bg-emerald-50 text-emerald-700 font-medium' : 'text-navy-600 hover:bg-navy-50'
       }`}
     >
@@ -255,12 +275,13 @@ function SessionItem({ session, isActive, onClick }) {
 
 /** Welcome screen with cross-domain suggestions */
 function WelcomeScreen({ onSend }) {
+  const { t } = useSettings();
   const suggestions = [
-    { text: 'I walked 8000 steps today', domain: 'health', icon: Heart },
-    { text: 'Spent $15 on lunch', domain: 'finance', icon: Wallet },
-    { text: 'Slept 7 hours last night', domain: 'health', icon: Heart },
-    { text: 'Feeling great, mood 8/10', domain: 'health', icon: Heart },
-    { text: 'Spent $50 on a healthy dinner', domain: 'both', icon: Link2 },
+    { text: t('chat.welcome.suggestion1'), domain: 'health', icon: Heart },
+    { text: t('chat.welcome.suggestion2'), domain: 'finance', icon: Wallet },
+    { text: t('chat.welcome.suggestion3'), domain: 'health', icon: Heart },
+    { text: t('chat.welcome.suggestion4'), domain: 'health', icon: Heart },
+    { text: t('chat.welcome.suggestion5'), domain: 'both', icon: Link2 },
   ];
 
   return (
@@ -268,22 +289,22 @@ function WelcomeScreen({ onSend }) {
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center mb-4 shadow-lg shadow-emerald-100">
         <Activity className="w-8 h-8 text-emerald-600" />
       </div>
-      <h3 className="font-display text-lg font-bold text-navy-800 mb-1">LifeSync Assistant</h3>
-      <p className="text-navy-400 text-xs mb-1 font-semibold uppercase tracking-wider">Cross-Domain Life Tracker</p>
+      <h3 className="font-display text-lg font-bold text-navy-800 mb-1">{t('chat.title')}</h3>
+      <p className="text-navy-400 text-xs mb-1 font-semibold uppercase tracking-wider">{t('chat.welcome.tagline')}</p>
       <p className="text-navy-500 text-sm max-w-sm mb-6">
-        Tell me about your day — spending, exercise, sleep, mood — I track health &amp; finances together and find the connections.
+        {t('chat.welcome.desc')}
       </p>
 
       {/* Domain legend */}
       <div className="flex gap-3 mb-6">
         <span className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">
-          <Heart className="w-3 h-3" /> Health
+          <Heart className="w-3 h-3" /> {t('nav.health')}
         </span>
         <span className="flex items-center gap-1.5 text-xs text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100">
-          <Wallet className="w-3 h-3" /> Finance
+          <Wallet className="w-3 h-3" /> {t('nav.finance')}
         </span>
         <span className="flex items-center gap-1.5 text-xs text-purple-600 bg-purple-50 px-3 py-1.5 rounded-full border border-purple-100">
-          <Link2 className="w-3 h-3" /> Cross-Domain
+          <Link2 className="w-3 h-3" /> {t('chat.domain.crossDomain')}
         </span>
       </div>
 
@@ -315,7 +336,7 @@ function WelcomeScreen({ onSend }) {
       {/* Cross-domain hint */}
       <div className="mt-8 flex items-center gap-2 text-[11px] text-navy-400 bg-navy-50/50 px-4 py-2 rounded-xl">
         <Zap className="w-3.5 h-3.5 text-purple-400" />
-        <span>Try mixing domains: <em className="text-navy-500">&quot;Spent $50 on gym membership&quot;</em> links finance → health</span>
+        <span>{t('chat.welcome.hintPrefix')} <em className="text-navy-500">&quot;{t('chat.welcome.hintExample')}&quot;</em> {t('chat.welcome.hintSuffix')}</span>
       </div>
     </div>
   );
@@ -323,6 +344,7 @@ function WelcomeScreen({ onSend }) {
 
 /** Compact, inspectable model state and activation menu. */
 function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRefresh, onStart, onRegisterCustom }) {
+  const { t } = useSettings();
   const active = runtime?.active;
   const activation = runtime?.activation;
   const customModel = runtime?.custom_model;
@@ -342,9 +364,9 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
         fileName: customFile || undefined,
         endpoint: customEndpoint || undefined,
       });
-      setCustomMsg('Registered — starting your custom model…');
+      setCustomMsg(t('model.registeredStarting'));
     } catch (e) {
-      setCustomMsg(e?.response?.data?.error || 'Could not register that model.');
+      setCustomMsg(e?.response?.data?.error || t('model.registerFailed'));
     } finally {
       setCustomBusy(false);
     }
@@ -354,7 +376,7 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
   // The on-device BERT hybrid is a fully usable daily assistant — show it as
   // ready (green), not "Limited".
   const tone = starting ? 'amber' : isReady ? 'emerald' : 'red';
-  const label = starting ? 'Starting' : isReady ? 'AI ready' : 'AI offline';
+  const label = starting ? t('model.starting') : isReady ? t('model.ready') : t('model.offline');
   const toneClasses = {
     emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     amber: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -372,15 +394,15 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
         className={`h-9 flex items-center gap-2 px-3 rounded-xl border text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${toneClasses[tone]}`}
       >
         <span className={`w-2 h-2 rounded-full ${dotClasses[tone]} ${starting ? 'animate-pulse' : ''}`} />
-        <span className="hidden sm:inline">{loading ? 'Checking AI' : label}</span>
+        <span className="hidden sm:inline">{loading ? t('model.checking') : label}</span>
         <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
         <div
           role="dialog"
-          aria-label="AI model state"
-          className="absolute right-0 top-11 z-50 w-[min(22rem,calc(100vw-2rem))] max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-contain rounded-2xl border border-navy-100 bg-white p-4 shadow-xl shadow-navy-900/10"
+          aria-label={t('model.pulse')}
+          className="absolute end-0 top-11 z-50 w-[min(22rem,calc(100vw-2rem))] max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-contain rounded-2xl border border-navy-100 bg-white p-4 shadow-xl shadow-navy-900/10"
         >
           <div className="flex items-start gap-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${toneClasses[tone]}`}>
@@ -388,34 +410,34 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-bold text-navy-800">Model pulse</p>
+                <p className="text-sm font-bold text-navy-800">{t('model.pulse')}</p>
                 <button
                   type="button"
                   onClick={onRefresh}
                   disabled={loading}
-                  aria-label="Refresh AI status"
+                  aria-label={t('model.refresh')}
                   className="p-1.5 rounded-lg text-navy-400 hover:text-navy-700 hover:bg-navy-50 disabled:opacity-40"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
               </div>
               <p className="text-xs text-navy-500 mt-0.5 truncate">
-                {active?.configured_model || 'No model selected'} · {active?.provider || 'unknown'}
+                {active?.configured_model || t('model.noModel')} · {active?.provider || t('model.unknown')}
               </p>
             </div>
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
             <div className="rounded-xl bg-navy-50/70 p-3">
-              <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400">Capability</p>
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400">{t('model.capability')}</p>
               <p className="mt-1 text-xs font-semibold text-navy-700">
-                {isClassifier ? 'On-device assistant' : isReady ? 'Full conversation' : 'Unavailable'}
+                {isClassifier ? t('model.onDeviceAssistant') : isReady ? t('model.fullConversation') : t('model.unavailable')}
               </p>
             </div>
             <div className="rounded-xl bg-navy-50/70 p-3">
-              <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400">Execution</p>
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400">{t('model.execution')}</p>
               <p className="mt-1 text-xs font-semibold text-navy-700 truncate">
-                {active?.execution_provider || (active?.local ? 'Local runtime' : 'Cloud API')}
+                {active?.execution_provider || (active?.local ? t('model.localRuntime') : t('model.cloudApi'))}
               </p>
             </div>
           </div>
@@ -423,12 +445,12 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
           {runtime?.hardware && (
             <div className="mt-3 flex items-start gap-2 text-xs text-navy-500">
               <Cpu className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-navy-400" />
-              <span>{runtime.hardware.logical_cores} CPU threads · {runtime.hardware.memory_gb} GB RAM · recommends {runtime.hardware.recommended_local_model_size}</span>
+              <span>{t('model.hardware', { cores: runtime.hardware.logical_cores, mem: runtime.hardware.memory_gb, size: runtime.hardware.recommended_local_model_size })}</span>
             </div>
           )}
           <div className="mt-2 flex items-start gap-2 text-xs text-navy-500">
             <ShieldCheck className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-emerald-500" />
-            <span>{runtime?.privacy || 'Only bounded LifeSync context is sent to the selected model.'}</span>
+            <span>{runtime?.privacy || t('model.privacyDefault')}</span>
           </div>
 
           {(error || activation?.status === 'error') && (
@@ -440,7 +462,7 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
           {starting && (
             <div className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
               <Loader2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 animate-spin" />
-              <span>{activation?.message || 'Starting the best available model…'}</span>
+              <span>{activation?.message || t('model.startingBest')}</span>
             </div>
           )}
           {activation?.status === 'ready' && !starting && (
@@ -451,8 +473,8 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
           )}
 
           <div className="mt-4">
-            <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400 mb-1">Choose a model</p>
-            <p className="text-[11px] text-navy-400 mb-2">Switch anytime — your memory, history and data carry over to the new model.</p>
+            <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-400 mb-1">{t('model.chooseModel')}</p>
+            <p className="text-[11px] text-navy-400 mb-2">{t('model.switchAnytime')}</p>
             <div className="space-y-2">
               {(runtime?.catalog || []).map((m) => {
                 const isSwitchingTo = runtime?.switching_to === m.id || (starting && activation?.model_id === m.id);
@@ -464,7 +486,7 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
                     type="button"
                     onClick={() => onStart(m.id)}
                     disabled={starting}
-                    className={`w-full text-left rounded-xl border p-3 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-400/40 disabled:opacity-50 disabled:cursor-wait ${
+                    className={`w-full text-start rounded-xl border p-3 transition-colors focus:outline-none focus:ring-2 focus:ring-navy-400/40 disabled:opacity-50 disabled:cursor-wait ${
                       isSwitchingTo ? 'border-amber-300 bg-amber-50/70' : isActive ? 'border-emerald-300 bg-emerald-50/60' : 'border-navy-100 hover:bg-navy-50'
                     }`}
                   >
@@ -472,7 +494,7 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
                       <span className="text-sm font-semibold text-navy-800 flex items-center gap-1.5">
                         {m.kind === 'classifier' ? <Cpu className="w-3.5 h-3.5" /> : <BrainCircuit className="w-3.5 h-3.5" />}
                         {m.label}
-                        {m.is_default && <span className="text-[10px] font-medium text-navy-400">default</span>}
+                        {m.is_default && <span className="text-[10px] font-medium text-navy-400">{t('model.default')}</span>}
                       </span>
                       {isSwitchingTo ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
@@ -482,10 +504,10 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
                     </div>
                     <p className="mt-1 text-xs text-navy-500">{m.description}</p>
                     {isSwitchingTo && (
-                      <p className="mt-1 text-[11px] font-medium text-amber-700">Switching before the next reply…</p>
+                      <p className="mt-1 text-[11px] font-medium text-amber-700">{t('model.switchingBefore')}</p>
                     )}
                     {isActive && etaText && (
-                      <p className="mt-1 text-[11px] font-medium text-navy-600">Replies {etaText}</p>
+                      <p className="mt-1 text-[11px] font-medium text-navy-600">{t('model.repliesEta', { eta: etaText })}</p>
                     )}
                   </button>
                 );
@@ -496,17 +518,15 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
             <div className="mt-3 rounded-xl border border-dashed border-navy-200 p-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-navy-700 flex items-center gap-1.5">
-                  <HardDrive className="w-3.5 h-3.5" /> Custom model
+                  <HardDrive className="w-3.5 h-3.5" /> {t('model.customModel')}
                 </p>
                 <span className="relative group">
                   <Info className="w-3.5 h-3.5 text-navy-400 cursor-help" aria-hidden="true" />
                   <span
                     role="tooltip"
-                    className="pointer-events-none absolute right-0 top-5 z-50 hidden group-hover:block w-60 rounded-lg bg-navy-800 text-white text-[11px] leading-relaxed p-2.5 shadow-xl"
+                    className="pointer-events-none absolute end-0 top-5 z-50 hidden group-hover:block w-60 rounded-lg bg-navy-800 text-white text-[11px] leading-relaxed p-2.5 shadow-xl"
                   >
-                    Pick a local model file (e.g. <strong>.gguf</strong>) or paste any OpenAI-compatible
-                    endpoint. LifeSync registers it with your local runtime, which loads it on your
-                    <strong> GPU automatically</strong> and falls back to CPU.
+                    {t('model.customTooltip')}
                   </span>
                 </span>
               </div>
@@ -527,24 +547,24 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                title="Upload a model file from your device (GGUF, safetensors, ONNX…)"
+                title={t('model.uploadTitle')}
                 className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-navy-200 text-xs font-medium text-navy-700 hover:bg-navy-50 transition-colors truncate"
               >
                 <Upload className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="truncate">{customFile || 'Upload model from device'}</span>
+                <span className="truncate">{customFile || t('model.uploadFromDevice')}</span>
               </button>
 
-              <p className="my-1.5 text-[10px] uppercase tracking-wider text-navy-300 text-center">or</p>
+              <p className="my-1.5 text-[10px] uppercase tracking-wider text-navy-300 text-center">{t('model.or')}</p>
               <input
                 value={customEndpoint}
                 onChange={(e) => setCustomEndpoint(e.target.value)}
-                placeholder="OpenAI-compatible endpoint URL"
+                placeholder={t('model.endpointPlaceholder')}
                 className="w-full px-2.5 py-1.5 rounded-lg border border-navy-200 text-xs focus:outline-none focus:ring-2 focus:ring-navy-400/30"
               />
               <input
                 value={customName}
                 onChange={(e) => setCustomName(e.target.value)}
-                placeholder="Model name (auto-filled from the file)"
+                placeholder={t('model.namePlaceholder')}
                 className="mt-1.5 w-full px-2.5 py-1.5 rounded-lg border border-navy-200 text-xs focus:outline-none focus:ring-2 focus:ring-navy-400/30"
               />
               <button
@@ -553,17 +573,17 @@ function ModelPulse({ runtime, loading, starting, error, isOpen, onToggle, onRef
                 onClick={submitCustom}
                 className="mt-2 w-full py-2 rounded-lg bg-navy-700 text-white text-xs font-semibold hover:bg-navy-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {customBusy ? 'Registering…' : 'Use this model'}
+                {customBusy ? t('model.registering') : t('model.useThisModel')}
               </button>
               {customMsg && <p className="mt-1.5 text-[11px] text-navy-500">{customMsg}</p>}
               {customModel?.configured && (
                 <p className="mt-1.5 text-[11px] text-emerald-600 truncate">
-                  Configured: {customModel.name || customModel.file_name} · {customModel.runtime}
+                  {t('model.configured', { name: customModel.name || customModel.file_name, runtime: customModel.runtime })}
                 </p>
               )}
             </div>
 
-            <p className="mt-2 text-[11px] text-navy-400">No automatic fallback — if a model can't start, you'll see the error above and stay on your current one.</p>
+            <p className="mt-2 text-[11px] text-navy-400">{t('model.noFallback')}</p>
           </div>
         </div>
       )}
@@ -590,10 +610,13 @@ export default function ChatPage() {
   const [modelError, setModelError] = useState(null);
   const [lastUserText, setLastUserText] = useState(''); // for retry
   const [voiceAssistantOpen, setVoiceAssistantOpen] = useState(false);
+  const [streamingText, setStreamingText] = useState('');
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(null);
   const statusTimersRef = useRef([]);
+  const streamBufferRef = useRef('');
+  const streamRafRef = useRef(null);
 
   // ─── Settings (i18n + theme) + voice (browser STT/TTS) ───
   const { t, locale } = useSettings();
@@ -609,6 +632,13 @@ export default function ChatPage() {
     statusTimersRef.current = [];
   }, []);
 
+  const resetStreaming = useCallback(() => {
+    streamBufferRef.current = '';
+    if (streamRafRef.current) cancelAnimationFrame(streamRafRef.current);
+    streamRafRef.current = null;
+    setStreamingText('');
+  }, []);
+
   const loadModelStatus = useCallback(async ({ quiet = false } = {}) => {
     if (!quiet) setModelLoading(true);
     try {
@@ -616,11 +646,11 @@ export default function ChatPage() {
       setModelRuntime(data.data?.runtime || null);
       setModelError(null);
     } catch (err) {
-      setModelError(err.response?.data?.error || 'Could not read the model state.');
+      setModelError(err.response?.data?.error || t('model.statusReadFailed'));
     } finally {
       if (!quiet) setModelLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const startModel = useCallback(async (modelId = 'bert_local') => {
     setModelError(null);
@@ -633,9 +663,9 @@ export default function ChatPage() {
       }));
       loadModelStatus({ quiet: true });
     } catch (err) {
-      setModelError(err.response?.data?.error || 'The model could not be started.');
+      setModelError(err.response?.data?.error || t('model.startFailed'));
     }
-  }, [loadModelStatus]);
+  }, [loadModelStatus, t]);
 
   // Register a user-supplied custom model, then activate it. Throws on failure
   // so the picker can surface the message inline.
@@ -703,20 +733,21 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMsg]);
     setSending(true);
     clearStatusTimers();
+    resetStreaming();
 
     statusTimersRef.current = [
       setTimeout(() => {
         setStatusText((current) => (
           current === 'Logging your entries...'
             ? current
-            : 'Local Gemma is checking this on your device...'
+            : t('chat.status.checkingLocal')
         ));
       }, 15000),
       setTimeout(() => {
         setStatusText((current) => (
           current === 'Logging your entries...'
             ? current
-            : 'This is taking longer than usual. The app will stay usable if you need to retry.'
+            : t('chat.status.slow')
         ));
       }, 35000),
     ];
@@ -726,14 +757,25 @@ export default function ChatPage() {
         if (data.session_id && data.session_id !== sessionId) {
           setSessionId(data.session_id);
         }
-        setStatusText('Processing your message...');
+        setStatusText(t('chat.status.processing'));
       },
 
       onStatus: (data) => {
-        setStatusText(data.message || 'Processing...');
+        setStatusText(data.message || t('chat.status.default'));
+      },
+
+      onDelta: (data) => {
+        streamBufferRef.current += data.text || '';
+        if (!streamRafRef.current) {
+          streamRafRef.current = requestAnimationFrame(() => {
+            setStreamingText(streamBufferRef.current);
+            streamRafRef.current = null;
+          });
+        }
       },
 
       onComplete: (result) => {
+        resetStreaming();
         const assistantMsg = {
           id: Date.now() + 1,
           role: 'assistant',
@@ -785,10 +827,11 @@ export default function ChatPage() {
       },
 
       onError: (data) => {
+        resetStreaming();
         const errorMsg = {
           id: Date.now() + 1,
           role: 'assistant',
-          content: data.message || 'Something went wrong. Please try again.',
+          content: data.message || t('chat.err.generic'),
           isError: true,
           retryable: data.retryable !== false,
           originalText: messageText,
@@ -802,7 +845,7 @@ export default function ChatPage() {
     }, { model: activeModelId, lang: locale });
 
     abortRef.current = abort;
-  }, [clearStatusTimers, input, locale, modelRuntime?.activation?.status, modelRuntime?.active?.model_id, modelRuntime?.switching_to, sending, sessionId]);
+  }, [clearStatusTimers, resetStreaming, input, locale, modelRuntime?.activation?.status, modelRuntime?.active?.model_id, modelRuntime?.switching_to, sending, sessionId]);
 
   // Keep a stable ref so the voice hook's onTranscript can send messages.
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
@@ -812,6 +855,7 @@ export default function ChatPage() {
     return () => {
       clearStatusTimers();
       if (abortRef.current) abortRef.current();
+      if (streamRafRef.current) cancelAnimationFrame(streamRafRef.current);
     };
   }, [clearStatusTimers]);
 
@@ -882,8 +926,8 @@ export default function ChatPage() {
       {/* ─── Sessions Sidebar (Desktop) ─── */}
       <aside className={`
         ${showSessions ? 'block' : 'hidden'} lg:flex
-        w-64 border-r border-navy-100 bg-white flex-shrink-0 flex-col min-h-0
-        fixed lg:static inset-y-0 left-0 z-30
+        w-64 border-e border-navy-100 bg-white flex-shrink-0 flex-col min-h-0
+        fixed lg:static inset-y-0 start-0 z-30
       `}>
         <div className="p-4 border-b border-navy-50">
           <button
@@ -976,7 +1020,7 @@ export default function ChatPage() {
                 />
               )}
 
-              {sending && <TypingIndicator statusText={statusText} />}
+              {sending && (streamingText ? <StreamingBubble text={streamingText} /> : <TypingIndicator statusText={statusText} />)}
             </>
           )}
           <div ref={messagesEndRef} />
@@ -1013,7 +1057,7 @@ export default function ChatPage() {
                 placeholder={modelSwitching ? t('chat.switching') : (voice.listening ? t('voice.listening') : t('chat.placeholder'))}
                 rows={1}
                 dir="auto"
-                className="w-full px-4 py-3 pr-12 rounded-2xl border border-navy-200 bg-surface text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 resize-none text-sm transition-all disabled:opacity-60 disabled:cursor-wait"
+                className="w-full px-4 py-3 pe-12 rounded-2xl border border-navy-200 bg-surface text-navy-900 placeholder-navy-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 resize-none text-sm transition-all disabled:opacity-60 disabled:cursor-wait"
                 style={{ minHeight: '44px', maxHeight: '120px' }}
                 onInput={(e) => {
                   e.target.style.height = 'auto';
