@@ -226,6 +226,7 @@ export const ar = {
   'va.close': 'إغلاق',
   'va.micDenied': 'تم رفض الوصول للميكروفون. فعّله من إعدادات المتصفح.',
   'va.micFailed': 'الميكروفون غير متاح على هذا الجهاز.',
+  'va.err.streamFailed': 'تعذّر الوصول للمساعد. حاول مرة أخرى.',
   // gamification
   'streak.title': 'سلسلتك',
   'streak.current': 'الحالية',

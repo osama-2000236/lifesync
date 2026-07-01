@@ -143,6 +143,17 @@ h1, h2, h3, h4, h5, h6 {
   animation: fade-up 0.4s ease-out forwards;
 }
 
+/* ─── Voice assistant silence countdown ring ─── */
+
+@keyframes voice-silence-countdown {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: 722; } /* 2π×115, matches the ring's radius */
+}
+
+.voice-silence-ring {
+  animation: voice-silence-countdown 1.3s linear forwards;
+}
+
 /* ─── Dot pulse (typing indicator) ─── */
 
 @keyframes dot-pulse {

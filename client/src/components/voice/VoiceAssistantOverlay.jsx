@@ -88,13 +88,13 @@ export default function VoiceAssistantOverlay({ open, onClose, sessionId, model 
         });
       },
       onError: () => {
-        const msg = locale === 'ar' ? 'تعذّر الوصول للمساعد. حاول مرة أخرى.' : "Couldn't reach the assistant. Try again.";
+        const msg = t('va.err.streamFailed');
         setTurns((prev) => [...prev.slice(-4), { role: 'assistant', text: msg }]);
         voiceRef.current?.enqueueSpeech(msg);
         voiceRef.current?.finishSpeechStream();
       },
     }, { model, lang: locale });
-  }, [sessionId, model, locale]);
+  }, [sessionId, model, locale, t]);
 
   const voice = useVoiceAssistant({ locale, onUtterance: handleUtterance, onBargeIn: handleBargeIn });
   useEffect(() => { voiceRef.current = voice; }, [voice]);
@@ -128,11 +128,11 @@ export default function VoiceAssistantOverlay({ open, onClose, sessionId, model 
   const lastAssistant = [...turns].reverse().find((x) => x.role === 'assistant');
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-between bg-gradient-to-b from-navy-950 via-navy-900 to-navy-950 text-white p-6"
+    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-between bg-gradient-to-b from-ink-950 via-ink-900 to-ink-950 text-white p-6"
       role="dialog" aria-modal="true" aria-label={t('va.title')}>
       {/* Header */}
       <div className="w-full flex items-center justify-between max-w-lg">
-        <span className="text-sm font-semibold text-navy-300 flex items-center gap-2">
+        <span className="text-sm font-semibold text-white/70 flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-emerald-400" /> {t('va.title')}
         </span>
         <button onClick={onClose} aria-label={t('va.close')}
@@ -145,12 +145,25 @@ export default function VoiceAssistantOverlay({ open, onClose, sessionId, model 
       <div className="flex-1 flex flex-col items-center justify-center gap-8">
         <div className="relative flex items-center justify-center" style={{ width: 240, height: 240 }}>
           {/* glow rings */}
-          <div className="absolute rounded-full blur-2xl opacity-40 transition-transform duration-100"
+          <div className="absolute rounded-full blur-2xl opacity-40 transition-[transform,background] duration-300"
             style={{ width: 200, height: 200, background: ringColor, transform: `scale(${scale})` }} />
-          <div className={`absolute rounded-full blur-xl opacity-60 ${phase === 'thinking' ? 'animate-pulse' : ''}`}
+          <div className={`absolute rounded-full blur-xl opacity-60 transition-[background] duration-300 ${phase === 'thinking' ? 'animate-pulse' : ''}`}
             style={{ width: 150, height: 150, background: ringColor, transform: `scale(${scale})` }} />
+          {/* Silence countdown — restarts (via key) each time new speech resets the
+              hook's real 1300ms silence timer. Purely presentational: an approximate
+              visual of an existing constant, not a second source of truth for it. */}
+          {phase === 'listening' && voice.transcript && (
+            <svg key={voice.transcript} className="absolute -rotate-90" width={240} height={240} viewBox="0 0 240 240">
+              <circle
+                cx={120} cy={120} r={115} fill="none" stroke="var(--color-emerald-400)"
+                strokeWidth={2} strokeLinecap="round" opacity={0.5}
+                strokeDasharray={2 * Math.PI * 115}
+                className="voice-silence-ring"
+              />
+            </svg>
+          )}
           {/* core orb */}
-          <div className="relative rounded-full shadow-2xl flex items-center justify-center transition-transform duration-100"
+          <div className="relative rounded-full shadow-2xl flex items-center justify-center transition-[transform,background] duration-300"
             style={{
               width: 120, height: 120, transform: `scale(${scale})`,
               background: `radial-gradient(circle at 35% 30%, #fff6, ${ringColor})`,
@@ -158,7 +171,7 @@ export default function VoiceAssistantOverlay({ open, onClose, sessionId, model 
             <PhaseIcon className={`w-9 h-9 text-white ${phase === 'speaking' ? 'animate-pulse' : ''}`} />
           </div>
         </div>
-        <p className="text-lg font-medium text-navy-100">{phaseLabel}</p>
+        <p className="text-lg font-medium text-white/90">{phaseLabel}</p>
 
         {/* live transcript / last turns */}
         <div className="min-h-[4rem] max-w-md text-center px-4" dir="auto">
@@ -166,7 +179,7 @@ export default function VoiceAssistantOverlay({ open, onClose, sessionId, model 
             <p className="text-emerald-200 text-base">{voice.transcript}</p>
           ) : (
             <>
-              {lastUser && <p className="text-navy-400 text-sm mb-1">{lastUser.text}</p>}
+              {lastUser && <p className="text-white/50 text-sm mb-1">{lastUser.text}</p>}
               {lastAssistant && <p className="text-white text-base leading-relaxed">{lastAssistant.text}</p>}
             </>
           )}
@@ -181,7 +194,7 @@ export default function VoiceAssistantOverlay({ open, onClose, sessionId, model 
               : voice.error === 'unsupported' ? t('voice.unsupported') : t('va.micFailed')}
           </p>
         ) : (
-          <p className="text-navy-400 text-xs mb-3">{t('va.hint')}</p>
+          <p className="text-white/50 text-xs mb-3">{t('va.hint')}</p>
         )}
         <button onClick={onClose}
           className="px-6 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white font-medium transition-colors inline-flex items-center gap-2">

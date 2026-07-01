@@ -226,6 +226,7 @@ export const en = {
   'va.close': 'Close',
   'va.micDenied': 'Microphone access denied. Enable it in your browser settings.',
   'va.micFailed': 'Microphone unavailable on this device.',
+  'va.err.streamFailed': "Couldn't reach the assistant. Try again.",
   // gamification
   'streak.title': 'Your Streak',
   'streak.current': 'Current',
