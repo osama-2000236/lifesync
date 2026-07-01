@@ -1,0 +1,109 @@
+// tests/voiceTranscribe.test.js
+// ============================================
+// Voice STT surface — GET /config + POST /transcribe (hybrid fallback proxy).
+// Auth stubbed, axios (upstream STT provider) mocked. No DB needed.
+// ============================================
+
+jest.mock('../server/middleware/auth', () => ({
+  authenticate: (req, _res, next) => { req.user = { id: 1 }; next(); },
+}));
+jest.mock('axios');
+
+const express = require('express');
+const request = require('supertest');
+const axios = require('axios');
+const voiceRoutes = require('../server/routes/voiceRoutes');
+
+const app = express();
+app.use(express.json());
+app.use('/api/voice', voiceRoutes);
+
+const ORIGINAL_ENV = { ...process.env };
+const configure = () => {
+  process.env.VOICE_STT_ENDPOINT = 'https://stt.example/v1/audio/transcriptions';
+  process.env.VOICE_STT_API_KEY = 'test-key';
+};
+const unconfigure = () => {
+  delete process.env.VOICE_STT_ENDPOINT;
+  delete process.env.VOICE_STT_API_KEY;
+  delete process.env.VOICE_STT_MODEL;
+};
+
+beforeEach(() => { jest.clearAllMocks(); unconfigure(); });
+afterAll(() => { process.env = ORIGINAL_ENV; });
+
+describe('GET /config', () => {
+  test('reports browser-default, cloud off when unconfigured', async () => {
+    const res = await request(app).get('/api/voice/config');
+    expect(res.status).toBe(200);
+    expect(res.body.data.stt).toMatchObject({ browser: true, cloud: false, default: 'browser' });
+    expect(res.body.data.rtl_languages).toContain('ar');
+    expect(res.body.data.languages.length).toBeGreaterThan(0);
+  });
+
+  test('reports cloud on when configured', async () => {
+    configure();
+    const res = await request(app).get('/api/voice/config');
+    expect(res.body.data.stt.cloud).toBe(true);
+  });
+});
+
+describe('POST /transcribe', () => {
+  test('501 when cloud STT not configured', async () => {
+    const res = await request(app)
+      .post('/api/voice/transcribe')
+      .attach('file', Buffer.from('audio'), 'clip.webm');
+    expect(res.status).toBe(501);
+    expect(res.body.code).toBe('VOICE_STT_NOT_CONFIGURED');
+  });
+
+  test('400 when no audio file provided', async () => {
+    configure();
+    const res = await request(app).post('/api/voice/transcribe').field('language', 'en');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('VOICE_STT_NO_AUDIO');
+  });
+
+  test('200 returns transcribed text on success', async () => {
+    configure();
+    axios.post.mockResolvedValue({ data: { text: 'hello world' } });
+    const res = await request(app)
+      .post('/api/voice/transcribe')
+      .field('language', 'en')
+      .attach('file', Buffer.from('fake-audio-bytes'), 'clip.webm');
+    expect(res.status).toBe(200);
+    expect(res.body.data.text).toBe('hello world');
+    expect(axios.post).toHaveBeenCalledWith(
+      process.env.VOICE_STT_ENDPOINT,
+      expect.any(Object),
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer test-key' }) }),
+    );
+  });
+
+  test('502 when upstream provider fails', async () => {
+    configure();
+    axios.post.mockRejectedValue(new Error('upstream 500'));
+    const res = await request(app)
+      .post('/api/voice/transcribe')
+      .attach('file', Buffer.from('fake-audio'), 'clip.webm');
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe('VOICE_STT_UPSTREAM_ERROR');
+  });
+});
+
+describe('transcribeAudio helper', () => {
+  test('sends language + default model, returns text', async () => {
+    configure();
+    axios.post.mockResolvedValue({ data: { text: 'salam' } });
+    const text = await voiceRoutes.transcribeAudio(Buffer.from('a'), 'a.webm', 'ar');
+    expect(text).toBe('salam');
+  });
+
+  test('omits language when absent + honors custom model + empty text fallback', async () => {
+    configure();
+    process.env.VOICE_STT_MODEL = 'whisper-tiny';
+    axios.post.mockResolvedValue({ data: {} }); // no text field
+    const text = await voiceRoutes.transcribeAudio(Buffer.from('a'), undefined, undefined);
+    expect(text).toBe('');
+  });
+});

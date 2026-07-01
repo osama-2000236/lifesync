@@ -220,6 +220,29 @@ export const insightsAPI = {
   getGamification: () => api.get('/insights/gamification'),
 };
 
+// ─── Voice Assistant — cross-domain interview API ───
+export const assistantAPI = {
+  getSuggestion: (lang) => api.get('/assistant/suggestion', { params: { lang } }),
+  startInterview: (topic, consent, lang) =>
+    api.post('/assistant/interview/start', { topic, consent, lang }),
+  answer: (step, answer, lang) =>
+    api.post('/assistant/interview/answer', { step, answer, lang }),
+};
+
+// ─── Voice STT (server-side fallback for browsers without Web Speech API) ───
+export const voiceAPI = {
+  getConfig: () => api.get('/voice/config'),
+  transcribe: (blob, language) => {
+    const form = new FormData();
+    form.append('file', blob, 'audio.webm');
+    if (language) form.append('language', language);
+    return api.post('/voice/transcribe', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 30000,
+    });
+  },
+};
+
 // ─── External Integrations API ───
 export const externalAPI = {
   connect: (platform) => api.get(`/external/connect/${platform}`),

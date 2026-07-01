@@ -29,4 +29,16 @@ module.exports = {
     '\\.spec\\.js$',
     '\\.spec\\.ts$',
   ],
+  // Coverage is scoped to the new voice-assistant surface and gated at 100% —
+  // this is the QA contract for the feature. Existing backend suites are
+  // unaffected (they run under `npm test`).
+  collectCoverageFrom: [
+    'server/services/ai/crossDomainInterviewService.js',
+    'server/controllers/assistantController.js',
+    'server/routes/assistantRoutes.js',
+    'server/routes/voiceRoutes.js',
+  ],
+  coverageThreshold: {
+    global: { statements: 100, branches: 100, functions: 100, lines: 100 },
+  },
 };

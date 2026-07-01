@@ -5,12 +5,13 @@ import { useSettings } from '../../contexts/SettingsContext';
 import SettingsControls from '../common/SettingsControls';
 import {
   LayoutDashboard, MessageCircle, Heart, Wallet, Shield,
-  LogOut, Menu, X, Activity, ChevronRight, Plug, Globe, FileText,
+  LogOut, Menu, X, Activity, ChevronRight, Plug, Globe, FileText, Mic,
 } from 'lucide-react';
 
 const navItems = [
   { to: '/dashboard', key: 'nav.dashboard', icon: LayoutDashboard },
   { to: '/chat', key: 'nav.assistant', icon: MessageCircle },
+  { to: '/assistant', key: 'nav.voice', icon: Mic },
   { to: '/health', key: 'nav.health', icon: Heart },
   { to: '/finance', key: 'nav.finance', icon: Wallet },
   { to: '/integrations', key: 'nav.integrations', icon: Plug },

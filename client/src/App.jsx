@@ -15,6 +15,7 @@ import FullScreenLoader from './components/common/FullScreenLoader';
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const ChatPage = lazy(() => import('./pages/ChatPage'));
+const AssistantPage = lazy(() => import('./pages/AssistantPage'));
 const HealthPage = lazy(() => import('./pages/HealthPage'));
 const FinancePage = lazy(() => import('./pages/FinancePage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
@@ -82,6 +83,7 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<Suspense fallback={<PageLoader />}><DashboardPage /></Suspense>} />
             <Route path="/chat" element={<Suspense fallback={<PageLoader />}><ChatPage /></Suspense>} />
+            <Route path="/assistant" element={<Suspense fallback={<PageLoader />}><AssistantPage /></Suspense>} />
             <Route path="/health" element={<Suspense fallback={<PageLoader />}><HealthPage /></Suspense>} />
             <Route path="/finance" element={<Suspense fallback={<PageLoader />}><FinancePage /></Suspense>} />
             <Route path="/profile" element={<Suspense fallback={<PageLoader />}><ProfilePage /></Suspense>} />
