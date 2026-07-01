@@ -18,7 +18,7 @@ function Section({ icon: Icon, title, children, id }) {
         </div>
         <h2 className="font-display text-xl font-bold text-navy-900">{title}</h2>
       </div>
-      <div className="text-navy-600 text-sm leading-7 space-y-3 pl-11">{children}</div>
+      <div className="text-navy-600 text-sm leading-7 space-y-3 ps-11">{children}</div>
     </section>
   );
 }

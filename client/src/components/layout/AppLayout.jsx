@@ -66,7 +66,7 @@ export default function AppLayout() {
               <p className="text-[11px] text-navy-400 -mt-0.5 font-medium">{t('brand.tagline')}</p>
             </div>
           </Link>
-          <button onClick={() => setSidebarOpen(false)} aria-label="Close navigation" className="ml-auto lg:hidden text-navy-400">
+          <button onClick={() => setSidebarOpen(false)} aria-label="Close navigation" className="ms-auto lg:hidden text-navy-400">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -76,7 +76,7 @@ export default function AppLayout() {
             <NavLink key={to} to={to} className={navLinkClass} onClick={() => setSidebarOpen(false)}>
               <Icon className="w-[18px] h-[18px]" />
               <span>{t(key)}</span>
-              <ChevronRight className="w-4 h-4 ml-auto opacity-0 -translate-x-1 group-hover:opacity-50 group-hover:translate-x-0 transition-all rtl:rotate-180" />
+              <ChevronRight className="w-4 h-4 ms-auto opacity-0 -translate-x-1 rtl:translate-x-1 group-hover:opacity-50 group-hover:translate-x-0 transition-all rtl:rotate-180" />
             </NavLink>
           ))}
 
@@ -99,7 +99,7 @@ export default function AppLayout() {
             <NavLink key={to} to={to} className={navLinkClass} onClick={() => setSidebarOpen(false)}>
               <Icon className="w-[18px] h-[18px]" />
               <span>{t(key)}</span>
-              <ChevronRight className="w-4 h-4 ml-auto opacity-0 -translate-x-1 group-hover:opacity-50 group-hover:translate-x-0 transition-all rtl:rotate-180" />
+              <ChevronRight className="w-4 h-4 ms-auto opacity-0 -translate-x-1 rtl:translate-x-1 group-hover:opacity-50 group-hover:translate-x-0 transition-all rtl:rotate-180" />
             </NavLink>
           ))}
         </nav>
