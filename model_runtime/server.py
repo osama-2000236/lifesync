@@ -247,7 +247,7 @@ def main() -> None:
     parser.add_argument("--onnx", type=Path, default=Path("model_runtime/artifacts/bert_intent_directml.onnx"))
     parser.add_argument("--provider", choices=["auto", "directml", "cpu"], default=os.getenv("BERT_RUNTIME_PROVIDER", "auto"))
     parser.add_argument("--host", default=os.getenv("BERT_RUNTIME_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.getenv("BERT_RUNTIME_PORT", os.getenv("PORT", "1235"))))
+    parser.add_argument("--port", type=int, default=int(os.getenv("BERT_RUNTIME_PORT", "1235")))
     args = parser.parse_args()
 
     runtime = IntentRuntime(args.model, args.onnx, args.provider)
