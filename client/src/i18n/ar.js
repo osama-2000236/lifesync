@@ -114,6 +114,12 @@ export const ar = {
   // chat ↔ voice studio link
   'chat.openVoice': 'افتح المساعد الصوتي',
   'assistant.backToChat': 'العودة إلى المحادثة',
+  // mic permission UX
+  'assistant.micDeniedTitle': 'الوصول إلى الميكروفون محظور',
+  'assistant.micDeniedBody': 'اسمح بالميكروفون لتطبيق LifeSync: اضغط أيقونة الميكروفون/القفل في شريط النافذة ← إعدادات الموقع ← الميكروفون ← السماح. وفي ويندوز تحقق أيضًا من الإعدادات ← الخصوصية والأمان ← الميكروفون، ثم اضغط «حاول مجددًا».',
+  'assistant.micNone': 'لم يتم العثور على ميكروفون في هذا الجهاز.',
+  'assistant.retryMic': 'حاول مجددًا',
+  'chat.dictate.denied': 'الميكروفون محظور — اسمح به من أيقونة الميكروفون/القفل في شريط العنوان ثم حاول مجددًا.',
   // AI model pulse / picker
   'model.checking': 'جارٍ التحقق من الذكاء الاصطناعي',
   'model.ready': 'الذكاء الاصطناعي جاهز',

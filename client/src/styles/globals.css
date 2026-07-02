@@ -52,6 +52,12 @@
   --color-ink-900: #102a43;
   --color-ink-950: #0a1929;
 
+  /* Theme-invariant white. Use INSTEAD of `bg-white` for chips/pills that sit
+     on an always-dark (ink) surface and must stay white in dark mode too —
+     the global `.dark .bg-white` remap below would otherwise turn them into a
+     dark surface and make their ink text invisible. */
+  --color-paper: #ffffff;
+
   --font-display: 'Outfit', sans-serif;
   --font-body: 'DM Sans', sans-serif;
 

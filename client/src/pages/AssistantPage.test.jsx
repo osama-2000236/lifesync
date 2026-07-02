@@ -147,8 +147,26 @@ describe('AssistantPage — converse + dictate', () => {
     expect(voiceStub.stop).toHaveBeenCalled();
   });
 
-  it('shows the mic-error phase label', async () => {
+  it('shows denied-mic guidance with a retry that restarts the loop', async () => {
     voiceStub.error = 'mic-denied';
+    await renderPage();
+    expect(screen.getByText('assistant.micDeniedTitle')).toBeInTheDocument();
+    expect(screen.getByTestId('mic-denied-help')).toBeInTheDocument();
+    // Idle + error → the toggle becomes "try again" and calls start.
+    fireEvent.click(screen.getByTestId('converse-toggle'));
+    expect(voiceStub.start).toHaveBeenCalled();
+    expect(screen.getByText('assistant.retryMic')).toBeInTheDocument();
+  });
+
+  it('labels a missing microphone distinctly', async () => {
+    voiceStub.error = 'mic-none';
+    await renderPage();
+    expect(screen.getByText('assistant.micNone')).toBeInTheDocument();
+    expect(screen.queryByTestId('mic-denied-help')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the generic mic-error label for other failures', async () => {
+    voiceStub.error = 'mic-failed';
     await renderPage();
     expect(screen.getByText('assistant.micError')).toBeInTheDocument();
   });

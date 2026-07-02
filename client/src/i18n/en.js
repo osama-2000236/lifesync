@@ -114,6 +114,12 @@ export const en = {
   // chat ↔ voice studio link
   'chat.openVoice': 'Open the voice assistant',
   'assistant.backToChat': 'Back to chat',
+  // mic permission UX
+  'assistant.micDeniedTitle': 'Microphone access is blocked',
+  'assistant.micDeniedBody': 'Allow the microphone for LifeSync: click the mic/lock icon in the window bar → Site settings → Microphone → Allow. On Windows also check Settings → Privacy & security → Microphone. Then tap Try again.',
+  'assistant.micNone': 'No microphone was found on this device.',
+  'assistant.retryMic': 'Try again',
+  'chat.dictate.denied': 'Microphone is blocked — allow it from the mic/lock icon in the address bar, then try again.',
   // AI model pulse / picker
   'model.checking': 'Checking AI',
   'model.ready': 'AI ready',

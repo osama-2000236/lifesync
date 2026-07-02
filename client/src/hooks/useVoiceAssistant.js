@@ -102,8 +102,14 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
         rafRef.current = requestAnimationFrame(tick);
       };
       tick();
+      return true;
     } catch (e) {
-      setError(e?.name === 'NotAllowedError' ? 'mic-denied' : 'mic-failed');
+      setError(
+        e?.name === 'NotAllowedError' ? 'mic-denied'
+          : e?.name === 'NotFoundError' ? 'mic-none'
+            : 'mic-failed'
+      );
+      return false;
     }
   }, []);
 
@@ -361,9 +367,16 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     setError(null);
     activeRef.current = true;
     setActive(true);
-    await startMeter();
+    const micOk = await startMeter();
+    if (!micOk) {
+      // No microphone → don't pretend to listen; surface the error + retry UX.
+      activeRef.current = false;
+      setActive(false);
+      setPhase('idle');
+      return;
+    }
     startListening();
-  }, [supported, startMeter, startListening]);
+  }, [supported, startMeter, startListening, setPhase]);
 
   // Retry the native engine when the language changes — it may work for the
   // new locale even if it was broken for the previous one.

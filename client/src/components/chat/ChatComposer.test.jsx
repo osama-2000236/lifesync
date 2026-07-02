@@ -104,10 +104,16 @@ describe('ChatComposer', () => {
     expect(screen.queryByTestId('mic-button')).not.toBeInTheDocument();
   });
 
-  it('surfaces dictation errors', () => {
+  it('surfaces a permission-specific message when the mic is blocked', () => {
     dict.error = 'mic_denied';
     render(<ChatComposer locale="en" onSubmit={() => {}} t={t} />);
-    expect(screen.getByTestId('dictation-error')).toBeInTheDocument();
+    expect(screen.getByTestId('dictation-error')).toHaveTextContent('chat.dictate.denied');
+  });
+
+  it('surfaces a generic message for other dictation errors', () => {
+    dict.error = 'no_transcript';
+    render(<ChatComposer locale="en" onSubmit={() => {}} t={t} />);
+    expect(screen.getByTestId('dictation-error')).toHaveTextContent('chat.dictate.error');
   });
 
   it('uses an external input ref when provided', () => {

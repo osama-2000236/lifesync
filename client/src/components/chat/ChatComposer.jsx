@@ -121,7 +121,9 @@ export default function ChatComposer({ locale, busy, onSubmit, t, inputRef: exte
       </div>
 
       {dictation.error && (
-        <p className="px-4 pb-2 text-xs text-coral-500" data-testid="dictation-error">{t('chat.dictate.error')}</p>
+        <p className="px-4 pb-2 text-xs text-coral-500" data-testid="dictation-error">
+          {t(dictation.error === 'mic_denied' || dictation.error === 'not-allowed' ? 'chat.dictate.denied' : 'chat.dictate.error')}
+        </p>
       )}
     </div>
   );

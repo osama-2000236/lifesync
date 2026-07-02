@@ -172,7 +172,10 @@ export default function AssistantPage() {
 
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
   const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-  const phaseLabel = voice.error ? t('assistant.micError')
+  const micErrorTitle = voice.error === 'mic-denied' ? t('assistant.micDeniedTitle')
+    : voice.error === 'mic-none' ? t('assistant.micNone')
+      : t('assistant.micError');
+  const phaseLabel = voice.error ? micErrorTitle
     : ({ listening: t('va.listening'), thinking: t('va.thinking'), speaking: t('va.speaking'), idle: t('assistant.tapConverse') }[voice.state] || '');
 
   return (
@@ -198,14 +201,14 @@ export default function AssistantPage() {
               <div className="flex items-center gap-1 p-1 rounded-full bg-white/10">
                 <button
                   onClick={() => setMode('converse')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors flex items-center gap-1.5 ${mode === 'converse' ? 'bg-white text-ink-900' : 'text-white/70 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors flex items-center gap-1.5 ${mode === 'converse' ? 'bg-paper text-ink-900' : 'text-white/70 hover:text-white'}`}
                   data-testid="mode-converse"
                 >
                   <Mic className="w-3.5 h-3.5" /> {t('assistant.modeConverse')}
                 </button>
                 <button
                   onClick={() => setMode('dictate')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors flex items-center gap-1.5 ${mode === 'dictate' ? 'bg-white text-ink-900' : 'text-white/70 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors flex items-center gap-1.5 ${mode === 'dictate' ? 'bg-paper text-ink-900' : 'text-white/70 hover:text-white'}`}
                   data-testid="mode-dictate"
                 >
                   <MessageSquareText className="w-3.5 h-3.5" /> {t('assistant.modeDictate')}
@@ -227,12 +230,19 @@ export default function AssistantPage() {
                     </>
                   )}
                 </div>
+                {voice.error === 'mic-denied' && (
+                  <p className="max-w-sm text-center text-xs leading-5 text-white/50" data-testid="mic-denied-help">
+                    {t('assistant.micDeniedBody')}
+                  </p>
+                )}
                 <button
                   onClick={toggleConverse}
                   className="px-6 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white font-medium transition-colors inline-flex items-center gap-2"
                   data-testid="converse-toggle"
                 >
-                  {talking ? <><Square className="w-4 h-4" /> {t('assistant.stop')}</> : <><Mic className="w-4 h-4" /> {t('assistant.startTalking')}</>}
+                  {talking ? <><Square className="w-4 h-4" /> {t('assistant.stop')}</>
+                    : voice.error ? <><RefreshCw className="w-4 h-4" /> {t('assistant.retryMic')}</>
+                      : <><Mic className="w-4 h-4" /> {t('assistant.startTalking')}</>}
                 </button>
               </div>
             ) : (
@@ -246,9 +256,7 @@ export default function AssistantPage() {
                     </div>
                   ))}
                 </div>
-                <div className="text-ink-900">
-                  <DictationComposer locale={locale} busy={false} onSubmit={(txt) => streamReply(txt, { speak: false })} t={t} />
-                </div>
+                <DictationComposer locale={locale} busy={false} onSubmit={(txt) => streamReply(txt, { speak: false })} t={t} />
               </div>
             )}
           </div>
@@ -274,7 +282,7 @@ export default function AssistantPage() {
             <div className="rounded-2xl border border-navy-100 bg-white p-5 text-sm text-navy-500" data-testid="dismissed-note">{t('assistant.dismissed')}</div>
           )}
           {flow === 'idle' && (
-            <div className="rounded-2xl border border-dashed border-navy-200 bg-white/50 p-5 text-sm text-navy-400" data-testid="idle-note">{t('assistant.noSuggestion')}</div>
+            <div className="rounded-2xl border border-dashed border-navy-200 bg-white/50 dark:bg-white/5 p-5 text-sm text-navy-400" data-testid="idle-note">{t('assistant.noSuggestion')}</div>
           )}
         </aside>
       </div>
