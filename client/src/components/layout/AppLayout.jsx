@@ -53,9 +53,9 @@ export default function AppLayout() {
       )}
 
       <aside className={`
-        fixed lg:static inset-y-0 left-0 z-50 w-72 bg-white border-r border-navy-100
+        fixed lg:static inset-y-0 start-0 z-50 w-72 bg-white border-e border-navy-100
         flex flex-col transition-transform duration-300 ease-out
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full lg:translate-x-0 lg:rtl:translate-x-0'}
       `}>
         <div className="flex items-center gap-3 px-6 py-5 border-b border-navy-50">
           <Link to="/dashboard" className="flex items-center gap-3 min-w-0 group">
@@ -67,7 +67,7 @@ export default function AppLayout() {
               <p className="text-[11px] text-navy-400 -mt-0.5 font-medium">{t('brand.tagline')}</p>
             </div>
           </Link>
-          <button onClick={() => setSidebarOpen(false)} aria-label="Close navigation" className="ms-auto lg:hidden text-navy-400">
+          <button onClick={() => setSidebarOpen(false)} aria-label={t('a11y.closeNav')} className="ms-auto lg:hidden text-navy-400">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -113,7 +113,7 @@ export default function AppLayout() {
             <Link to="/profile" className="flex items-center gap-3 flex-1 min-w-0 group">
               <div className="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-navy-300 to-navy-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 group-hover:ring-2 group-hover:ring-emerald-400 transition-all">
                 {user?.avatar_url ? (
-                  <img src={user.avatar_url} alt="Profile avatar" className="w-full h-full object-cover" />
+                  <img src={user.avatar_url} alt={t('a11y.avatar')} className="w-full h-full object-cover" />
                 ) : (
                   userInitial
                 )}
@@ -138,7 +138,7 @@ export default function AppLayout() {
 
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="lg:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-navy-100">
-          <button onClick={() => setSidebarOpen(true)} aria-label="Open navigation" className="p-2 rounded-lg hover:bg-navy-50 text-navy-600">
+          <button onClick={() => setSidebarOpen(true)} aria-label={t('a11y.openNav')} className="p-2 rounded-lg hover:bg-navy-50 text-navy-600">
             <Menu className="w-5 h-5" />
           </button>
           <Link to="/dashboard" className="flex items-center gap-2">

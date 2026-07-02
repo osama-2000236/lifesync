@@ -244,8 +244,10 @@ export const voiceAPI = {
     const form = new FormData();
     form.append('file', blob, 'audio.webm');
     if (language) form.append('language', language);
+    // No manual Content-Type: the browser must set the multipart boundary
+    // itself or multer rejects the upload ("Boundary not found").
     return api.post('/voice/transcribe', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': undefined },
       timeout: 30000,
     });
   },

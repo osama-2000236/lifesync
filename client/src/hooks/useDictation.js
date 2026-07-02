@@ -18,6 +18,14 @@ const langTag = (locale) => (locale === 'ar' ? 'ar-SA' : 'en-US');
 const canRecord = () =>
   !!navigator.mediaDevices?.getUserMedia && typeof window.MediaRecorder !== 'undefined';
 
+// Native SR errors that mean "this engine will never work here" (Arabic on
+// desktop Chrome reports language-not-supported or network) — fall back to
+// recording + server Whisper instead of surfacing a dead mic.
+const NATIVE_FATAL = ['language-not-supported', 'network', 'service-not-allowed', 'audio-capture'];
+// Remember per-locale native failures for the session so the next tap goes
+// straight to the cloud path instead of failing once per attempt.
+const nativeBroken = new Set();
+
 // idle | listening | transcribing
 export function useDictation({ locale = 'en', onText } = {}) {
   const nativeSupported = Boolean(NativeSR);
@@ -44,6 +52,9 @@ export function useDictation({ locale = 'en', onText } = {}) {
     streamRef.current = null;
   }, []);
 
+  // Forward declaration: native error handler falls back to the cloud path.
+  const startCloudRef = useRef(() => {});
+
   // ─── Native path ───
   const startNative = useCallback(() => {
     const rec = new NativeSR();
@@ -62,7 +73,20 @@ export function useDictation({ locale = 'en', onText } = {}) {
       setPartial(finalText || interim);
       if (finalText) emit(finalText);
     };
-    rec.onerror = (e) => { setError(e?.error || 'speech_error'); setState('idle'); };
+    rec.onerror = (e) => {
+      const code = e?.error || 'speech_error';
+      // Engine can't do this language/network here — switch to record+Whisper
+      // transparently so the mic still works (Arabic on desktop Chrome).
+      if (NATIVE_FATAL.includes(code) && canRecord()) {
+        nativeBroken.add(locale);
+        try { rec.abort(); } catch { /* ignore */ }
+        startCloudRef.current();
+        return;
+      }
+      if (code === 'no-speech' || code === 'aborted') { setState('idle'); return; }
+      setError(code);
+      setState('idle');
+    };
     rec.onend = () => setState((s) => (s === 'listening' ? 'idle' : s));
     recognitionRef.current = rec;
     setState('listening');
@@ -106,12 +130,14 @@ export function useDictation({ locale = 'en', onText } = {}) {
     }
   }, [finishCloud]);
 
+  useEffect(() => { startCloudRef.current = startCloud; }, [startCloud]);
+
   const start = useCallback(() => {
     setError(null);
     setPartial('');
-    if (nativeSupported) return startNative();
+    if (nativeSupported && !nativeBroken.has(locale)) return startNative();
     return startCloud();
-  }, [nativeSupported, startNative, startCloud]);
+  }, [nativeSupported, locale, startNative, startCloud]);
 
   const stop = useCallback(() => {
     if (recognitionRef.current) {

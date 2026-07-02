@@ -9,7 +9,8 @@
 //      replies with real advice from the Insight Engine.
 // ============================================
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Sparkles, Mic, MessageSquareText, Square, RefreshCw } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Sparkles, Mic, MessageSquareText, Square, RefreshCw, MessageCircle } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { useVoiceAssistant } from '../hooks/useVoiceAssistant';
 import { chatAPI, assistantAPI } from '../services/api';
@@ -186,6 +187,13 @@ export default function AssistantPage() {
             <div className="relative flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm font-semibold text-white/70">
                 <Sparkles className="w-4 h-4 text-emerald-400" /> {t('assistant.title')}
+                <Link
+                  to="/chat"
+                  className="ms-2 inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/70 hover:bg-white/20 hover:text-white transition-colors"
+                  data-testid="back-to-chat"
+                >
+                  <MessageCircle className="w-3 h-3" /> {t('assistant.backToChat')}
+                </Link>
               </div>
               <div className="flex items-center gap-1 p-1 rounded-full bg-white/10">
                 <button

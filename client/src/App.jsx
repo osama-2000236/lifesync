@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { SettingsProvider } from './contexts/SettingsContext';
+import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
@@ -24,11 +24,12 @@ const OnboardingPage = lazy(() => import('./pages/OnboardingPage'));
 const IntegrationsPage = lazy(() => import('./pages/IntegrationsPage'));
 
 function PageLoader() {
+  const { t } = useSettings();
   return (
     <div className="flex items-center justify-center h-full min-h-[50vh]">
       <div className="flex flex-col items-center gap-3">
         <div className="w-8 h-8 border-3 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
-        <p className="text-navy-400 text-sm">Loading...</p>
+        <p className="text-navy-400 text-sm">{t('common.loading')}</p>
       </div>
     </div>
   );

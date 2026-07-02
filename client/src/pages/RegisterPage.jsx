@@ -89,7 +89,7 @@ export default function RegisterPage() {
 
   const handleGoogleSuccess = async ({ credential }) => {
     if (!credential) {
-      setError('Google did not return a credential. Please try again.');
+      setError(t('errors.googleNoCredential'));
       return;
     }
 
@@ -100,7 +100,7 @@ export default function RegisterPage() {
       await loginWithGoogle(credential);
       navigate('/dashboard');
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Google sign-up failed. Please try again.'));
+      setError(getApiErrorMessage(err, t('errors.googleSignUpFailed')));
     } finally {
       setGoogleLoading(false);
     }
@@ -136,7 +136,7 @@ export default function RegisterPage() {
               <GoogleSignInButton
                 text="signup_with"
                 onSuccess={handleGoogleSuccess}
-                onError={() => setError('Google sign-up is unavailable right now. Please use email.')}
+                onError={() => setError(t('errors.googleSignUpUnavailable'))}
               />
               {googleLoading && (
                 <p className="mt-3 text-center text-sm text-navy-500" role="status" aria-live="polite">{t('reg.creatingGoogle')}</p>

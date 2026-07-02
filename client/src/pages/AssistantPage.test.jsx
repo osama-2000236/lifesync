@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ─── Mocks ───
@@ -34,7 +35,7 @@ beforeEach(() => {
 });
 
 const renderPage = async () => {
-  const utils = render(<AssistantPage />);
+  const utils = render(<MemoryRouter><AssistantPage /></MemoryRouter>);
   await waitFor(() => expect(assistantAPI.getSuggestion).toHaveBeenCalled());
   return utils;
 };

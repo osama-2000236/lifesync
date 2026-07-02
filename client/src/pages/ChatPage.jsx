@@ -10,8 +10,9 @@
 //   • switchable context depth (standard / deep / max) and DB-backed memory.
 // ============================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  Sparkles, History, Volume2, VolumeX, Layers, HeartPulse, Wallet, Link2,
+  Sparkles, History, Volume2, VolumeX, Layers, HeartPulse, Wallet, Link2, AudioLines,
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { chatAPI, aiAPI } from '../services/api';
@@ -255,6 +256,18 @@ export default function ChatPage() {
           </div>
 
           <div className="ms-auto flex items-center gap-1.5">
+            {/* Hands-free voice studio lives on its own page */}
+            <Link
+              to="/assistant"
+              title={t('chat.openVoice')}
+              aria-label={t('chat.openVoice')}
+              className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm shadow-emerald-500/30 hover:from-emerald-600 hover:to-emerald-700 transition-colors"
+              data-testid="open-voice-studio"
+            >
+              <AudioLines className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{t('nav.voice')}</span>
+            </Link>
+
             {/* Context depth: standard → deep → max */}
             <button
               type="button"

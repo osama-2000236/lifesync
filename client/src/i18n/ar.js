@@ -94,6 +94,26 @@ export const ar = {
   'chat.attribution.bert': 'LifeSync BERT — محرك محلي خاص',
   'chat.footer.modelNote': 'الإجابات تستخدم بياناتك وذاكرتك',
   'common.close': 'إغلاق',
+  'common.loading': 'جارٍ التحميل…',
+  // a11y + shared chrome
+  'a11y.openNav': 'فتح قائمة التنقل',
+  'a11y.closeNav': 'إغلاق قائمة التنقل',
+  'a11y.showPassword': 'إظهار كلمة المرور',
+  'a11y.hidePassword': 'إخفاء كلمة المرور',
+  'a11y.avatar': 'الصورة الشخصية',
+  'list.empty': 'لا يوجد شيء هنا بعد',
+  'list.prevPage': 'الصفحة السابقة',
+  'list.nextPage': 'الصفحة التالية',
+  // auth error fallbacks
+  'errors.googleNoCredential': 'لم تُرجع Google بيانات اعتماد. حاول مرة أخرى.',
+  'errors.googleSignInFailed': 'فشل تسجيل الدخول بواسطة Google. حاول مرة أخرى.',
+  'errors.googleSignInUnavailable': 'تسجيل الدخول بواسطة Google غير متاح حاليًا. جرّب البريد الإلكتروني.',
+  'errors.googleSignUpFailed': 'فشل إنشاء الحساب بواسطة Google. حاول مرة أخرى.',
+  'errors.googleSignUpUnavailable': 'إنشاء الحساب بواسطة Google غير متاح حاليًا. استخدم البريد الإلكتروني.',
+  'errors.insightsLoad': 'تعذّر تحميل الرؤى حاليًا.',
+  // chat ↔ voice studio link
+  'chat.openVoice': 'افتح المساعد الصوتي',
+  'assistant.backToChat': 'العودة إلى المحادثة',
   // AI model pulse / picker
   'model.checking': 'جارٍ التحقق من الذكاء الاصطناعي',
   'model.ready': 'الذكاء الاصطناعي جاهز',

@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ─── Mocks ───
@@ -72,7 +73,7 @@ afterEach(() => {
 });
 
 const renderPage = async () => {
-  const utils = render(<ChatPage />);
+  const utils = render(<MemoryRouter><ChatPage /></MemoryRouter>);
   await waitFor(() => expect(aiAPI.getModels).toHaveBeenCalled());
   await waitFor(() => expect(chatAPI.getSessions).toHaveBeenCalled());
   return utils;
@@ -439,7 +440,7 @@ describe('ChatPage — edges', () => {
   it('ignores a stale models response after unmount', async () => {
     let resolveModels;
     aiAPI.getModels.mockReturnValue(new Promise((res) => { resolveModels = res; }));
-    const { unmount } = render(<ChatPage />);
+    const { unmount } = render(<MemoryRouter><ChatPage /></MemoryRouter>);
     await waitFor(() => expect(chatAPI.getSessions).toHaveBeenCalled());
     unmount();
     await act(async () => { resolveModels(wrap({ models: [{ id: 'x', label: 'X' }] })); });

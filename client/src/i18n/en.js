@@ -94,6 +94,26 @@ export const en = {
   'chat.attribution.bert': 'LifeSync BERT — private local engine',
   'chat.footer.modelNote': 'Answers use your data + memory',
   'common.close': 'Close',
+  'common.loading': 'Loading…',
+  // a11y + shared chrome
+  'a11y.openNav': 'Open navigation',
+  'a11y.closeNav': 'Close navigation',
+  'a11y.showPassword': 'Show password',
+  'a11y.hidePassword': 'Hide password',
+  'a11y.avatar': 'Profile avatar',
+  'list.empty': 'Nothing here yet',
+  'list.prevPage': 'Previous page',
+  'list.nextPage': 'Next page',
+  // auth error fallbacks
+  'errors.googleNoCredential': 'Google did not return a credential. Please try again.',
+  'errors.googleSignInFailed': 'Google sign-in failed. Please try again.',
+  'errors.googleSignInUnavailable': 'Google sign-in is unavailable right now. Please try email login.',
+  'errors.googleSignUpFailed': 'Google sign-up failed. Please try again.',
+  'errors.googleSignUpUnavailable': 'Google sign-up is unavailable right now. Please use email.',
+  'errors.insightsLoad': 'Unable to load insights right now.',
+  // chat ↔ voice studio link
+  'chat.openVoice': 'Open the voice assistant',
+  'assistant.backToChat': 'Back to chat',
   // AI model pulse / picker
   'model.checking': 'Checking AI',
   'model.ready': 'AI ready',

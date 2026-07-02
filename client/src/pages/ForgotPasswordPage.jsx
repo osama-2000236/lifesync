@@ -225,7 +225,7 @@ export default function ForgotPasswordPage() {
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute end-3 top-1/2 -translate-y-1/2 text-navy-400 hover:text-navy-600 p-1"
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-label={showPassword ? t('a11y.hidePassword') : t('a11y.showPassword')}
                     aria-pressed={showPassword}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}

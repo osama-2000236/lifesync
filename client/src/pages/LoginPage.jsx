@@ -38,7 +38,7 @@ export default function LoginPage() {
 
   const handleGoogleSuccess = async ({ credential }) => {
     if (!credential) {
-      setError('Google did not return a credential. Please try again.');
+      setError(t('errors.googleNoCredential'));
       return;
     }
 
@@ -49,7 +49,7 @@ export default function LoginPage() {
       await loginWithGoogle(credential);
       navigate('/dashboard');
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Google sign-in failed. Please try again.'));
+      setError(getApiErrorMessage(err, t('errors.googleSignInFailed')));
     } finally {
       setGoogleLoading(false);
     }
@@ -106,7 +106,7 @@ export default function LoginPage() {
             <div className="mb-6">
               <GoogleSignInButton
                 onSuccess={handleGoogleSuccess}
-                onError={() => setError('Google sign-in is unavailable right now. Please try email login.')}
+                onError={() => setError(t('errors.googleSignInUnavailable'))}
               />
               {googleLoading && (
                 <p className="mt-3 text-center text-sm text-navy-500" role="status" aria-live="polite">{t('auth.completingGoogle')}</p>
@@ -170,7 +170,7 @@ export default function LoginPage() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute end-3 top-1/2 -translate-y-1/2 text-navy-400 hover:text-navy-600 p-1"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={showPassword ? t('a11y.hidePassword') : t('a11y.showPassword')}
                   aria-pressed={showPassword}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}

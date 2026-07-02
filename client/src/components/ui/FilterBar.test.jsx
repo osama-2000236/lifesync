@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
+import { renderWithSettings } from '../../test/renderWithProviders';
 import { FilterBar, EmptyListState, Pagination } from './FilterBar';
 
 describe('FilterBar', () => {
@@ -41,27 +42,32 @@ describe('FilterBar', () => {
 
 describe('EmptyListState', () => {
   it('renders title and subtitle', () => {
-    render(<EmptyListState title="No logs yet" subtitle="Log something to see it here" />);
+    renderWithSettings(<EmptyListState title="No logs yet" subtitle="Log something to see it here" />);
     expect(screen.getByText('No logs yet')).toBeInTheDocument();
     expect(screen.getByText('Log something to see it here')).toBeInTheDocument();
+  });
+
+  it('falls back to the localized default title', () => {
+    renderWithSettings(<EmptyListState />);
+    expect(screen.getByText('Nothing here yet')).toBeInTheDocument();
   });
 });
 
 describe('Pagination', () => {
   it('renders nothing for a single page', () => {
-    const { container } = render(<Pagination page={1} totalPages={1} onPageChange={() => {}} />);
+    const { container } = renderWithSettings(<Pagination page={1} totalPages={1} onPageChange={() => {}} />);
     expect(container).toBeEmptyDOMElement();
   });
 
   it('disables prev on the first page and next on the last page', () => {
-    render(<Pagination page={1} totalPages={3} onPageChange={() => {}} />);
+    renderWithSettings(<Pagination page={1} totalPages={3} onPageChange={() => {}} />);
     expect(screen.getByLabelText('Previous page')).toBeDisabled();
     expect(screen.getByLabelText('Next page')).not.toBeDisabled();
   });
 
   it('calls onPageChange with the next page number', () => {
     const onPageChange = vi.fn();
-    render(<Pagination page={2} totalPages={3} onPageChange={onPageChange} />);
+    renderWithSettings(<Pagination page={2} totalPages={3} onPageChange={onPageChange} />);
     fireEvent.click(screen.getByLabelText('Next page'));
     expect(onPageChange).toHaveBeenCalledWith(3);
   });

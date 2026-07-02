@@ -14,6 +14,7 @@ import {
 
 function PasswordFieldRow({ id, label, value, onChange, placeholder }) {
   const [show, setShow] = useState(false);
+  const { t } = useSettings();
   return (
     <FormField id={id} label={label}>
       <div className="relative">
@@ -30,7 +31,7 @@ function PasswordFieldRow({ id, label, value, onChange, placeholder }) {
           type="button"
           onClick={() => setShow(!show)}
           className="absolute end-3 top-1/2 -translate-y-1/2 text-navy-400 hover:text-navy-600 p-1"
-          aria-label={show ? 'Hide password' : 'Show password'}
+          aria-label={show ? t('a11y.hidePassword') : t('a11y.showPassword')}
           aria-pressed={show}
         >
           {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}

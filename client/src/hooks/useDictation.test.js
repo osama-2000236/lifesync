@@ -123,6 +123,69 @@ describe('useDictation — native path', () => {
     expect(result.current.error).toBe('speech_error');
   });
 
+  it('treats no-speech / aborted as benign (idle, no error)', async () => {
+    const { useDictation } = await loadHook();
+    const { result } = renderHook(() => useDictation({ onText: vi.fn() }));
+    act(() => result.current.start());
+    act(() => FakeSR.last.onerror({ error: 'no-speech' }));
+    expect(result.current.state).toBe('idle');
+    expect(result.current.error).toBeNull();
+    act(() => result.current.start());
+    act(() => FakeSR.last.onerror({ error: 'aborted' }));
+    expect(result.current.state).toBe('idle');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('surfaces fatal engine errors as errors when recording is unavailable', async () => {
+    // No MediaRecorder/mediaDevices in this describe-block → no fallback.
+    const { useDictation } = await loadHook();
+    const { result } = renderHook(() => useDictation({ onText: vi.fn() }));
+    act(() => result.current.start());
+    act(() => FakeSR.last.onerror({ error: 'network' }));
+    expect(result.current.error).toBe('network');
+    expect(result.current.state).toBe('idle');
+  });
+
+  it('still falls back to cloud when aborting the broken recognizer throws', async () => {
+    window.SpeechRecognition = class extends FakeSR { abort() { throw new Error('abort fail'); } };
+    setMediaDevices({ getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) });
+    window.MediaRecorder = FakeRecorder;
+    const { useDictation, voiceAPI } = await loadHook();
+    voiceAPI.transcribe.mockResolvedValue({ data: { data: { text: 'ok' } } });
+    const { result } = renderHook(() => useDictation({ locale: 'ar', onText: vi.fn() }));
+    act(() => result.current.start());
+    await act(async () => { window.SpeechRecognition.last.onerror({ error: 'network' }); });
+    expect(result.current.state).toBe('listening'); // cloud path took over
+    await act(async () => { result.current.stop(); });
+  });
+
+  it('falls back to cloud recording on language-not-supported, and goes straight to cloud on the next start', async () => {
+    setMediaDevices({ getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) });
+    window.MediaRecorder = FakeRecorder;
+    const { useDictation, voiceAPI } = await loadHook();
+    voiceAPI.transcribe.mockResolvedValue({ data: { data: { text: 'مرحبا' } } });
+    const onText = vi.fn();
+    const { result } = renderHook(() => useDictation({ locale: 'ar', onText }));
+
+    act(() => result.current.start());
+    const nativeRec = FakeSR.last;
+    // Chrome desktop can't do ar-SA → fatal error → transparent cloud fallback.
+    await act(async () => { nativeRec.onerror({ error: 'language-not-supported' }); });
+    expect(nativeRec.aborted).toBe(true);
+    expect(result.current.state).toBe('listening'); // now recording
+    expect(result.current.error).toBeNull();
+
+    await act(async () => { result.current.stop(); });
+    await waitFor(() => expect(onText).toHaveBeenCalledWith('مرحبا'));
+
+    // Session remembers the broken engine: next start skips native entirely.
+    FakeSR.last = null;
+    await act(async () => { result.current.start(); });
+    expect(FakeSR.last).toBeNull();
+    expect(result.current.state).toBe('listening');
+    await act(async () => { result.current.stop(); });
+  });
+
   it('onend from listening returns to idle', async () => {
     const { useDictation } = await loadHook();
     const { result } = renderHook(() => useDictation({ onText: vi.fn() }));

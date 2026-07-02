@@ -1,5 +1,6 @@
 // src/components/ui/FilterBar.jsx
 import { Search, ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
+import { useSettings } from '../../contexts/SettingsContext';
 
 /** Search input + filter-pill row shared by the Health/Finance list pages. */
 export function FilterBar({ search, onSearchChange, searchPlaceholder = 'Search...', filters = [], className = '' }) {
@@ -37,13 +38,15 @@ export function FilterBar({ search, onSearchChange, searchPlaceholder = 'Search.
 }
 
 /** Generic empty-state for filtered lists with no matches. */
-export function EmptyListState({ title = 'Nothing here yet', subtitle, icon: Icon = Inbox }) {
+export function EmptyListState({ title, subtitle, icon: Icon = Inbox }) {
+  const { t } = useSettings();
+  const heading = title || t('list.empty');
   return (
     <div className="flex flex-col items-center justify-center text-center py-16 px-6">
       <div className="w-12 h-12 rounded-2xl bg-navy-50 flex items-center justify-center mb-3">
         <Icon className="w-6 h-6 text-navy-300" />
       </div>
-      <p className="font-medium text-navy-700">{title}</p>
+      <p className="font-medium text-navy-700">{heading}</p>
       {subtitle && <p className="text-sm text-navy-400 mt-1 max-w-xs">{subtitle}</p>}
     </div>
   );
@@ -51,6 +54,7 @@ export function EmptyListState({ title = 'Nothing here yet', subtitle, icon: Ico
 
 /** Prev/next pagination control. RTL-aware (chevrons flip, not page numbers). */
 export function Pagination({ page, totalPages, onPageChange, className = '' }) {
+  const { t } = useSettings();
   if (totalPages <= 1) return null;
 
   return (
@@ -59,7 +63,7 @@ export function Pagination({ page, totalPages, onPageChange, className = '' }) {
         type="button"
         onClick={() => onPageChange(page - 1)}
         disabled={page <= 1}
-        aria-label="Previous page"
+        aria-label={t('list.prevPage')}
         className="p-2 rounded-lg border border-navy-200 text-navy-500 hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
         <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
@@ -71,7 +75,7 @@ export function Pagination({ page, totalPages, onPageChange, className = '' }) {
         type="button"
         onClick={() => onPageChange(page + 1)}
         disabled={page >= totalPages}
-        aria-label="Next page"
+        aria-label={t('list.nextPage')}
         className="p-2 rounded-lg border border-navy-200 text-navy-500 hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
         <ChevronRight className="w-4 h-4 rtl:rotate-180" />

@@ -121,7 +121,7 @@ export default function DashboardPage() {
         if (!isMounted) return;
 
         setInsights((currentInsights) => currentInsights || null);
-        setInsightsError(getApiErrorMessage(err, 'Unable to load insights right now.'));
+        setInsightsError(getApiErrorMessage(err, t('errors.insightsLoad')));
       } finally {
         insightsFetchInFlightRef.current = false;
         if (isMounted) {
