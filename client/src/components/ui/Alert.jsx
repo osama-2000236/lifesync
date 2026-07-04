@@ -29,7 +29,7 @@ export function Alert({ tone = 'info', title, children, onDismiss, className = '
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss"
-          className="flex-shrink-0 p-0.5 rounded-md hover:bg-black/5 transition-colors"
+          className="focus-ring flex-shrink-0 p-0.5 rounded-md hover:bg-black/5 transition-colors"
         >
           <X className="w-3.5 h-3.5" />
         </button>

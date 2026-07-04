@@ -149,6 +149,14 @@ h1, h2, h3, h4, h5, h6 {
   animation: fade-up 0.4s ease-out forwards;
 }
 
+/* ─── Shared keyboard focus ring ───
+   One affordance for interactive primitives that only had hover states
+   (filter pills, pagination, modal/alert close). Matches Button's ring. */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow-emerald);
+}
+
 /* ─── Voice assistant silence countdown ring ─── */
 
 @keyframes voice-silence-countdown {

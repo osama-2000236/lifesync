@@ -25,7 +25,7 @@ export function FilterBar({ search, onSearchChange, searchPlaceholder = 'Search.
               key={key}
               type="button"
               onClick={onClick}
-              className={`px-3.5 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all duration-200
+              className={`focus-ring px-3.5 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all duration-200
                 ${active ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/20' : 'bg-white border border-navy-200 text-navy-600 hover:bg-navy-50'}`}
             >
               {label}
@@ -64,7 +64,7 @@ export function Pagination({ page, totalPages, onPageChange, className = '' }) {
         onClick={() => onPageChange(page - 1)}
         disabled={page <= 1}
         aria-label={t('list.prevPage')}
-        className="p-2 rounded-lg border border-navy-200 text-navy-500 hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        className="focus-ring p-2 rounded-lg border border-navy-200 text-navy-500 hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
         <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
       </button>
@@ -76,7 +76,7 @@ export function Pagination({ page, totalPages, onPageChange, className = '' }) {
         onClick={() => onPageChange(page + 1)}
         disabled={page >= totalPages}
         aria-label={t('list.nextPage')}
-        className="p-2 rounded-lg border border-navy-200 text-navy-500 hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        className="focus-ring p-2 rounded-lg border border-navy-200 text-navy-500 hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
         <ChevronRight className="w-4 h-4 rtl:rotate-180" />
       </button>
