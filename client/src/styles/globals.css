@@ -238,7 +238,6 @@ h1, h2, h3, h4, h5, h6 {
 .dark .bg-red-100    { background-color: color-mix(in srgb, #ef4444 20%, transparent); }
 .dark .bg-sky-100    { background-color: color-mix(in srgb, #0ea5e9 20%, transparent); }
 .dark .bg-purple-100 { background-color: color-mix(in srgb, #a855f7 20%, transparent); }
-.dark .bg-indigo-100 { background-color: color-mix(in srgb, #6366f1 20%, transparent); }
 .dark .text-emerald-600, .dark .text-emerald-700 { color: #6ee7b7; }
 .dark .text-blue-600,    .dark .text-blue-700    { color: #93c5fd; }
 .dark .text-purple-600,  .dark .text-purple-700  { color: #d8b4fe; }
