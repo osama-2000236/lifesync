@@ -6,6 +6,7 @@ import {
 } from 'chart.js';
 import { useSettings } from '../../contexts/SettingsContext';
 import ChartEmptyState from './ChartEmptyState';
+import { chartTheme } from './chartTheme';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -22,7 +23,8 @@ const CATEGORY_COLORS = {
 };
 
 export default function SpendingChart({ financeData = [], financeSummary, loading, view = 'doughnut' }) {
-  const { t } = useSettings();
+  const { t, theme } = useSettings();
+  const c = chartTheme(theme === 'dark');
   const { categoryData, totalSpent, totalIncome } = useMemo(() => {
     if (financeSummary?.categoryBreakdown?.length || financeSummary?.totals?.length) {
       const categoryRows = financeSummary.categoryBreakdown || [];
@@ -68,7 +70,7 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
     datasets: [{
       data: categoryData.map(([, amount]) => amount),
       backgroundColor: categoryData.map(([category]) => CATEGORY_COLORS[category] || '#94a3b8'),
-      borderColor: '#fff',
+      borderColor: c.segmentBorder,
       borderWidth: 3,
       hoverOffset: 6,
     }],
@@ -93,7 +95,7 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: '#102a43',
+        backgroundColor: c.tooltipBg,
         titleFont: { family: "'DM Sans'", size: 13, weight: '600' },
         bodyFont: { family: "'DM Sans'", size: 12 },
         padding: 12,
@@ -112,7 +114,7 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: '#102a43',
+        backgroundColor: c.tooltipBg,
         titleFont: { family: "'DM Sans'", size: 13 },
         bodyFont: { family: "'DM Sans'", size: 12 },
         padding: 12,
@@ -121,8 +123,8 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
       },
     },
     scales: {
-      x: { grid: { color: 'rgba(188, 204, 220, 0.2)', drawBorder: false }, ticks: { font: { family: "'DM Sans'", size: 11 }, color: '#829ab1', callback: (value) => `$${value}` } },
-      y: { grid: { display: false }, ticks: { font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#486581' } },
+      x: { grid: { color: c.grid, drawBorder: false }, ticks: { font: { family: "'DM Sans'", size: 11 }, color: c.tick, callback: (value) => `$${value}` } },
+      y: { grid: { display: false }, ticks: { font: { family: "'DM Sans'", size: 11, weight: '500' }, color: c.legend } },
     },
   };
 

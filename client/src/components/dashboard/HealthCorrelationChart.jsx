@@ -6,13 +6,15 @@ import {
 } from 'chart.js';
 import { useSettings } from '../../contexts/SettingsContext';
 import ChartEmptyState from './ChartEmptyState';
+import { chartTheme } from './chartTheme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export default function HealthCorrelationChart({ healthData = [], loading }) {
-  const { t } = useSettings();
+  const { t, theme } = useSettings();
+  const c = chartTheme(theme === 'dark');
   const { hasData, chartData } = useMemo(() => {
     const dayMap = Object.fromEntries(DAYS.map((day) => [day, { steps: 0, sleep: 0 }]));
     let hasRelevantData = false;
@@ -45,7 +47,7 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
             borderWidth: 2.5,
             pointRadius: 4,
             pointBackgroundColor: '#10b981',
-            pointBorderColor: '#fff',
+            pointBorderColor: c.segmentBorder,
             pointBorderWidth: 2,
             tension: 0.4,
             fill: true,
@@ -59,7 +61,7 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
             borderWidth: 2.5,
             pointRadius: 4,
             pointBackgroundColor: '#6366f1',
-            pointBorderColor: '#fff',
+            pointBorderColor: c.segmentBorder,
             pointBorderWidth: 2,
             tension: 0.4,
             fill: true,
@@ -68,7 +70,7 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
         ],
       },
     };
-  }, [healthData, t]);
+  }, [healthData, t, c.segmentBorder]);
 
   const options = {
     responsive: true,
@@ -83,11 +85,11 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
           pointStyle: 'circle',
           padding: 20,
           font: { family: "'DM Sans', sans-serif", size: 12, weight: '500' },
-          color: '#627d98',
+          color: c.legend,
         },
       },
       tooltip: {
-        backgroundColor: '#102a43',
+        backgroundColor: c.tooltipBg,
         titleFont: { family: "'DM Sans', sans-serif", size: 13, weight: '600' },
         bodyFont: { family: "'DM Sans', sans-serif", size: 12 },
         padding: 12,
@@ -99,21 +101,21 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
     scales: {
       x: {
         grid: { display: false },
-        ticks: { font: { family: "'DM Sans'", size: 12 }, color: '#829ab1' },
+        ticks: { font: { family: "'DM Sans'", size: 12 }, color: c.tick },
       },
       y: {
         type: 'linear',
         position: 'left',
         title: { display: true, text: t('chart.steps'), font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#10b981' },
-        grid: { color: 'rgba(188, 204, 220, 0.3)', drawBorder: false },
-        ticks: { font: { family: "'DM Sans'", size: 11 }, color: '#829ab1' },
+        grid: { color: c.grid, drawBorder: false },
+        ticks: { font: { family: "'DM Sans'", size: 11 }, color: c.tick },
       },
       y1: {
         type: 'linear',
         position: 'right',
         title: { display: true, text: t('chart.sleepHrs'), font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#6366f1' },
         grid: { display: false },
-        ticks: { font: { family: "'DM Sans'", size: 11 }, color: '#829ab1' },
+        ticks: { font: { family: "'DM Sans'", size: 11 }, color: c.tick },
         min: 0,
         max: 12,
       },

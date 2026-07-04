@@ -3,11 +3,13 @@ import { Scatter } from 'react-chartjs-2';
 import { Chart as ChartJS, LinearScale, PointElement, Tooltip, Legend } from 'chart.js';
 import { useSettings } from '../../contexts/SettingsContext';
 import ChartEmptyState from './ChartEmptyState';
+import { chartTheme } from './chartTheme';
 
 ChartJS.register(LinearScale, PointElement, Tooltip, Legend);
 
 export default function MoodActivityChart({ healthData = [], loading }) {
-  const { t } = useSettings();
+  const { t, theme } = useSettings();
+  const c = chartTheme(theme === 'dark');
   const points = useMemo(() => {
     const dayBuckets = {};
 
@@ -49,7 +51,7 @@ export default function MoodActivityChart({ healthData = [], loading }) {
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: '#102a43',
+        backgroundColor: c.tooltipBg,
         titleFont: { family: "'DM Sans'", size: 13, weight: '600' },
         bodyFont: { family: "'DM Sans'", size: 12 },
         padding: 12,
@@ -62,15 +64,15 @@ export default function MoodActivityChart({ healthData = [], loading }) {
     },
     scales: {
       x: {
-        title: { display: true, text: t('chart.activityMin'), font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#627d98' },
-        grid: { color: 'rgba(188, 204, 220, 0.2)', drawBorder: false },
-        ticks: { font: { family: "'DM Sans'", size: 11 }, color: '#829ab1' },
+        title: { display: true, text: t('chart.activityMin'), font: { family: "'DM Sans'", size: 11, weight: '500' }, color: c.legend },
+        grid: { color: c.grid, drawBorder: false },
+        ticks: { font: { family: "'DM Sans'", size: 11 }, color: c.tick },
         min: 0,
       },
       y: {
-        title: { display: true, text: t('chart.moodScale'), font: { family: "'DM Sans'", size: 11, weight: '500' }, color: '#627d98' },
-        grid: { color: 'rgba(188, 204, 220, 0.2)', drawBorder: false },
-        ticks: { font: { family: "'DM Sans'", size: 11 }, color: '#829ab1', stepSize: 1 },
+        title: { display: true, text: t('chart.moodScale'), font: { family: "'DM Sans'", size: 11, weight: '500' }, color: c.legend },
+        grid: { color: c.grid, drawBorder: false },
+        ticks: { font: { family: "'DM Sans'", size: 11 }, color: c.tick, stepSize: 1 },
         min: 0,
         max: 10,
       },
