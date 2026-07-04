@@ -36,7 +36,7 @@ export default function DictationComposer({ locale, busy, onSubmit, t }) {
         rows={3}
         dir="auto"
         placeholder={t('assistant.dictatePlaceholder')}
-        className="w-full resize-none bg-transparent px-2 py-1 text-navy-900 placeholder:text-navy-300 focus:outline-none text-[15px] leading-relaxed"
+        className="w-full resize-none bg-transparent px-2 py-1 text-navy-900 placeholder:text-navy-300 dark:placeholder:text-navy-500 focus:outline-none text-[15px] leading-relaxed"
         data-testid="dictation-text"
       />
       {listening && (

@@ -239,19 +239,19 @@ export default function ChatPage() {
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* ── Header ── */}
-        <header className="flex items-center gap-2 border-b border-navy-100 dark:border-navy-800 bg-surface-raised/80 dark:bg-surface-dark-raised/80 backdrop-blur px-4 py-2.5">
+        <header className="flex items-center gap-2 border-b border-navy-100 bg-surface-raised/80 dark:bg-surface-dark-raised/80 backdrop-blur px-4 py-2.5">
           <button
             type="button"
             onClick={() => setRailOpen(true)}
             aria-label={t('chat.newChat')}
-            className="lg:hidden p-2 rounded-lg text-navy-400 hover:bg-navy-50 dark:hover:bg-navy-800"
+            className="lg:hidden p-2 rounded-lg text-navy-400 hover:bg-navy-50"
             data-testid="open-rail-button"
           >
             <History className="w-4.5 h-4.5" />
           </button>
 
           <div className="min-w-0">
-            <h1 className="font-display text-sm font-bold text-navy-900 dark:text-navy-100 truncate">{t('chat.title')}</h1>
+            <h1 className="font-display text-sm font-bold text-navy-900 truncate">{t('chat.title')}</h1>
             <p className="hidden sm:block text-[11px] text-navy-400 truncate">{t('chat.welcome.tagline')}</p>
           </div>
 
@@ -274,7 +274,7 @@ export default function ChatPage() {
               onClick={() => setDepth((d) => DEPTHS[(DEPTHS.indexOf(d) + 1) % DEPTHS.length])}
               title={t('chat.depth.hint')}
               aria-label={t('chat.depth.hint')}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${depth === 'standard' ? 'border-navy-100 dark:border-navy-700 text-navy-500 dark:text-navy-300' : 'border-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${depth === 'standard' ? 'border-navy-100 text-navy-500' : 'border-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}
               data-testid="depth-toggle"
             >
               <Layers className="w-3.5 h-3.5" /> {t(`chat.depth.${depth}`)}
@@ -286,7 +286,7 @@ export default function ChatPage() {
               aria-pressed={speakReplies}
               aria-label={t('chat.speakReplies')}
               title={t('chat.speakReplies')}
-              className={`p-2 rounded-full transition-colors ${speakReplies ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600' : 'text-navy-400 hover:bg-navy-50 dark:hover:bg-navy-800'}`}
+              className={`p-2 rounded-full transition-colors ${speakReplies ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600' : 'text-navy-400 hover:bg-navy-50'}`}
               data-testid="speak-toggle"
             >
               {speakReplies ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
@@ -304,7 +304,7 @@ export default function ChatPage() {
                 <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-navy-700 shadow-lg shadow-emerald-500/20">
                   <Sparkles className="h-6 w-6 text-white" />
                 </div>
-                <h2 className="font-display text-xl font-bold text-navy-900 dark:text-navy-100">{t('chat.welcome.tagline')}</h2>
+                <h2 className="font-display text-xl font-bold text-navy-900">{t('chat.welcome.tagline')}</h2>
                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-navy-400">{t('chat.welcome.desc')}</p>
 
                 <div className="mx-auto mt-6 flex max-w-lg flex-wrap justify-center gap-2">
@@ -313,7 +313,7 @@ export default function ChatPage() {
                       key={s}
                       type="button"
                       onClick={() => sendMessage(s)}
-                      className="rounded-full border border-navy-100 dark:border-navy-700 bg-surface-raised dark:bg-surface-dark-raised px-3.5 py-2 text-xs font-medium text-navy-600 dark:text-navy-300 hover:border-emerald-300 hover:text-emerald-700 transition-colors"
+                      className="rounded-full border border-navy-100 bg-surface-raised dark:bg-surface-dark-raised px-3.5 py-2 text-xs font-medium text-navy-600 hover:border-emerald-300 hover:text-emerald-700 transition-colors"
                       data-testid="welcome-suggestion"
                     >
                       {s}
@@ -340,12 +340,12 @@ export default function ChatPage() {
               ) : (
                 <div key={m.id} className="flex flex-col" data-testid="assistant-message">
                   <div className={`max-w-[92%] border-s-2 ps-4 ${m.isError ? 'border-coral-400' : m.isCrossDomain ? 'border-amber-400' : 'border-emerald-400'}`}>
-                    <div className={`whitespace-pre-wrap text-[15px] leading-7 ${m.isError ? 'text-coral-500' : 'text-navy-800 dark:text-navy-100'}`} dir="auto">
+                    <div className={`whitespace-pre-wrap text-[15px] leading-7 ${m.isError ? 'text-coral-500' : 'text-navy-800'}`} dir="auto">
                       {m.content}
                     </div>
                     {m.entities && <EntityReceipts entities={m.entities} t={t} />}
                     {attributionFor(m) && (
-                      <p className="mt-1.5 text-[10px] uppercase tracking-wide text-navy-300 dark:text-navy-500" data-testid="model-attribution">
+                      <p className="mt-1.5 text-[10px] uppercase tracking-wide text-navy-400 dark:text-navy-500" data-testid="model-attribution">
                         {attributionFor(m)}
                       </p>
                     )}
@@ -366,7 +366,7 @@ export default function ChatPage() {
 
             {streamingText && (
               <div className="border-s-2 border-emerald-400 ps-4" data-testid="streaming-message">
-                <div className="whitespace-pre-wrap text-[15px] leading-7 text-navy-800 dark:text-navy-100" dir="auto">
+                <div className="whitespace-pre-wrap text-[15px] leading-7 text-navy-800" dir="auto">
                   {streamingText}
                   <span className="ms-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-emerald-400 align-middle" />
                 </div>
@@ -398,10 +398,10 @@ export default function ChatPage() {
         </div>
 
         {/* ── Composer ── */}
-        <div className="border-t border-navy-100 dark:border-navy-800 bg-surface/80 dark:bg-surface-dark/80 backdrop-blur px-4 py-3">
+        <div className="border-t border-navy-100 bg-surface/80 dark:bg-surface-dark/80 backdrop-blur px-4 py-3">
           <div className="mx-auto max-w-3xl">
             <ChatComposer locale={locale} busy={sending} onSubmit={sendMessage} t={t} inputRef={inputRef} />
-            <p className="mt-1.5 text-center text-[10px] text-navy-300 dark:text-navy-500">
+            <p className="mt-1.5 text-center text-[10px] text-navy-400 dark:text-navy-500">
               {t('chat.footer.modelNote')} · {modelLabel}
             </p>
           </div>

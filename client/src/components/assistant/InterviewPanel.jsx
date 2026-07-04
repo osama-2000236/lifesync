@@ -27,7 +27,7 @@ export default function InterviewPanel({ question, busy, onSubmit, t }) {
           />
         ))}
       </div>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-navy-300 mb-1">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-navy-300 dark:text-navy-500 mb-1">
         {t('assistant.stepOf', { current: step + 1, total })}
       </p>
       <h3 className="font-display text-lg font-semibold text-navy-900 leading-snug">{prompt}</h3>

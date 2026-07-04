@@ -11,7 +11,7 @@ import { ChevronDown, Check, Cpu, Sparkles } from 'lucide-react';
 
 const TAG_STYLES = {
   free: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
-  local: 'bg-navy-50 text-navy-600 border-navy-200 dark:bg-navy-800 dark:text-navy-300 dark:border-navy-700',
+  local: 'bg-navy-50 text-navy-600 border-navy-200 dark:text-navy-500',
 };
 
 export default function ModelPicker({ models, value, onChange, disabled, t }) {
@@ -44,7 +44,7 @@ export default function ModelPicker({ models, value, onChange, disabled, t }) {
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="inline-flex items-center gap-2 rounded-full border border-navy-100 dark:border-navy-700 bg-surface-raised dark:bg-surface-dark-raised px-3 py-1.5 text-xs font-semibold text-navy-700 dark:text-navy-200 hover:border-emerald-300 transition-colors disabled:opacity-50"
+        className="inline-flex items-center gap-2 rounded-full border border-navy-100 bg-surface-raised dark:bg-surface-dark-raised px-3 py-1.5 text-xs font-semibold text-navy-700 hover:border-emerald-300 transition-colors disabled:opacity-50"
         data-testid="model-picker-button"
       >
         {tagOf(current) === 'free'
@@ -58,7 +58,7 @@ export default function ModelPicker({ models, value, onChange, disabled, t }) {
         <div
           role="listbox"
           aria-label={t('model.chooseModel')}
-          className="absolute z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] end-0 rounded-2xl border border-navy-100 dark:border-navy-700 bg-surface-raised dark:bg-surface-dark-raised shadow-xl shadow-navy-900/10 p-2"
+          className="absolute z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] end-0 rounded-2xl border border-navy-100 bg-surface-raised dark:bg-surface-dark-raised shadow-xl shadow-navy-900/10 p-2"
           data-testid="model-picker-menu"
         >
           <p className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-navy-400">
@@ -75,11 +75,11 @@ export default function ModelPicker({ models, value, onChange, disabled, t }) {
                 role="option"
                 aria-selected={selected}
                 onClick={() => { onChange(m.id); setOpen(false); }}
-                className={`w-full text-start rounded-xl px-3 py-2.5 transition-colors ${selected ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'hover:bg-navy-50 dark:hover:bg-navy-800'}`}
+                className={`w-full text-start rounded-xl px-3 py-2.5 transition-colors ${selected ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'hover:bg-navy-50'}`}
                 data-testid={`model-option-${m.id}`}
               >
                 <span className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-navy-900 dark:text-navy-100">{m.label}</span>
+                  <span className="text-sm font-semibold text-navy-900">{m.label}</span>
                   <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${TAG_STYLES[tag]}`}>
                     {tag === 'free' ? t('chat.model.free') : t('chat.model.local')}
                   </span>

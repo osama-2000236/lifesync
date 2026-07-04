@@ -56,7 +56,7 @@ export default function ChatComposer({ locale, busy, onSubmit, t, inputRef: exte
 
   return (
     <div
-      className={`relative rounded-2xl border bg-surface-raised dark:bg-surface-dark-raised shadow-lg shadow-navy-900/5 transition-colors ${listening ? 'border-coral-400 ring-2 ring-coral-400/30' : 'border-navy-100 dark:border-navy-800 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'}`}
+      className={`relative rounded-2xl border bg-surface-raised dark:bg-surface-dark-raised shadow-lg shadow-navy-900/5 transition-colors ${listening ? 'border-coral-400 ring-2 ring-coral-400/30' : 'border-navy-100 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'}`}
       data-testid="chat-composer"
     >
       {(listening || transcribing) && (
@@ -89,7 +89,7 @@ export default function ChatComposer({ locale, busy, onSubmit, t, inputRef: exte
           placeholder={t('chat.placeholder')}
           aria-label={t('chat.placeholder')}
           dir="auto"
-          className="flex-1 resize-none bg-transparent px-2 py-2 text-[15px] leading-6 text-navy-900 dark:text-navy-100 placeholder:text-navy-300 dark:placeholder:text-navy-500 focus:outline-none"
+          className="flex-1 resize-none bg-transparent px-2 py-2 text-[15px] leading-6 text-navy-900 placeholder:text-navy-300 dark:placeholder:text-navy-500 focus:outline-none"
           data-testid="chat-input"
         />
 
@@ -101,7 +101,7 @@ export default function ChatComposer({ locale, busy, onSubmit, t, inputRef: exte
             aria-label={listening ? t('chat.dictate.stop') : t('chat.dictate.start')}
             aria-pressed={listening}
             title={listening ? t('chat.dictate.stop') : t('chat.dictate.start')}
-            className={`shrink-0 h-10 w-10 rounded-xl inline-flex items-center justify-center transition-all ${listening ? 'bg-coral-500 text-white shadow-md shadow-coral-500/30' : 'text-navy-400 hover:text-navy-600 hover:bg-navy-50 dark:hover:bg-navy-800'} disabled:opacity-40`}
+            className={`shrink-0 h-10 w-10 rounded-xl inline-flex items-center justify-center transition-all ${listening ? 'bg-coral-500 text-white shadow-md shadow-coral-500/30' : 'text-navy-400 hover:text-navy-600 hover:bg-navy-50'} disabled:opacity-40`}
             data-testid="mic-button"
           >
             {listening ? <Square className="w-4 h-4" /> : <Mic className="w-5 h-5" />}
