@@ -42,7 +42,7 @@
     "health-tracking",
     "finance-management",
     "nlp",
-    "openai",
+    "openrouter",
     "express",
     "sequelize"
   ],
@@ -75,7 +75,6 @@
     "multer": "^2.2.0",
     "mysql2": "^3.16.3",
     "nodemailer": "^9.0.1",
-    "openai": "^6.18.0",
     "resend": "^4.8.0",
     "sequelize": "^6.37.7",
     "uuid": "^13.0.0"

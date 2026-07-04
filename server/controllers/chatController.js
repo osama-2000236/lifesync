@@ -9,9 +9,9 @@
 //   - Backwards-compatible JSON endpoint retained
 // ============================================
 
+const { randomUUID } = require('crypto');
 const { body } = require('express-validator');
 const { Op } = require('sequelize');
-const { v4: uuidv4 } = require('uuid');
 const { parseMessage } = require('../services/ai/nlpService');
 const { buildBertContext } = require('../services/ai/bertContextService');
 const { recordTurnMemories } = require('../services/ai/memoryService');
@@ -265,7 +265,7 @@ const resolveAIErrorMessage = (aiError) =>
 const processMessageStream = async (req, res) => {
   const { message, session_id } = req.body;
   const userId = req.user.id;
-  const currentSessionId = session_id || uuidv4();
+  const currentSessionId = session_id || randomUUID();
   const aiOptions = resolveChatOptions(req.body?.model);
 
   // If the client disconnects mid-stream (voice barge-in, tab close), stop the
@@ -529,7 +529,7 @@ const processMessage = async (req, res, next) => {
   try {
     const { message, session_id } = req.body;
     const userId = req.user.id;
-    const currentSessionId = session_id || uuidv4();
+    const currentSessionId = session_id || randomUUID();
     const aiOptions = { ...resolveChatOptions(req.body?.model), lang: req.body?.lang || null };
 
     // ─── Optimistic write: persist user message immediately ───
