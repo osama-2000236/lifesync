@@ -52,3 +52,6 @@ client_secret_*.json
 mysql.err
 mysql.out
 monitor.sh
+
+# personal docs
+LifeSync_Portfolio.pdf
