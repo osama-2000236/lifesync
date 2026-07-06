@@ -41,6 +41,13 @@ const provision = async () => {
 };
 
 provision().catch((error) => {
-  console.error(`QA provisioning failed: ${error.message}`);
+  if (error.name === 'SequelizeUniqueConstraintError' || error.name === 'SequelizeValidationError') {
+    console.error(
+      `QA provisioning failed: username "${username}" is already taken by another ` +
+      'email. Set TEST_USERNAME to a unique value or reuse that user\'s email.'
+    );
+  } else {
+    console.error(`QA provisioning failed: ${error.message}`);
+  }
   process.exitCode = 1;
 });

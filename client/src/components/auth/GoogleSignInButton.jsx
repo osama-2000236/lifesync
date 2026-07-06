@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getGoogleClientId } from '../../config/runtime';
+import { useSettings } from '../../contexts/SettingsContext';
 import { buildGoogleButtonRenderKey, googleIdentityState } from './googleSignInState';
 
 const GOOGLE_SCRIPT_ID = 'google-identity-services';
@@ -42,6 +43,7 @@ export default function GoogleSignInButton({
   const errorRef = useRef(onError);
   const [scriptError, setScriptError] = useState('');
   const clientId = getGoogleClientId();
+  const { locale } = useSettings();
 
   useEffect(() => {
     successRef.current = onSuccess;
@@ -58,7 +60,7 @@ export default function GoogleSignInButton({
       return undefined;
     }
 
-    const renderKey = buildGoogleButtonRenderKey(clientId, text);
+    const renderKey = buildGoogleButtonRenderKey(clientId, text, locale);
 
     loadGoogleScript()
       .then(() => {
@@ -88,6 +90,9 @@ export default function GoogleSignInButton({
           text,
           logo_alignment: 'left',
           width: buttonRef.current.offsetWidth || 360,
+          // Match the GSI iframe language to the app locale instead of the
+          // browser locale — otherwise an EN page can show an Arabic button.
+          locale,
         });
         buttonRef.current.dataset.googleRenderKey = renderKey;
         setScriptError('');
@@ -104,7 +109,7 @@ export default function GoogleSignInButton({
     return () => {
       cancelled = true;
     };
-  }, [clientId, text]);
+  }, [clientId, text, locale]);
 
   if (!clientId) {
     return null;
