@@ -36,7 +36,7 @@ test.describe('LifeSync UI journeys', () => {
     await appPage.goTo('Assistant');
     const input = authenticatedPage.getByPlaceholder('Tell me about your day...');
     await input.fill('I spent $12 on lunch.');
-    await authenticatedPage.getByRole('button', { name: 'Send message' }).click();
+    await authenticatedPage.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(input).toBeEnabled({ timeout: 90_000 });
     await expect(authenticatedPage.getByText(/trouble understanding|logged|detail|spent/i).last()).toBeVisible();
   });

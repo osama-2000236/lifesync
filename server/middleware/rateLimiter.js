@@ -12,6 +12,11 @@ const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = rateLimit;
 
 const isEnabled = (value) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+
+// Jest sets NODE_ENV=test; DISABLE_RATE_LIMITS=1 is the explicit opt-out for
+// local Playwright runs, where one shared QA user re-logs-in per test and
+// burns the 10-login auth budget mid-suite. Never set it in production.
+const limitsDisabled = () => process.env.NODE_ENV === 'test' || isEnabled(process.env.DISABLE_RATE_LIMITS);
 const isLocalStrictGemmaMode = () => {
   const provider = (process.env.INSIGHTS_AI_PROVIDER || process.env.AI_PROVIDER || '').trim().toLowerCase();
   const endpoint = (process.env.CUSTOM_HF_ENDPOINT || '').trim().toLowerCase();
@@ -41,7 +46,7 @@ const authLimiter = rateLimit({
     const email = req.body?.email || '';
     return `${ipKeyGenerator(req.ip)}:${email.toLowerCase().trim()}`;
   },
-  skip: (req) => process.env.NODE_ENV === 'test',
+  skip: () => limitsDisabled(),
 });
 
 /**
@@ -59,7 +64,7 @@ const otpLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => `otp:${req.body?.email?.toLowerCase()?.trim() || ipKeyGenerator(req.ip)}`,
-  skip: (req) => process.env.NODE_ENV === 'test',
+  skip: () => limitsDisabled(),
 });
 
 /**
@@ -80,7 +85,7 @@ const chatLimiter = rateLimit({
     // Use JWT user ID if available, fall back to IP
     return req.user?.id ? `chat:${req.user.id}` : `chat:${ipKeyGenerator(req.ip)}`;
   },
-  skip: (req) => process.env.NODE_ENV === 'test',
+  skip: () => limitsDisabled(),
 });
 
 /**
@@ -98,16 +103,18 @@ const insightLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => `insight:${req.user?.id || ipKeyGenerator(req.ip)}`,
-  skip: (req) => process.env.NODE_ENV === 'test' || isLocalStrictGemmaMode(),
+  skip: () => limitsDisabled() || isLocalStrictGemmaMode(),
 });
 
 /**
  * General API limiter — catch-all for all other endpoints
- * 100 requests per 15 minutes per IP
+ * 300 requests per 15 minutes per IP. A single dashboard load fires ~10 API
+ * calls, so 100 starved legit SPA sessions (and any users sharing a NAT IP);
+ * abuse protection for expensive routes lives in the granular limiters above.
  */
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 300,
   message: {
     success: false,
     error: 'Too many requests. Please try again later.',
@@ -115,7 +122,7 @@ const generalLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV === 'test',
+  skip: () => limitsDisabled(),
 });
 
 module.exports = {
