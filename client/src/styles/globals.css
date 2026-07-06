@@ -179,6 +179,25 @@ h1, h2, h3, h4, h5, h6 {
 .typing-dot:nth-child(2) { animation-delay: 0.16s; }
 .typing-dot:nth-child(3) { animation-delay: 0.32s; }
 
+/* ─── Chat message entry + streaming cursor ─── */
+
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.msg-in { animation: msg-in 0.25s ease-out; }
+
+@keyframes cursor-blink {
+  0%, 45% { opacity: 1; }
+  50%, 95% { opacity: 0.15; }
+  100% { opacity: 1; }
+}
+.stream-cursor { animation: cursor-blink 1s steps(1) infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-in, .stream-cursor, .animate-fade-up { animation: none; }
+}
+
 /* ─── Dark mode ───────────────────────────────────────────────────────────
    Coherent baseline: most components style text/borders/surfaces from the
    `navy` ramp + surface tokens, which are CSS variables. Inverting the ramp

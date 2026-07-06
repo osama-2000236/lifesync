@@ -369,14 +369,17 @@ export default function ChatPage() {
 
             {messages.map((m) => (
               m.role === 'user' ? (
-                <div key={m.id} className="flex justify-end">
+                <div key={m.id} className="flex justify-end msg-in">
                   <div className="max-w-[85%] rounded-2xl rounded-ee-md bg-navy-900 dark:bg-emerald-600 px-4 py-2.5 text-[15px] leading-6 text-white shadow-sm" dir="auto" data-testid="user-message">
                     {m.content}
                   </div>
                 </div>
               ) : (
-                <div key={m.id} className="flex flex-col" data-testid="assistant-message">
-                  <div className={`max-w-[92%] border-s-2 ps-4 ${m.isError ? 'border-coral-400' : m.isCrossDomain ? 'border-amber-400' : 'border-emerald-400'}`}>
+                <div key={m.id} className="flex gap-2.5 msg-in" data-testid="assistant-message">
+                  <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-navy-700 shadow-sm" aria-hidden="true" data-testid="assistant-avatar">
+                    <Sparkles className="h-3.5 w-3.5 text-white" />
+                  </div>
+                  <div className={`min-w-0 max-w-[92%] border-s-2 ps-4 ${m.isError ? 'border-coral-400' : m.isCrossDomain ? 'border-amber-400' : 'border-emerald-400'}`}>
                     {m.isError ? (
                       <div className="whitespace-pre-wrap text-[15px] leading-7 text-coral-500" dir="auto">
                         {m.content}
@@ -429,17 +432,26 @@ export default function ChatPage() {
             {streamingText && (
               // aria-hidden keeps token spam away from screen readers; the
               // finalized message announces once via the role=log container.
-              <div className="border-s-2 border-emerald-400 ps-4" aria-hidden="true" data-testid="streaming-message">
-                <div className="text-[15px] leading-7 text-navy-800" dir="auto">
-                  <Markdown text={streamingText} />
-                  <span className="ms-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-emerald-400 align-middle" />
+              <div className="flex gap-2.5" aria-hidden="true" data-testid="streaming-message">
+                <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-navy-700 shadow-sm">
+                  <Sparkles className="h-3.5 w-3.5 text-white" />
+                </div>
+                <div className="min-w-0 border-s-2 border-emerald-400 ps-4">
+                  <div className="text-[15px] leading-7 text-navy-800" dir="auto">
+                    <Markdown text={streamingText} />
+                    <span className="stream-cursor ms-0.5 inline-block h-4 w-1.5 rounded-sm bg-emerald-400 align-middle" />
+                  </div>
                 </div>
               </div>
             )}
 
             {sending && !streamingText && statusText && (
               <p className="flex items-center gap-2 text-xs text-navy-400" role="status" data-testid="status-text">
-                <span className="inline-flex h-1.5 w-1.5 animate-ping rounded-full bg-emerald-400" />
+                <span className="inline-flex items-end gap-0.5" aria-hidden="true">
+                  <span className="typing-dot inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  <span className="typing-dot inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  <span className="typing-dot inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                </span>
                 {statusText}
               </p>
             )}
