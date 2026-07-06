@@ -32,7 +32,7 @@ describe('chatAPI.sendMessageStream — silent retry', () => {
     const onAck = vi.fn();
     const onComplete = vi.fn();
     const onError = vi.fn();
-    global.fetch = vi.fn()
+    globalThis.fetch = vi.fn()
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockResolvedValueOnce(sseResponse([
         { event: 'ack', data: { session_id: 's1' } },
@@ -43,7 +43,7 @@ describe('chatAPI.sendMessageStream — silent retry', () => {
     chatAPI.sendMessageStream('hello', 's1', { onAck, onComplete, onError });
     await flush();
 
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     expect(onAck).toHaveBeenCalledWith({ session_id: 's1' });
     expect(onComplete).toHaveBeenCalledWith({ response: 'hi' });
     expect(onError).not.toHaveBeenCalled();
@@ -51,12 +51,12 @@ describe('chatAPI.sendMessageStream — silent retry', () => {
 
   it('surfaces the error after the second network failure', async () => {
     const onError = vi.fn();
-    global.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
 
     chatAPI.sendMessageStream('hello', 's1', { onError });
     await flush();
 
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError.mock.calls[0][0].retryable).toBe(true);
   });
@@ -80,30 +80,30 @@ describe('chatAPI.sendMessageStream — silent retry', () => {
         },
       },
     };
-    global.fetch = vi.fn().mockResolvedValue(failingBody);
+    globalThis.fetch = vi.fn().mockResolvedValue(failingBody);
 
     chatAPI.sendMessageStream('hello', 's1', { onAck, onError });
     await flush();
 
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(onAck).toHaveBeenCalled();
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
   it('non-network errors surface immediately without retry', async () => {
     const onError = vi.fn();
-    global.fetch = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: 'nope' }) });
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: 'nope' }) });
 
     chatAPI.sendMessageStream('hello', 's1', { onError });
     await flush();
 
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(onError.mock.calls[0][0].message).toContain('Connection failed');
   });
 
   it('user abort stays silent', async () => {
     const onError = vi.fn();
-    global.fetch = vi.fn().mockImplementation((_url, { signal }) => new Promise((_res, rej) => {
+    globalThis.fetch = vi.fn().mockImplementation((_url, { signal }) => new Promise((_res, rej) => {
       signal.addEventListener('abort', () => {
         const e = new Error('aborted');
         e.name = 'AbortError';
