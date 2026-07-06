@@ -178,6 +178,35 @@ describe('ChatPage — sending & streaming', () => {
     expect(dataChanged).toHaveBeenCalled();
   });
 
+  it('stops mid-stream, keeps the partial text, and re-enables sending', async () => {
+    await renderPage();
+    await send();
+
+    await act(async () => {
+      streamCallbacks.onDelta({ text: 'Partial rep' });
+    });
+    expect(screen.getByTestId('stop-button')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('stop-button'));
+    expect(streamAbort).toHaveBeenCalled();
+    expect(screen.getByTestId('assistant-message')).toHaveTextContent('Partial rep');
+    expect(screen.getByTestId('stopped-note')).toBeInTheDocument();
+    expect(screen.queryByTestId('stop-button')).not.toBeInTheDocument();
+    // Sending is unblocked again
+    await send('another one');
+    expect(chatAPI.sendMessageStream).toHaveBeenCalledTimes(2);
+  });
+
+  it('stop before any delta just clears the busy state', async () => {
+    await renderPage();
+    await send();
+
+    fireEvent.click(screen.getByTestId('stop-button'));
+    expect(streamAbort).toHaveBeenCalled();
+    expect(screen.queryByTestId('assistant-message')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('stop-button')).not.toBeInTheDocument();
+  });
+
   it('shows clarification chips and sends the tapped option', async () => {
     await renderPage();
     await send('spent 50');

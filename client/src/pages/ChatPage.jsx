@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Sparkles, History, Volume2, VolumeX, Layers, HeartPulse, Wallet, Link2, AudioLines,
+  Sparkles, History, Volume2, VolumeX, Layers, HeartPulse, Wallet, Link2, AudioLines, Square,
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { chatAPI, aiAPI } from '../services/api';
@@ -208,6 +208,24 @@ export default function ChatPage() {
     }, { model: currentModel, lang: locale, context_window: depth === 'standard' ? undefined : depth });
   }, [sending, sessionId, modelId, locale, depth, t, speak, resetStreaming, refreshSessions]);
 
+  // ─── Stop generation ───
+  // Abort the SSE request (server keeps the partial reply in history too) and
+  // commit whatever streamed so far as a normal message.
+  const stopStreaming = useCallback(() => {
+    if (abortRef.current) abortRef.current();
+    const partial = streamBufRef.current;
+    if (partial) {
+      setMessages((prev) => [...prev, {
+        id: `a-${Date.now()}`, role: 'assistant', content: partial, stopped: true,
+      }]);
+    }
+    resetStreaming();
+    setSending(false);
+    setStatusText(null);
+    refreshSessions();
+    inputRef.current?.focus();
+  }, [resetStreaming, refreshSessions]);
+
   // ─── Presentation helpers ───
   const modelLabel = useMemo(() => {
     const m = models.find((x) => x.id === modelId);
@@ -344,6 +362,11 @@ export default function ChatPage() {
                       {m.content}
                     </div>
                     {m.entities && <EntityReceipts entities={m.entities} t={t} />}
+                    {m.stopped && (
+                      <p className="mt-1.5 text-[10px] uppercase tracking-wide text-navy-400 dark:text-navy-500" data-testid="stopped-note">
+                        {t('chat.stopped')}
+                      </p>
+                    )}
                     {attributionFor(m) && (
                       <p className="mt-1.5 text-[10px] uppercase tracking-wide text-navy-400 dark:text-navy-500" data-testid="model-attribution">
                         {attributionFor(m)}
@@ -374,10 +397,22 @@ export default function ChatPage() {
             )}
 
             {sending && !streamingText && statusText && (
-              <p className="flex items-center gap-2 text-xs text-navy-400" data-testid="status-text">
+              <p className="flex items-center gap-2 text-xs text-navy-400" role="status" data-testid="status-text">
                 <span className="inline-flex h-1.5 w-1.5 animate-ping rounded-full bg-emerald-400" />
                 {statusText}
               </p>
+            )}
+
+            {sending && (
+              <button
+                type="button"
+                onClick={stopStreaming}
+                className="inline-flex items-center gap-1.5 rounded-full border border-navy-200 bg-surface-raised dark:bg-surface-dark-raised px-3.5 py-1.5 text-xs font-semibold text-navy-600 hover:border-coral-300 hover:text-coral-500 transition-colors"
+                data-testid="stop-button"
+              >
+                <Square className="h-3 w-3 fill-current" />
+                {t('chat.stop')}
+              </button>
             )}
 
             {clarification && (

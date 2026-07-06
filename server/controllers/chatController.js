@@ -336,7 +336,11 @@ const processMessageStream = async (req, res) => {
 
     // Stream the conversational reply token-by-token so the voice assistant
     // (and any other client) can render/speak it before the full turn finishes.
-    const onDelta = (chunk) => sseWrite(res, 'delta', { session_id: currentSessionId, text: chunk });
+    let streamedText = '';
+    const onDelta = (chunk) => {
+      streamedText += chunk;
+      sseWrite(res, 'delta', { session_id: currentSessionId, text: chunk });
+    };
 
     try {
       if (pending && pending.sessionId === currentSessionId) {
@@ -353,6 +357,18 @@ const processMessageStream = async (req, res) => {
       }
     } catch (aiError) {
       clearInterval(heartbeat);
+
+      // ─── Client stopped the stream (stop button / barge-in / tab close) ───
+      // Not an AI failure: keep whatever partial reply already streamed as a
+      // normal history row instead of polluting the session with a fake error.
+      if (abortController.signal.aborted) {
+        await safeUpdate(userChatLog, { status: 'complete' });
+        await safeUpdate(assistantChatLog, streamedText
+          ? { message: streamedText, status: 'complete' }
+          : { message: '', intent: 'aborted', status: 'error' });
+        return res.end();
+      }
+
       const errorMessage = resolveAIErrorMessage(aiError);
 
       // ─── AI Failed — persist error state to DB ───

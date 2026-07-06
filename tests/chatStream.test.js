@@ -358,4 +358,73 @@ describe('POST /api/chat/stream', () => {
     expect(assistantRow.status).toBe('pending');
     expect(assistantRow.message).toBe('');
   });
+
+  // ─── 8. Client abort (stop button / barge-in) keeps partial text ───
+  // Drive the handler directly with a fake req/res: socket-level abort timing
+  // is environment-dependent, but the contract under test is simply "req close
+  // fires while the model is streaming".
+
+  const makeFakeReqRes = (message) => {
+    const { EventEmitter } = require('events');
+    const req = new EventEmitter();
+    req.body = { message };
+    req.user = { id: 1 };
+    const res = {
+      writableEnded: false,
+      destroyed: false,
+      writeHead: () => {},
+      write: () => {},
+      end: jest.fn(() => { res.writableEnded = true; }),
+    };
+    return { req, res };
+  };
+
+  test('client abort mid-stream persists partial reply as complete, not error', async () => {
+    const { processMessageStream } = require('../server/controllers/chatController');
+    const { req, res } = makeFakeReqRes('tell me a long story');
+
+    parseMessage.mockImplementation((_msg, _clar, _ctx, options, onDelta) => {
+      onDelta('Partial reply text');
+      // Simulate the client disconnecting while the model is mid-reply
+      setImmediate(() => req.emit('close'));
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
+    });
+
+    await processMessageStream(req, res);
+
+    const ChatLog = require('../server/models/ChatLog');
+    const rows = await ChatLog.findAll({ where: { user_id: 1 }, order: [['id', 'ASC']] });
+    expect(rows.length).toBe(2);
+
+    const userRow = rows.find((r) => r.role === 'user');
+    const assistantRow = rows.find((r) => r.role === 'assistant');
+    expect(userRow.status).toBe('complete');
+    expect(assistantRow.status).toBe('complete');
+    expect(assistantRow.message).toBe('Partial reply text');
+    expect(assistantRow.intent).not.toBe('error');
+    expect(res.end).toHaveBeenCalled();
+  });
+
+  test('client abort before any delta leaves an aborted (not fake-error-text) row', async () => {
+    const { processMessageStream } = require('../server/controllers/chatController');
+    const { req, res } = makeFakeReqRes('hello');
+
+    parseMessage.mockImplementation((_msg, _clar, _ctx, options) => {
+      setImmediate(() => req.emit('close'));
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
+    });
+
+    await processMessageStream(req, res);
+
+    const ChatLog = require('../server/models/ChatLog');
+    const rows = await ChatLog.findAll({ where: { user_id: 1 }, order: [['id', 'ASC']] });
+    const assistantRow = rows.find((r) => r.role === 'assistant');
+    expect(assistantRow.message).toBe('');
+    expect(assistantRow.intent).toBe('aborted');
+    expect(assistantRow.status).toBe('error');
+  });
 });
