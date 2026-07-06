@@ -12,12 +12,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Sparkles, History, Volume2, VolumeX, Layers, HeartPulse, Wallet, Link2, AudioLines, Square,
+  Sparkles, History, Volume2, VolumeX, Layers, HeartPulse, Wallet, Link2, AudioLines, Square, Copy, Check,
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { chatAPI, aiAPI } from '../services/api';
 import { MODEL_OPTIONS, DEFAULT_CHAT_MODEL_ID } from '../config/models';
 import ChatComposer from '../components/chat/ChatComposer';
+import Markdown from '../components/chat/Markdown';
 import ModelPicker from '../components/chat/ModelPicker';
 import EntityReceipts from '../components/chat/EntityReceipts';
 import SessionsRail from '../components/chat/SessionsRail';
@@ -50,6 +51,7 @@ export default function ChatPage() {
   const [statusText, setStatusText] = useState(null);
   const [clarification, setClarification] = useState(null);
   const [railOpen, setRailOpen] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
 
   const abortRef = useRef(null);
   const streamBufRef = useRef('');
@@ -226,6 +228,15 @@ export default function ChatPage() {
     inputRef.current?.focus();
   }, [resetStreaming, refreshSessions]);
 
+  // ─── Copy message ───
+  const copyMessage = useCallback(async (id, content) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch { /* clipboard unavailable (permissions, http) — button is best-effort */ }
+  }, []);
+
   // ─── Presentation helpers ───
   const modelLabel = useMemo(() => {
     const m = models.find((x) => x.id === modelId);
@@ -316,7 +327,7 @@ export default function ChatPage() {
 
         {/* ── Thread ── */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto" data-testid="chat-thread">
-          <div className="mx-auto max-w-3xl px-4 py-6 space-y-5">
+          <div className="mx-auto max-w-3xl px-4 py-6 space-y-5" role="log" aria-live="polite" aria-atomic="false">
             {messages.length === 0 && !streamingText && (
               <div className="pt-10 text-center" data-testid="chat-welcome">
                 <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-navy-700 shadow-lg shadow-emerald-500/20">
@@ -358,9 +369,15 @@ export default function ChatPage() {
               ) : (
                 <div key={m.id} className="flex flex-col" data-testid="assistant-message">
                   <div className={`max-w-[92%] border-s-2 ps-4 ${m.isError ? 'border-coral-400' : m.isCrossDomain ? 'border-amber-400' : 'border-emerald-400'}`}>
-                    <div className={`whitespace-pre-wrap text-[15px] leading-7 ${m.isError ? 'text-coral-500' : 'text-navy-800'}`} dir="auto">
-                      {m.content}
-                    </div>
+                    {m.isError ? (
+                      <div className="whitespace-pre-wrap text-[15px] leading-7 text-coral-500" dir="auto">
+                        {m.content}
+                      </div>
+                    ) : (
+                      <div className="text-[15px] leading-7 text-navy-800" dir="auto">
+                        <Markdown text={m.content} />
+                      </div>
+                    )}
                     {m.entities && <EntityReceipts entities={m.entities} t={t} />}
                     {m.stopped && (
                       <p className="mt-1.5 text-[10px] uppercase tracking-wide text-navy-400 dark:text-navy-500" data-testid="stopped-note">
@@ -382,15 +399,31 @@ export default function ChatPage() {
                         {t('chat.retry.button')}
                       </button>
                     )}
+                    {!m.isError && (
+                      <button
+                        type="button"
+                        onClick={() => copyMessage(m.id, m.content)}
+                        aria-label={t('chat.copy')}
+                        title={t('chat.copy')}
+                        className="mt-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-navy-300 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors"
+                        data-testid="copy-button"
+                      >
+                        {copiedId === m.id
+                          ? (<><Check className="h-3 w-3" /> {t('chat.copied')}</>)
+                          : (<><Copy className="h-3 w-3" /> {t('chat.copy')}</>)}
+                      </button>
+                    )}
                   </div>
                 </div>
               )
             ))}
 
             {streamingText && (
-              <div className="border-s-2 border-emerald-400 ps-4" data-testid="streaming-message">
-                <div className="whitespace-pre-wrap text-[15px] leading-7 text-navy-800" dir="auto">
-                  {streamingText}
+              // aria-hidden keeps token spam away from screen readers; the
+              // finalized message announces once via the role=log container.
+              <div className="border-s-2 border-emerald-400 ps-4" aria-hidden="true" data-testid="streaming-message">
+                <div className="text-[15px] leading-7 text-navy-800" dir="auto">
+                  <Markdown text={streamingText} />
                   <span className="ms-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-emerald-400 align-middle" />
                 </div>
               </div>

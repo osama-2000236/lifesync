@@ -207,6 +207,67 @@ describe('ChatPage — sending & streaming', () => {
     expect(screen.queryByTestId('stop-button')).not.toBeInTheDocument();
   });
 
+  it('copies an assistant reply and shows a transient copied state', async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue() } });
+    await renderPage();
+    await send();
+    act(() => {
+      streamCallbacks.onComplete({ response: 'Copy me.', entities_logged: { health: [], finance: [], linked: [] } });
+    });
+
+    fireEvent.click(screen.getByTestId('copy-button'));
+    await waitFor(() => expect(screen.getByTestId('copy-button')).toHaveTextContent('chat.copied'));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('Copy me.');
+
+    // Copied state resets after ~2s
+    await waitFor(
+      () => expect(screen.getByTestId('copy-button')).not.toHaveTextContent('chat.copied'),
+      { timeout: 3500 },
+    );
+  });
+
+  it('copy is best-effort when the clipboard rejects, and errors offer no copy', async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+    await renderPage();
+    await send();
+    act(() => {
+      streamCallbacks.onComplete({ response: 'No luck.', entities_logged: { health: [], finance: [], linked: [] } });
+    });
+    fireEvent.click(screen.getByTestId('copy-button'));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByTestId('copy-button')).toHaveTextContent('chat.copy');
+
+    await send('again');
+    act(() => { streamCallbacks.onError({ message: 'boom', retryable: true }); });
+    const errorMessage = screen.getAllByTestId('assistant-message').at(-1);
+    expect(errorMessage.querySelector('[data-testid="copy-button"]')).toBeNull();
+  });
+
+  it('exposes the thread as a polite live log and hides the raw stream from readers', async () => {
+    await renderPage();
+    await send();
+    const log = document.querySelector('[role="log"]');
+    expect(log).toHaveAttribute('aria-live', 'polite');
+    expect(log).toHaveAttribute('aria-atomic', 'false');
+    await act(async () => { streamCallbacks.onDelta({ text: 'hi' }); });
+    expect(screen.getByTestId('streaming-message')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('renders markdown in replies: bold, list, and a code fence', async () => {
+    await renderPage();
+    await send();
+    act(() => {
+      streamCallbacks.onComplete({
+        response: 'Try **this**:\n- walk\n- sleep\n```\nwater 2L\n```',
+        entities_logged: { health: [], finance: [], linked: [] },
+      });
+    });
+    const msg = screen.getByTestId('assistant-message');
+    expect(msg.querySelector('strong')).toHaveTextContent('this');
+    expect(msg.querySelectorAll('li')).toHaveLength(2);
+    expect(msg.querySelector('pre')).toHaveTextContent('water 2L');
+  });
+
   it('shows clarification chips and sends the tapped option', async () => {
     await renderPage();
     await send('spent 50');
