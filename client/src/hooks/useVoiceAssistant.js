@@ -6,6 +6,7 @@
 // overlay; this hook owns the microphone, recognition, audio metering, and TTS.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { voiceAPI } from '../services/api';
+import { chunkForSpeech, pickVoice } from '../utils/speech';
 
 const SR = typeof window !== 'undefined'
   ? (window.SpeechRecognition || window.webkitSpeechRecognition)
@@ -323,9 +324,8 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
       try {
         const u = new SpeechSynthesisUtterance(next);
         u.lang = langTag(locale);
-        const wanted = langTag(locale).slice(0, 2);
         const pool = voicesRef.current.length ? voicesRef.current : (window.speechSynthesis.getVoices() || []);
-        const voice = pool.find((v) => v.lang?.toLowerCase().startsWith(wanted));
+        const voice = pickVoice(pool, locale);
         if (voice) u.voice = voice;
         u.onend = () => { speakingRef.current = false; drainQueueImplRef.current(); };
         u.onerror = () => { speakingRef.current = false; drainQueueImplRef.current(); };
@@ -339,7 +339,9 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
   const enqueueSpeech = useCallback((text) => {
     const t = String(text || '').trim();
     if (!t || !activeRef.current) return;
-    speechQueueRef.current.push(t);
+    // Chunk under Chrome's ~200-char utterance cutoff; shorter utterances also
+    // make barge-in cuts feel snappier.
+    speechQueueRef.current.push(...chunkForSpeech(t));
     streamDoneRef.current = false;
     drainQueue();
   }, [drainQueue]);

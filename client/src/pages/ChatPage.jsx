@@ -19,6 +19,7 @@ import { chatAPI, aiAPI } from '../services/api';
 import { MODEL_OPTIONS, DEFAULT_CHAT_MODEL_ID } from '../config/models';
 import ChatComposer from '../components/chat/ChatComposer';
 import Markdown from '../components/chat/Markdown';
+import { stripMarkdownForSpeech, chunkForSpeech, pickVoice } from '../utils/speech';
 import ModelPicker from '../components/chat/ModelPicker';
 import EntityReceipts from '../components/chat/EntityReceipts';
 import SessionsRail from '../components/chat/SessionsRail';
@@ -119,10 +120,17 @@ export default function ChatPage() {
   const speak = useCallback((text) => {
     if (!speakReplies || !('speechSynthesis' in window) || !text) return;
     try {
+      // cancel() first also unfreezes Chrome's occasionally-stuck engine.
       window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = locale === 'ar' ? 'ar-SA' : 'en-US';
-      window.speechSynthesis.speak(u);
+      const voice = pickVoice(window.speechSynthesis.getVoices() || [], locale);
+      // Chunk under Chrome's ~200-char cutoff; the native queue plays them in
+      // order. Voice + lang must be re-set per utterance (Chrome drops them).
+      for (const chunk of chunkForSpeech(stripMarkdownForSpeech(text))) {
+        const u = new SpeechSynthesisUtterance(chunk);
+        u.lang = locale === 'ar' ? 'ar-SA' : 'en-US';
+        if (voice) u.voice = voice;
+        window.speechSynthesis.speak(u);
+      }
     } catch { /* speech is best-effort */ }
   }, [speakReplies, locale]);
   useEffect(() => () => { try { window.speechSynthesis?.cancel(); } catch { /* noop */ } }, []);

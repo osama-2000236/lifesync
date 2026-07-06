@@ -355,7 +355,8 @@ describe('ChatPage — sending & streaming', () => {
   it('speaks replies only when the speak toggle is on', async () => {
     const speak = vi.fn();
     const cancel = vi.fn();
-    window.speechSynthesis = { speak, cancel };
+    // getVoices returning null exercises the defensive `|| []` fallback
+    window.speechSynthesis = { speak, cancel, getVoices: () => null };
     window.SpeechSynthesisUtterance = function SpeechSynthesisUtterance(text) { this.text = text; };
 
     await renderPage();
@@ -410,7 +411,11 @@ describe('ChatPage — edges', () => {
   it('renders RTL for Arabic, sends the locale, and speaks with the Arabic voice', async () => {
     h.settings = { t: (k) => k, locale: 'ar', isRTL: true };
     const speak = vi.fn();
-    window.speechSynthesis = { speak, cancel: vi.fn() };
+    window.speechSynthesis = {
+      speak,
+      cancel: vi.fn(),
+      getVoices: () => [{ lang: 'ar-SA', name: 'Tarik' }],
+    };
     window.SpeechSynthesisUtterance = function SpeechSynthesisUtterance(text) { this.text = text; };
 
     await renderPage();
