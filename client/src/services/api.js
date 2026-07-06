@@ -94,7 +94,12 @@ export const chatAPI = {
     // 3-minute safety timeout for completely hung connections
     const timeout = setTimeout(() => controller.abort(), 180_000);
 
-    fetch(`${API_BASE}/chat/stream`, {
+    // One silent retry on a network-level failure, but ONLY before the server
+    // acked — after ack the DB rows exist and a re-POST would duplicate them.
+    let gotAck = false;
+    let retried = false;
+
+    const attempt = () => fetch(`${API_BASE}/chat/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -142,7 +147,7 @@ export const chatAPI = {
               if (!dataStr) continue;
               try {
                 const data = JSON.parse(dataStr);
-                if (currentEvent === 'ack' && callbacks.onAck) callbacks.onAck(data);
+                if (currentEvent === 'ack') { gotAck = true; if (callbacks.onAck) callbacks.onAck(data); }
                 else if (currentEvent === 'status' && callbacks.onStatus) callbacks.onStatus(data);
                 else if (currentEvent === 'delta' && callbacks.onDelta) callbacks.onDelta(data);
                 else if (currentEvent === 'complete' && callbacks.onComplete) callbacks.onComplete(data);
@@ -162,15 +167,21 @@ export const chatAPI = {
               retryable: true,
             });
           }
-          return;
+          return undefined;
         }
-        let message = 'Connection failed. Please try again.';
-        if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-          message = 'Network error — please check your connection and try again.';
+        const isNetwork = err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError');
+        if (isNetwork && !gotAck && !retried) {
+          retried = true;
+          return attempt(); // silent retry — nothing reached the server yet
         }
+        const message = isNetwork
+          ? 'Network error — please check your connection and try again.'
+          : 'Connection failed. Please try again.';
         if (callbacks.onError) callbacks.onError({ message, retryable: true });
-      })
-      .finally(() => clearTimeout(timeout));
+        return undefined;
+      });
+
+    attempt().finally(() => clearTimeout(timeout));
 
     return () => { clearTimeout(timeout); controller.abort('user_cancel'); };
   },
