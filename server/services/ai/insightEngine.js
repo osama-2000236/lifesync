@@ -335,7 +335,9 @@ function detectBudgetPatterns(financeAgg, financeAggPrev) {
 
   const suggestions = [];
 
-  if (savingsRate < 10) {
+  // Only advise on savings once there is actual income data — a user with no
+  // finance logs otherwise gets "your savings rate is 0%" on an empty account.
+  if (income > 0 && savingsRate < 10) {
     suggestions.push({
       text: `Your savings rate is ${savingsRate.toFixed(0)}% — aim for at least 20% by reducing discretionary spending.`,
       priority: 'high',

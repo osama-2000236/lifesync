@@ -193,6 +193,12 @@ describe('detectBudgetPatterns', () => {
     const lowSavingsSuggestion = result.suggestions.find((s) => s.text.includes('savings rate'));
     expect(lowSavingsSuggestion).toBeDefined();
   });
+
+  test('does not nag about savings rate when there is no income data at all', () => {
+    const result = detectBudgetPatterns([], []);
+    const lowSavingsSuggestion = result.suggestions.find((s) => s.text.includes('savings rate'));
+    expect(lowSavingsSuggestion).toBeUndefined();
+  });
 });
 
 // ────────────────────────────────────────────
