@@ -218,11 +218,18 @@ export default function AssistantPage() {
 
             {mode === 'converse' ? (
               <div className="relative flex-1 flex flex-col items-center justify-center gap-6 py-4">
-                <VoiceOrb phase={voice.state} level={voice.level} size={200} />
+                <VoiceOrb phase={voice.state} level={voice.level} size={200} bandsRef={voice.bandsRef} />
                 <p className="text-lg font-medium text-white/90">{phaseLabel}</p>
-                <div className="min-h-[3.5rem] max-w-md text-center px-2" dir="auto">
+                <div className="min-h-[3.5rem] max-w-md text-center px-2" role="log" aria-live="polite" aria-atomic="false" dir="auto">
                   {voice.transcript && voice.state === 'listening' ? (
-                    <p className="text-emerald-200">{voice.transcript}</p>
+                    <p className="text-emerald-200 msg-in">
+                      {voice.transcript}
+                      <span className="inline-flex items-end gap-0.5 ms-1.5 align-baseline" aria-hidden="true">
+                        <span className="typing-dot inline-block h-1 w-1 rounded-full bg-emerald-300" />
+                        <span className="typing-dot inline-block h-1 w-1 rounded-full bg-emerald-300" />
+                        <span className="typing-dot inline-block h-1 w-1 rounded-full bg-emerald-300" />
+                      </span>
+                    </p>
                   ) : (
                     <>
                       {lastUser && <p className="text-white/50 text-sm mb-1">{lastUser.text}</p>}

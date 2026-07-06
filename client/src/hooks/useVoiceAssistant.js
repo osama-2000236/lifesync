@@ -45,6 +45,10 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
   const voicesRef = useRef([]);
   const smoothRef = useRef(0);
   const lastSetRef = useRef(0);
+  // Live frequency bands for the audio-reactive orb ring. Mutated in place
+  // every frame with ZERO React state — consumers (canvas) read it in their
+  // own rAF loop.
+  const bandsRef = useRef(new Float32Array(24));
 
   // Cache TTS voices (load async) so the first reply picks the right language
   // voice — Arabic especially, which often loads late.
@@ -93,6 +97,15 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
         for (let i = 0; i < data.length; i += 1) sum += data[i];
         const avg = sum / data.length / 255; // 0..1
         smoothRef.current = smoothRef.current * 0.6 + avg * 0.4;
+        // Downsample the spectrum into the ring's bands (in-place, no state).
+        const bands = bandsRef.current;
+        const per = Math.floor(data.length / bands.length) || 1;
+        for (let b = 0; b < bands.length; b += 1) {
+          let bs = 0;
+          for (let j = 0; j < per; j += 1) bs += data[b * per + j] || 0;
+          const v = bs / per / 255;
+          bands[b] = bands[b] * 0.5 + v * 0.5;
+        }
         // Throttle React state to ~20fps (orb has a CSS transition for smoothing)
         // so the overlay doesn't re-render 60×/sec.
         const now = performance.now();
@@ -403,7 +416,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
   useEffect(() => () => { stop(); }, [stop]);
 
   return {
-    supported, active, state, transcript, level, error,
+    supported, active, state, transcript, level, error, bandsRef,
     start, stop, speak, enqueueSpeech, finishSpeechStream, setPhase,
   };
 }

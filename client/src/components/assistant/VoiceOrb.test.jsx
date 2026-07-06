@@ -20,4 +20,14 @@ describe('VoiceOrb', () => {
     const { getByTestId } = render(<VoiceOrb />);
     expect(getByTestId('voice-orb')).toHaveAttribute('data-phase', 'idle');
   });
+
+  it('renders the audio-reactive WaveRing only when a bandsRef is provided', () => {
+    const { queryByTestId, unmount } = render(<VoiceOrb phase="listening" />);
+    expect(queryByTestId('wave-ring')).toBeNull();
+    unmount();
+
+    const bandsRef = { current: new Float32Array(24) };
+    const { getByTestId } = render(<VoiceOrb phase="listening" bandsRef={bandsRef} />);
+    expect(getByTestId('wave-ring')).toBeInTheDocument();
+  });
 });
