@@ -583,7 +583,25 @@ const generateChatStream = async ({
   let full = '';
   let buf = '';
   await new Promise((resolve, reject) => {
+    // Stall watchdog: axios' `timeout` only covers time-to-headers for
+    // responseType:stream. A free pool that accepts the request and then goes
+    // silent (seen live with OpenRouter free models) would otherwise hang the
+    // whole turn until the client's 180s timeout. No token for STALL_MS →
+    // kill the socket and surface a retryable error.
+    const STALL_MS = parseInt(process.env.CHAT_STREAM_STALL_MS, 10) || 45_000;
+    let stallTimer = null;
+    const armStallTimer = () => {
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => {
+        const err = new Error(`${provider} stream stalled — no tokens for ${Math.round(STALL_MS / 1000)}s`);
+        err.retryable = true;
+        try { response.data.destroy(err); } catch { reject(err); }
+      }, STALL_MS);
+    };
+    armStallTimer();
+
     response.data.on('data', (chunk) => {
+      armStallTimer();
       buf += chunk.toString('utf8');
       const lines = buf.split('\n');
       buf = lines.pop();
@@ -599,12 +617,13 @@ const generateChatStream = async ({
         } catch { /* ignore partial/malformed SSE chunk */ }
       }
     });
-    response.data.on('end', resolve);
-    response.data.on('error', reject);
+    const settle = (fn) => (arg) => { clearTimeout(stallTimer); fn(arg); };
+    response.data.on('end', settle(resolve));
+    response.data.on('error', settle(reject));
     // Safety net: if the request is aborted mid-stream (e.g. voice barge-in),
     // some Node/axios versions close the socket without an 'end' or 'error'
     // event — without this the promise would hang forever.
-    response.data.on('close', resolve);
+    response.data.on('close', settle(resolve));
   });
 
   if (!full.trim()) {

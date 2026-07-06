@@ -22,6 +22,7 @@ describe('generateChatStream', () => {
   const originalEnv = {
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    CHAT_STREAM_STALL_MS: process.env.CHAT_STREAM_STALL_MS,
   };
 
   afterEach(() => {
@@ -96,6 +97,22 @@ describe('generateChatStream', () => {
     });
 
     expect(result.text).toBe('ok');
+  });
+
+  test('a stream that goes silent mid-reply rejects with a retryable stall error', async () => {
+    process.env.OPENROUTER_API_KEY = 'or-test-key';
+    process.env.CHAT_STREAM_STALL_MS = '60';
+    // Emits one token, then never ends — the watchdog must kill it.
+    const stream = new EventEmitter();
+    process.nextTick(() => {
+      stream.emit('data', Buffer.from(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hel' } }] })}\n`));
+    });
+    axios.post.mockResolvedValue({ data: stream });
+
+    await expect(generateChatStream({
+      messages: [{ role: 'user', content: 'hi' }],
+      providerOverride: 'openrouter',
+    })).rejects.toThrow(/stalled/);
   });
 
   test('falls back to a single non-streamed delta for providers without SSE support (gemini)', async () => {
