@@ -6,7 +6,7 @@ import {
 } from 'chart.js';
 import { useSettings } from '../../contexts/SettingsContext';
 import ChartEmptyState from './ChartEmptyState';
-import { chartTheme } from './chartTheme';
+import { chartTheme, chartMotion } from './chartTheme';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -89,6 +89,7 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
   };
 
   const doughnutOptions = {
+    ...chartMotion(),
     responsive: true,
     maintainAspectRatio: false,
     cutout: '68%',
@@ -108,6 +109,7 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
   };
 
   const barOptions = {
+    ...chartMotion(),
     responsive: true,
     maintainAspectRatio: false,
     indexAxis: 'y',

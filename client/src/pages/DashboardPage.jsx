@@ -215,15 +215,21 @@ export default function DashboardPage() {
         {dashboardLoading ? (
           [1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)
         ) : (
-          quickStats.map(({ label, value, icon: Icon, color, bg }) => (
-            <Card key={label} interactive padding="none" className="p-5 overflow-hidden relative">
+          quickStats.map(({ label, value, icon: Icon, color, bg }, i) => (
+            <Card
+              key={label}
+              interactive
+              padding="none"
+              className="p-5 overflow-hidden relative animate-fade-up"
+              style={{ animationDelay: `${i * 80}ms`, animationFillMode: 'backwards' }}
+            >
               <span className={`absolute top-0 inset-x-0 h-0.5 ${STAT_ACCENT[color] || 'bg-navy-300'}`} />
               <div className="flex items-center justify-between mb-3">
                 <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center`}>
                   <Icon className={`w-5 h-5 ${color}`} />
                 </div>
               </div>
-              <p className="text-2xl font-bold text-navy-900">{value}</p>
+              <p className="text-2xl font-bold text-navy-900 tabular-nums">{value}</p>
               <p className="text-xs text-navy-400 mt-1 font-medium">{label}</p>
             </Card>
           ))
@@ -238,7 +244,7 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50 animate-fade-up" style={{ animationDelay: '120ms', animationFillMode: 'backwards' }}>
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
                 <Activity className="w-5 h-5 text-emerald-500" />
@@ -249,7 +255,7 @@ export default function DashboardPage() {
             <HealthCorrelationChart healthData={healthData} loading={dashboardLoading} />
           </div>
 
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50 animate-fade-up" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
                 <Link2 className="w-5 h-5 text-indigo-500" />
@@ -261,7 +267,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50 animate-fade-up" style={{ animationDelay: '280ms', animationFillMode: 'backwards' }}>
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2">
                   <Wallet className="w-5 h-5 text-coral-500" />
@@ -289,7 +295,7 @@ export default function DashboardPage() {
               />
             </div>
 
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50 animate-fade-up" style={{ animationDelay: '340ms', animationFillMode: 'backwards' }}>
               <div className="flex items-center gap-2 mb-5">
                 <Heart className="w-5 h-5 text-purple-500" />
                 <h2 className="font-display text-base font-bold text-navy-800">{t('dash.moodVsActivity')}</h2>

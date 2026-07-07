@@ -6,14 +6,19 @@ import {
 } from 'chart.js';
 import { useSettings } from '../../contexts/SettingsContext';
 import ChartEmptyState from './ChartEmptyState';
-import { chartTheme } from './chartTheme';
+import { chartTheme, chartMotion } from './chartTheme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+// Localized short weekday labels (Mon-first). 2024-01-01 is a Monday.
+const dayLabels = (locale) => {
+  const fmt = new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en', { weekday: 'short' });
+  return DAYS.map((_, i) => fmt.format(new Date(Date.UTC(2024, 0, 1 + i))));
+};
 
 export default function HealthCorrelationChart({ healthData = [], loading }) {
-  const { t, theme } = useSettings();
+  const { t, theme, locale } = useSettings();
   const c = chartTheme(theme === 'dark');
   const { hasData, chartData } = useMemo(() => {
     const dayMap = Object.fromEntries(DAYS.map((day) => [day, { steps: 0, sleep: 0 }]));
@@ -37,7 +42,7 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
     return {
       hasData: hasRelevantData,
       chartData: {
-        labels: DAYS,
+        labels: dayLabels(locale),
         datasets: [
           {
             label: t('chart.steps'),
@@ -70,9 +75,10 @@ export default function HealthCorrelationChart({ healthData = [], loading }) {
         ],
       },
     };
-  }, [healthData, t, c.segmentBorder]);
+  }, [healthData, t, locale, c.segmentBorder]);
 
   const options = {
+    ...chartMotion(),
     responsive: true,
     maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },

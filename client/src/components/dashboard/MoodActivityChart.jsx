@@ -3,7 +3,7 @@ import { Scatter } from 'react-chartjs-2';
 import { Chart as ChartJS, LinearScale, PointElement, Tooltip, Legend } from 'chart.js';
 import { useSettings } from '../../contexts/SettingsContext';
 import ChartEmptyState from './ChartEmptyState';
-import { chartTheme } from './chartTheme';
+import { chartTheme, chartMotion } from './chartTheme';
 
 ChartJS.register(LinearScale, PointElement, Tooltip, Legend);
 
@@ -46,6 +46,7 @@ export default function MoodActivityChart({ healthData = [], loading }) {
   };
 
   const options = {
+    ...chartMotion(),
     responsive: true,
     maintainAspectRatio: false,
     plugins: {

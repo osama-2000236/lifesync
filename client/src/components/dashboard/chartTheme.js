@@ -10,3 +10,10 @@ export const chartTheme = (isDark) => ({
   tooltipBg: isDark ? '#1f3350' : '#102a43',
   segmentBorder: isDark ? '#14233b' : '#ffffff',                    // = surface-raised, points read as cut-outs
 });
+
+// One entrance animation for every dashboard chart — respects reduced-motion.
+export const chartMotion = () => {
+  const reduced = typeof window !== 'undefined'
+    && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  return reduced ? { animation: false } : { animation: { duration: 900, easing: 'easeOutQuart' } };
+};

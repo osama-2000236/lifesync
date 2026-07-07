@@ -24,7 +24,11 @@ const trendColors = {
 const hasScore = (value) => value !== null && value !== undefined && value !== '';
 
 export default function InsightCards({ insights, loading, error }) {
-  const { t } = useSettings();
+  const { t, locale } = useSettings();
+  // Server attaches _ar mirrors (insightLocalizer) — pick per locale with
+  // graceful English fallback so a missing mirror never blanks a card.
+  const ar = locale === 'ar';
+  const pick = (en, arText) => (ar && arText) || en;
 
   if (loading) {
     return (
@@ -88,7 +92,7 @@ export default function InsightCards({ insights, loading, error }) {
           <Lightbulb className="w-5 h-5 text-amber-400" />
           <h3 className="font-display font-semibold text-sm">{t('insight.weeklyTitle')}</h3>
         </div>
-        <p className="text-white/70 text-sm leading-relaxed">{data.summary}</p>
+        <p className="text-white/70 text-sm leading-relaxed" dir="auto">{pick(data.summary, data.summary_ar)}</p>
 
         {/* Scores */}
         <div className="flex gap-4 mt-4">
@@ -132,7 +136,7 @@ export default function InsightCards({ insights, loading, error }) {
             <ArrowUpRight className="w-4 h-4 text-purple-500" />
             <p className="text-[11px] uppercase tracking-wider font-semibold text-purple-600">{t('insight.crossDomain')}</p>
           </div>
-          <p className="text-sm text-purple-800 leading-relaxed">{data.cross_domain_insights}</p>
+          <p className="text-sm text-purple-800 leading-relaxed" dir="auto">{pick(data.cross_domain_insights, data.cross_domain_insights_ar)}</p>
         </div>
       )}
 
@@ -141,14 +145,18 @@ export default function InsightCards({ insights, loading, error }) {
         <div className="space-y-2">
           <p className="text-[11px] uppercase tracking-wider font-semibold text-navy-400 px-1">{t('insight.recommendations')}</p>
           {data.recommendations.map((rec, i) => (
-            <div key={i} className="p-3.5 rounded-xl bg-white border border-navy-100 hover:shadow-sm transition-shadow">
+            <div
+              key={i}
+              className="p-3.5 rounded-xl bg-white border border-navy-100 hover:shadow-sm hover:border-emerald-200 transition-all msg-in"
+              style={{ animationDelay: `${i * 70}ms` }}
+            >
               <div className="flex items-start gap-3">
-                <div className={`w-1.5 h-1.5 rounded-full mt-2 ${
+                <div className={`w-1.5 h-1.5 rounded-full mt-2 shrink-0 ${
                   rec.priority === 'high' ? 'bg-coral-500' : rec.priority === 'medium' ? 'bg-amber-500' : 'bg-navy-300'
                 }`} />
-                <div>
-                  <p className="text-sm font-medium text-navy-800">{rec.text}</p>
-                  <p className="text-xs text-navy-400 mt-1">{rec.reason}</p>
+                <div dir="auto">
+                  <p className="text-sm font-medium text-navy-800">{pick(rec.text, rec.text_ar)}</p>
+                  {rec.reason && <p className="text-xs text-navy-400 mt-1">{pick(rec.reason, rec.reason_ar)}</p>}
                 </div>
               </div>
             </div>

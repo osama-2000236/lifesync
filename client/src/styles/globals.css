@@ -276,6 +276,24 @@ h1, h2, h3, h4, h5, h6 {
 .dark .border-purple-100 { border-color: color-mix(in srgb, #a855f7 30%, transparent); }
 .dark .border-amber-200  { border-color: color-mix(in srgb, #f59e0b 30%, transparent); }
 
+/* Completion of the accent matrix — every literal accent class actually used
+   in src (audited via grep) gets a dark mapping. Opacity-modified Tailwind
+   classes (bg-x-50/60 etc.) are DISTINCT class names the bare selectors above
+   don't match, which left dark-on-dark text and light patches on dark cards. */
+.dark .bg-amber-100  { background-color: color-mix(in srgb, #f59e0b 20%, transparent); }
+.dark .bg-coral-100  { background-color: color-mix(in srgb, #f43f5e 20%, transparent); }
+.dark .bg-amber-50\/60   { background-color: color-mix(in srgb, #f59e0b 12%, transparent); }
+.dark .bg-blue-50\/40    { background-color: color-mix(in srgb, #3b82f6 9%, transparent); }
+.dark .bg-coral-50\/50, .dark .bg-coral-50\/60 { background-color: color-mix(in srgb, #f43f5e 10%, transparent); }
+.dark .bg-emerald-50\/40, .dark .bg-emerald-50\/50, .dark .bg-emerald-50\/60 { background-color: color-mix(in srgb, #10b981 10%, transparent); }
+.dark .text-amber-800, .dark .text-amber-700\/80 { color: #fde68a; }
+.dark .text-purple-800   { color: #e9d5ff; }
+.dark .text-coral-700    { color: #fda4af; }
+.dark .border-amber-100  { border-color: color-mix(in srgb, #f59e0b 25%, transparent); }
+.dark .border-coral-200, .dark .border-coral-200\/60 { border-color: color-mix(in srgb, #f43f5e 30%, transparent); }
+.dark .border-blue-200\/60 { border-color: color-mix(in srgb, #3b82f6 25%, transparent); }
+.dark .border-emerald-200\/60, .dark .border-emerald-200\/70 { border-color: color-mix(in srgb, #10b981 25%, transparent); }
+
 /* ─── RTL base ────────────────────────────────────────────────────────────
    dir="rtl" (set on <html> for Arabic) flips text + logical flow. These tweaks
    cover the common LTR-only utilities used in the shell. Full visual mirroring
