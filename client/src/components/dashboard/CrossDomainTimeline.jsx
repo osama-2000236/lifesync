@@ -8,6 +8,7 @@
 import { useMemo, useState, useRef } from 'react';
 import { scaleTime, scaleLinear, line as d3line, curveMonotoneX, extent, max } from 'd3';
 import { useSettings } from '../../contexts/SettingsContext';
+import { dateLocale } from '../../i18n';
 import ChartEmptyState from './ChartEmptyState';
 
 const WIDTH = 640;
@@ -42,7 +43,7 @@ export function buildDailySeries(healthData, financeData) {
 }
 
 export default function CrossDomainTimeline({ healthData = [], financeData = [], loading }) {
-  const { t, isRTL } = useSettings();
+  const { t, isRTL, locale } = useSettings();
   const [hoverIndex, setHoverIndex] = useState(null);
   const svgRef = useRef(null);
 
@@ -123,7 +124,7 @@ export default function CrossDomainTimeline({ healthData = [], financeData = [],
       </svg>
       {hovered && (
         <div className="mt-2 flex items-center justify-center gap-4 text-xs text-navy-600">
-          <span className="font-semibold">{hovered.date.toLocaleDateString()}</span>
+          <span className="font-semibold">{hovered.date.toLocaleDateString(dateLocale(locale))}</span>
           <span>{t('chart.sleepHrs')}: {hovered.sleep.toFixed(1)}h</span>
           <span>{t('chart.spent')}: ${hovered.spend.toFixed(0)}</span>
         </div>

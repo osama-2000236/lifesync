@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Outfit:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Outfit:wght@300;400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
 /* Class-based dark mode (toggled on <html class="dark"> by SettingsContext). */
@@ -77,6 +77,20 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* Native Arabic typography: DM Sans/Outfit have no Arabic glyphs, so without
+   this the Arabic UI renders in a per-OS fallback (Segoe UI, Geeza Pro, …) and
+   the design stops being one system. SettingsContext stamps lang on <html>. */
+:root:lang(ar) {
+  --font-display: 'IBM Plex Sans Arabic', 'Outfit', sans-serif;
+  --font-body: 'IBM Plex Sans Arabic', 'DM Sans', sans-serif;
+}
+
+/* Arabic script is cursive-connected — letter-spacing breaks ligatures. Kill
+   every tracking-* utility in one rule rather than auditing each usage. */
+:root:lang(ar) [class*='tracking-'] {
+  letter-spacing: 0 !important;
 }
 
 body {
@@ -293,6 +307,11 @@ h1, h2, h3, h4, h5, h6 {
 .dark .border-coral-200, .dark .border-coral-200\/60 { border-color: color-mix(in srgb, #f43f5e 30%, transparent); }
 .dark .border-blue-200\/60 { border-color: color-mix(in srgb, #3b82f6 25%, transparent); }
 .dark .border-emerald-200\/60, .dark .border-emerald-200\/70 { border-color: color-mix(in srgb, #10b981 25%, transparent); }
+.dark .bg-rose-50        { background-color: color-mix(in srgb, #f43f5e 16%, transparent); }
+.dark .bg-emerald-200    { background-color: color-mix(in srgb, #10b981 45%, transparent); }
+.dark .text-coral-600    { color: #fda4af; }
+.dark .text-emerald-600\/80 { color: color-mix(in srgb, #6ee7b7 85%, transparent); }
+.dark .text-blue-600\/80    { color: color-mix(in srgb, #93c5fd 85%, transparent); }
 
 /* ─── RTL base ────────────────────────────────────────────────────────────
    dir="rtl" (set on <html> for Arabic) flips text + logical flow. These tweaks

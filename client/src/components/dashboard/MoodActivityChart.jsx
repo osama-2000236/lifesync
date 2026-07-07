@@ -53,8 +53,8 @@ export default function MoodActivityChart({ healthData = [], loading }) {
       legend: { display: false },
       tooltip: {
         backgroundColor: c.tooltipBg,
-        titleFont: { family: "'DM Sans'", size: 13, weight: '600' },
-        bodyFont: { family: "'DM Sans'", size: 12 },
+        titleFont: { family: c.font, size: 13, weight: '600' },
+        bodyFont: { family: c.font, size: 12 },
         padding: 12,
         cornerRadius: 10,
         callbacks: {
@@ -65,15 +65,15 @@ export default function MoodActivityChart({ healthData = [], loading }) {
     },
     scales: {
       x: {
-        title: { display: true, text: t('chart.activityMin'), font: { family: "'DM Sans'", size: 11, weight: '500' }, color: c.legend },
+        title: { display: true, text: t('chart.activityMin'), font: { family: c.font, size: 11, weight: '500' }, color: c.legend },
         grid: { color: c.grid, drawBorder: false },
-        ticks: { font: { family: "'DM Sans'", size: 11 }, color: c.tick },
+        ticks: { font: { family: c.font, size: 11 }, color: c.tick },
         min: 0,
       },
       y: {
-        title: { display: true, text: t('chart.moodScale'), font: { family: "'DM Sans'", size: 11, weight: '500' }, color: c.legend },
+        title: { display: true, text: t('chart.moodScale'), font: { family: c.font, size: 11, weight: '500' }, color: c.legend },
         grid: { color: c.grid, drawBorder: false },
-        ticks: { font: { family: "'DM Sans'", size: 11 }, color: c.tick, stepSize: 1 },
+        ticks: { font: { family: c.font, size: 11 }, color: c.tick, stepSize: 1 },
         min: 0,
         max: 10,
       },

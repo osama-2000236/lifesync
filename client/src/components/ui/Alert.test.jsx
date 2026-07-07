@@ -22,7 +22,7 @@ describe('Alert', () => {
   it('calls onDismiss when the dismiss button is clicked', () => {
     const onDismiss = vi.fn();
     render(<Alert onDismiss={onDismiss}>Saved</Alert>);
-    screen.getByLabelText('Dismiss').click();
+    screen.getByLabelText('Close').click();
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });

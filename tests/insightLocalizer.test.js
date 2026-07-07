@@ -8,8 +8,10 @@ describe('localizeInsightText', () => {
       .toBe('معدل ادخارك 5٪ — استهدف ٢٠٪ على الأقل عبر تقليل الإنفاق غير الضروري.');
     expect(localizeInsightText('Weekly: $200 income vs $190 expenses')).toContain('200$');
     expect(localizeInsightText('Food & Dining accounts for 42.5% of spending. Consider setting a weekly cap.'))
-      .toContain('Food & Dining');
-    expect(localizeInsightText('$80 this week on Shopping')).toContain('«Shopping»');
+      .toContain('«الطعام والمطاعم»');
+    expect(localizeInsightText('$80 this week on Shopping')).toContain('«التسوق»');
+    // unseeded/custom category names fall through untranslated
+    expect(localizeInsightText('$80 this week on Crypto')).toContain('«Crypto»');
     expect(localizeInsightText('Spending increased 35% compared to last week. Review recent transactions for non-essentials.'))
       .toContain('35٪');
     expect(localizeInsightText('This week: $120 vs last week: $80')).toContain('120$');
