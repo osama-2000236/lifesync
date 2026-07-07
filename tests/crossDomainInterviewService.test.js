@@ -237,6 +237,37 @@ describe('db-backed helpers', () => {
     expect(advice.advice[0].text).toMatch(/سجّلت/);
   });
 
+  test('buildAdvice — Arabic serves _ar mirrors, missing mirror falls back to English', async () => {
+    runInsightEngine.mockResolvedValue({
+      recommendations: [
+        { text: 'Sleep 7+ hours', text_ar: 'نم ٧ ساعات', priority: 'high', domain: 'both', reason: 'r1', reason_ar: 'س1' },
+        { text: 'No mirror here', priority: 'medium', domain: 'health', reason: 'r2' },
+      ],
+      health_score: 72,
+      financial_health_score: 60,
+      cross_domain_insights: 'insight',
+      cross_domain_insights_ar: 'رؤية',
+    });
+    const advice = await svc.buildAdvice(1, 'sleep_spending', 'ar');
+    expect(advice.advice[0].text).toBe('نم ٧ ساعات');
+    expect(advice.advice[0].reason).toBe('س1');
+    expect(advice.advice[1].text).toBe('No mirror here');
+    expect(advice.advice[1].reason).toBe('r2');
+    expect(advice.cross_domain_insight).toBe('رؤية');
+  });
+
+  test('buildAdvice — Arabic without _ar payload falls back to English insight', async () => {
+    runInsightEngine.mockResolvedValue({
+      recommendations: [{ text: 'tip', domain: 'both' }],
+      health_score: 1,
+      financial_health_score: 1,
+      cross_domain_insights: 'english only',
+    });
+    const advice = await svc.buildAdvice(1, 'sleep_spending', 'ar');
+    expect(advice.cross_domain_insight).toBe('english only');
+    expect(advice.advice[0].text).toBe('tip');
+  });
+
   test('buildAdvice — engine failure → fallback, null scores', async () => {
     runInsightEngine.mockRejectedValue(new Error('down'));
     const advice = await svc.buildAdvice(1, 'budget_savings', 'en');

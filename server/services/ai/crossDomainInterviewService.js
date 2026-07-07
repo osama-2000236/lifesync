@@ -439,10 +439,17 @@ const buildAdvice = async (userId, topic, lang = 'en') => {
   }[topic] || ['both', 'health', 'finance'];
 
   const recs = (engine && Array.isArray(engine.recommendations)) ? engine.recommendations : [];
+  const arabic = pickLang(lang) === 'ar';
   const relevant = recs
     .filter((r) => domainFor.includes(r.domain))
     .slice(0, 3)
-    .map((r) => ({ text: r.text, priority: r.priority || 'medium', domain: r.domain, reason: r.reason || null }));
+    .map((r) => ({
+      // Engine attaches _ar mirrors (insightLocalizer) — serve the requested language.
+      text: (arabic && r.text_ar) || r.text,
+      priority: r.priority || 'medium',
+      domain: r.domain,
+      reason: (arabic ? r.reason_ar : r.reason) || r.reason || null,
+    }));
 
   const fallback = {
     en: 'Thanks — I\'ve logged that. Keep tracking for a day or two and I\'ll surface a tailored tip on your dashboard.',
@@ -454,7 +461,9 @@ const buildAdvice = async (userId, topic, lang = 'en') => {
     title: getPrompt(topic, lang),
     advice: relevant.length ? relevant : [{ text: localize(fallback, lang), priority: 'low', domain: 'both', reason: null }],
     scores: engine ? { health: engine.health_score, financial: engine.financial_health_score } : null,
-    cross_domain_insight: engine ? engine.cross_domain_insights : null,
+    cross_domain_insight: engine
+      ? ((arabic && engine.cross_domain_insights_ar) || engine.cross_domain_insights)
+      : null,
   };
 };
 

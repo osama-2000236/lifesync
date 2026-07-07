@@ -14,6 +14,7 @@ const HealthLog = require('../../models/HealthLog');
 const FinancialLog = require('../../models/FinancialLog');
 const Category = require('../../models/Category');
 const AISummary = require('../../models/AISummary');
+const { localizeInsights } = require('./insightLocalizer');
 
 // ────────────────────────────────────────────
 // STATISTICAL HELPERS
@@ -622,7 +623,9 @@ async function runInsightEngine(userId) {
     generated_at: new Date().toISOString(),
   };
 
-  return result;
+  // Additive Arabic mirror fields (summary_ar, cross_domain_insights_ar,
+  // recommendations[].text_ar/reason_ar) — clients pick by locale.
+  return localizeInsights(result);
 }
 
 /**
