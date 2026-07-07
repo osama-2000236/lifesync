@@ -13,6 +13,7 @@ import { Link } from 'react-router-dom';
 import { Sparkles, Mic, MessageSquareText, Square, RefreshCw, MessageCircle } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { useVoiceAssistant } from '../hooks/useVoiceAssistant';
+import { stripMarkdownForSpeech } from '../utils/speech';
 import { chatAPI, assistantAPI } from '../services/api';
 import { DEFAULT_CHAT_MODEL_ID } from '../config/models';
 import VoiceOrb from '../components/assistant/VoiceOrb';
@@ -233,7 +234,7 @@ export default function AssistantPage() {
                   ) : (
                     <>
                       {lastUser && <p className="text-white/50 text-sm mb-1">{lastUser.text}</p>}
-                      {lastAssistant && <p className="text-white leading-relaxed">{lastAssistant.text}</p>}
+                      {lastAssistant && <p className="text-white leading-relaxed">{stripMarkdownForSpeech(lastAssistant.text)}</p>}
                     </>
                   )}
                 </div>
@@ -259,7 +260,7 @@ export default function AssistantPage() {
                   {messages.map((m, i) => (
                     <div key={i} className={m.role === 'user' ? 'text-white/70 text-sm' : 'text-white'} dir="auto">
                       <span className="text-[10px] uppercase tracking-wide text-white/40 me-2">{m.role === 'user' ? t('assistant.you') : t('assistant.title')}</span>
-                      {m.text}
+                      {m.role === 'user' ? m.text : stripMarkdownForSpeech(m.text)}
                     </div>
                   ))}
                 </div>
