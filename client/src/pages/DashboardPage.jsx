@@ -1,12 +1,16 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { healthAPI, financeAPI, insightsAPI } from '../services/api';
 import { getApiErrorMessage } from '../utils/apiErrors';
 import { getPaginatedItems } from '../utils/paginatedResponse';
-import HealthCorrelationChart from '../components/dashboard/HealthCorrelationChart';
-import SpendingChart from '../components/dashboard/SpendingChart';
-import MoodActivityChart from '../components/dashboard/MoodActivityChart';
+// The three Chart.js components are ~80% of this page's chunk (96KB gz).
+// Lazy them so the shell (KPIs, streak, insights) paints without Chart.js;
+// each slot shows the same skeleton the charts use for data-loading.
+const HealthCorrelationChart = lazy(() => import('../components/dashboard/HealthCorrelationChart'));
+const SpendingChart = lazy(() => import('../components/dashboard/SpendingChart'));
+const MoodActivityChart = lazy(() => import('../components/dashboard/MoodActivityChart'));
+const chartSkeleton = <div className="h-64 skeleton rounded-xl" />;
 import InsightCards from '../components/dashboard/InsightCards';
 import StreakCard from '../components/dashboard/StreakCard';
 import CorrelationPanel from '../components/dashboard/CorrelationPanel';
@@ -252,7 +256,9 @@ export default function DashboardPage() {
               </div>
               <span className="text-xs text-navy-400 font-medium px-3 py-1 rounded-full bg-navy-50">{t('dash.last7days')}</span>
             </div>
-            <HealthCorrelationChart healthData={healthData} loading={dashboardLoading} />
+            <Suspense fallback={chartSkeleton}>
+              <HealthCorrelationChart healthData={healthData} loading={dashboardLoading} />
+            </Suspense>
           </div>
 
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50 animate-fade-up" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
@@ -287,12 +293,14 @@ export default function DashboardPage() {
                   ))}
                 </div>
               </div>
-              <SpendingChart
-                financeData={financeData}
-                financeSummary={financeSummary}
-                loading={dashboardLoading}
-                view={spendingView}
-              />
+              <Suspense fallback={chartSkeleton}>
+                <SpendingChart
+                  financeData={financeData}
+                  financeSummary={financeSummary}
+                  loading={dashboardLoading}
+                  view={spendingView}
+                />
+              </Suspense>
             </div>
 
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-navy-50 animate-fade-up" style={{ animationDelay: '340ms', animationFillMode: 'backwards' }}>
@@ -300,7 +308,9 @@ export default function DashboardPage() {
                 <Heart className="w-5 h-5 text-purple-500" />
                 <h2 className="font-display text-base font-bold text-navy-800">{t('dash.moodVsActivity')}</h2>
               </div>
-              <MoodActivityChart healthData={healthData} loading={dashboardLoading} />
+              <Suspense fallback={chartSkeleton}>
+                <MoodActivityChart healthData={healthData} loading={dashboardLoading} />
+              </Suspense>
             </div>
           </div>
         </div>
