@@ -92,6 +92,36 @@ describe('Arabic deterministic logging', () => {
     expect(r.response).not.toMatch(/[؀-ۿ]/);
   });
 
+  test('maps Arabic expense stems to real categories, not Other', () => {
+    const cat = (m) => _extractFinanceEntities(m, {})[0]?.category;
+    expect(cat('دفعت ١٥ شيكل للباص')).toBe('Transportation');
+    expect(cat('اشتريت دواء من الصيدلية بـ ٣٠ شيكل')).toBe('Healthcare');
+    expect(cat('دفعت فاتورة الكهرباء ١٠٠ شيكل')).toBe('Bills & Utilities');
+    expect(cat('اشتريت ملابس بـ ٢٠٠ شيكل')).toBe('Shopping');
+    expect(cat('اشتريت خضار من السوبرماركت بـ ٥٠ شيكل')).toBe('Groceries');
+    expect(cat('دفعت رسوم الجامعة ٥٠٠ دولار')).toBe('Education');
+    expect(cat('دفعت اشتراك النادي الرياضي ٥٠ دولار')).toBe('Healthcare');
+    expect(cat('ربحت ٢٠٠ دولار من عمل حر')).toBe('Income - Freelance');
+    expect(cat('وفرت ١٠٠ شيكل هذا الشهر')).toBe('Savings');
+  });
+
+  test('Arabic spending question routes to summary, not expense logging', async () => {
+    const r = await parseMessageWithBert('كم أنفقت هذا الأسبوع؟', null, {});
+    expect(r.intent).toBe('get_insight');
+    const r2 = await parseMessageWithBert('أعطني ملخص الأسبوع', null, {});
+    expect(r2.intent).toBe('get_insight');
+  });
+
+  test('Arabic saving intention routes to set_goal', async () => {
+    const r = await parseMessageWithBert('أريد أن أدخر ٥٠٠ شيكل شهريا', null, {});
+    expect(r.intent).toBe('set_goal');
+  });
+
+  test('Arabic dual forms carry their implicit quantity', () => {
+    expect(_extractHealth('شربت لترين من الماء')[0]).toMatchObject({ type: 'water', value: 2 });
+    expect(_extractHealth('نمت ساعتين')[0]).toMatchObject({ type: 'sleep', value: 2 });
+  });
+
   test('does not disturb English extraction', () => {
     const fin = _extractFinanceEntities('spent $12 on lunch', {});
     expect(fin[0]).toMatchObject({ amount: 12, category: 'Food & Dining' });

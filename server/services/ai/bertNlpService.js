@@ -21,6 +21,17 @@ const AR_DIGITS = {
   '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
 };
 const AR_LEXICON = [
+  // Phrases FIRST — the verb stems below would otherwise consume their words
+  // (e.g. "كم أنفقت" must become a summary query before أنفق → spent).
+  [/كم\s+(?:أنفقت|انفقت|صرفت|دفعت)/g, ' how much did i spend '],
+  [/ملخص/g, ' summary '],
+  [/أريد أن (?:أدخر|ادخر|أوفر|اوفر)|أريد (?:توفير|ادخار|الادخار)/g, ' i want to save '],
+  [/هدفي|هدف/g, ' goal '],
+  // Dual forms before their singular stems (لترين contains لتر etc.).
+  [/لترين/g, ' 2 liters '],
+  [/ساعتين/g, ' 2 hours '],
+  [/كوبين/g, ' 2 glasses '],
+  [/دقيقتين/g, ' 2 minutes '],
   [/صرف|أنفق|انفق|دفع|اشتري|اشتر/g, ' spent '],
   [/ربح|كسب|استلم|راتب/g, ' earned '],
   [/دولار/g, ' dollars '],
@@ -43,6 +54,32 @@ const AR_LEXICON = [
   [/قهوة|قهوه/g, ' coffee '],
   [/طعام|وجبة|وجبه|الأكل|أكل|اكل/g, ' food '],
   [/صحية|صحّي|صحي/g, ' healthy '],
+  // Expense-category stems → the English tokens financeCategory() matches.
+  // Without these every non-food Arabic expense lands in "Other".
+  [/باص|حافلة/g, ' bus '],
+  [/تاكسي|تكسي/g, ' taxi '],
+  [/أوبر|اوبر/g, ' uber '],
+  [/بنزين|وقود/g, ' fuel '],
+  [/مواصلات/g, ' transport '],
+  [/قطار/g, ' train '],
+  [/دواء|أدوية|ادوية|علاج/g, ' medicine '],
+  [/صيدلية/g, ' pharmacy '],
+  [/طبيب|دكتور/g, ' doctor '],
+  [/مستشفى/g, ' hospital '],
+  [/نادي|جيم/g, ' gym '],
+  [/فاتورة|فواتير/g, ' bill '],
+  [/كهرباء/g, ' electric '],
+  [/إنترنت|انترنت|النت/g, ' internet '],
+  [/إيجار|ايجار/g, ' rent '],
+  [/ملابس/g, ' clothes '],
+  [/حذاء|أحذية|احذية/g, ' shoes '],
+  [/سوبرماركت|سوبر ماركت|بقالة|خضار|خضروات|فواكه/g, ' groceries '],
+  [/جامعة/g, ' tuition '],
+  [/مدرسة/g, ' school '],
+  [/كتاب/g, ' book '],
+  [/دورة/g, ' course '],
+  [/أدخر|ادخر|ادخار|توفير|وفرت/g, ' save '], // bare وفر would collide with متوفر
+  [/عمل حر|مستقل/g, ' freelance '],
   [/على/g, ' on '], // connector so "<amount> on <purpose>" parses the category
 ];
 const normalizeArabic = (text) => {
@@ -206,7 +243,7 @@ const financeCategory = (text, type) => {
   if (/lunch|breakfast|dinner|food|restaurant|coffee|meal/.test(text)) return 'Food & Dining';
   if (/bus|taxi|uber|fuel|gas|transport|train/.test(text)) return 'Transportation';
   if (/movie|game|concert|entertainment/.test(text)) return 'Entertainment';
-  if (/electric|water bill|internet|rent|utility|utilities|phone bill/.test(text)) return 'Bills & Utilities';
+  if (/electric|water bill|internet|rent|utility|utilities|phone bill|\bbills?\b/.test(text)) return 'Bills & Utilities';
   if (/doctor|medicine|medical|pharmacy|hospital|gym/.test(text)) return 'Healthcare';
   if (/course|school|book|tuition|education/.test(text)) return 'Education';
   if (/grocery|groceries|supermarket/.test(text)) return 'Groceries';
