@@ -112,14 +112,56 @@ describe('Arabic deterministic logging', () => {
     expect(r2.intent).toBe('get_insight');
   });
 
-  test('Arabic saving intention routes to set_goal', async () => {
+  test('Arabic saving intention routes to set_goal with a persisted-spec and Arabic confirmation', async () => {
     const r = await parseMessageWithBert('أريد أن أدخر ٥٠٠ شيكل شهريا', null, {});
     expect(r.intent).toBe('set_goal');
+    expect(r._goal).toMatchObject({ domain: 'finance', metric_type: 'savings', target_value: 500, unit: 'ILS', period: 'monthly' });
+    expect(r.response).toMatch(/[؀-ۿ]/);
+  });
+
+  test('Arabic steps goal parses with daily period', async () => {
+    const r = await parseMessageWithBert('هدفي ١٠٠٠٠ خطوة يوميا', null, {});
+    expect(r.intent).toBe('set_goal');
+    expect(r._goal).toMatchObject({ domain: 'health', metric_type: 'steps', target_value: 10000, period: 'daily' });
+  });
+
+  test('categoryful Arabic expense logs directly — no "what was it for?" detour', async () => {
+    const r = await parseMessageWithBert('دفعت ١٢ شيكل للباص', null, {});
+    expect(r.needs_clarification).toBe(false);
+    expect(r.entities[0]).toMatchObject({ category: 'Transportation', description: 'Transportation' });
+  });
+
+  test('Arabic spending question answered in Arabic, not English summary', async () => {
+    const r = await parseMessageWithBert('كم أنفقت هذا الأسبوع؟', null, {
+      health: { sleep: { average: 7 } }, finance: {}, active_goals: [],
+    });
+    expect(r.intent).toBe('get_insight');
+    expect(r.response).toMatch(/سياقك الأخير/);
+    expect(r.response).not.toMatch(/Your recent context/);
   });
 
   test('Arabic dual forms carry their implicit quantity', () => {
     expect(_extractHealth('شربت لترين من الماء')[0]).toMatchObject({ type: 'water', value: 2 });
     expect(_extractHealth('نمت ساعتين')[0]).toMatchObject({ type: 'sleep', value: 2 });
+  });
+
+  test('clarification answer resolves into a categorized log (ar + en)', async () => {
+    const pending = {
+      originalMessage: 'صرفت ٢٥ شيكل',
+      clarificationQuestion: 'علامَ صرفت 25 شيكل؟',
+      clarificationOptions: ['طعام', 'مواصلات', 'تسوّق', 'أخرى'],
+    };
+    const r = await parseMessageWithBert('طعام', pending, {});
+    expect(r.needs_clarification).toBe(false);
+    expect(r.entities[0]).toMatchObject({ amount: 25, currency: 'ILS', category: 'Food & Dining' });
+
+    const en = await parseMessageWithBert('Transport', {
+      originalMessage: 'spent 30',
+      clarificationQuestion: 'What was the USD 30 for?',
+      clarificationOptions: ['Food', 'Transport', 'Shopping', 'Other'],
+    }, {});
+    expect(en.needs_clarification).toBe(false);
+    expect(en.entities[0]).toMatchObject({ amount: 30, category: 'Transportation' });
   });
 
   test('does not disturb English extraction', () => {

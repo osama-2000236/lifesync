@@ -74,11 +74,16 @@ const AR_LEXICON = [
   [/ملابس/g, ' clothes '],
   [/حذاء|أحذية|احذية/g, ' shoes '],
   [/سوبرماركت|سوبر ماركت|بقالة|خضار|خضروات|فواكه/g, ' groceries '],
+  [/تسوّق|تسوق/g, ' shopping '],
+  [/أخرى|اخرى/g, ' other '], // clarification option «أخرى» must survive normalize
   [/جامعة/g, ' tuition '],
   [/مدرسة/g, ' school '],
   [/كتاب/g, ' book '],
   [/دورة/g, ' course '],
   [/أدخر|ادخر|ادخار|توفير|وفرت/g, ' save '], // bare وفر would collide with متوفر
+  [/شهريًا|شهريا|كل شهر/g, ' monthly '],
+  [/أسبوعيًا|اسبوعيًا|أسبوعيا|اسبوعيا|كل أسبوع|كل اسبوع/g, ' weekly '],
+  [/يوميًا|يوميا|كل يوم/g, ' daily '],
   [/عمل حر|مستقل/g, ' freelance '],
   [/على/g, ' on '], // connector so "<amount> on <purpose>" parses the category
 ];
@@ -284,14 +289,18 @@ const extractFinance = (message, { allowBareAmount = false } = {}) => {
   if (!Number.isFinite(amount) || amount <= 0) return null;
 
   const purpose = text.match(/\b(?:on|for|at)\s+(?:the\s+)?([^,.!?]+)/)?.[1]?.trim();
+  const category = financeCategory(text, income ? 'income' : 'expense');
+  // A resolved category IS the purpose ("paid 15 shekels bus" / «دفعت ١٥ شيكل
+  // للباص» has no on/for connector) — don't make the user answer "what for?".
+  const fallbackDesc = income ? 'income' : (category !== 'Other' ? category : null);
   return {
     domain: 'finance',
-    activity: purpose || (income ? 'income' : 'transaction'),
+    activity: purpose || fallbackDesc || 'transaction',
     type: income ? 'income' : 'expense',
     amount,
     currency,
-    category: financeCategory(text, income ? 'income' : 'expense'),
-    description: purpose || (income ? 'income' : null),
+    category,
+    description: purpose || fallbackDesc,
   };
 };
 
@@ -455,6 +464,54 @@ const extractBudget = (message) => {
 
 const formatMoney = (currency, amount) => `${currency} ${Number(amount.toFixed(2))}`;
 
+// ─── Goal extraction (set_goal intent) ─────────────────────────────────────
+// Deterministic spec for a UserGoal row. Money goals default to monthly,
+// health goals to daily — the natural cadence people state them in.
+const extractGoal = (message) => {
+  const text = normalize(message);
+  const period = /\bmonthly\b|\bper month\b|\ba month\b/.test(text) ? 'monthly'
+    : /\bdaily\b|\bper day\b|\ba day\b/.test(text) ? 'daily'
+      : /\bweekly\b|\bper week\b|\ba week\b/.test(text) ? 'weekly' : null;
+
+  let m = text.match(/([$€£₪])\s*(\d+(?:,\d{3})*(?:\.\d+)?)/)
+    || text.match(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*(usd|dollars?|ils|nis|shekels?|eur|euros?|gbp|pounds?)\b/);
+  if (m && /\b(save|saving|savings|budget)\b/.test(text)) {
+    const symbolFirst = /^[$€£₪]$/.test(m[1] || '');
+    const amount = numberValue(symbolFirst ? m[2] : m[1]);
+    if (Number.isFinite(amount) && amount > 0) {
+      return {
+        domain: 'finance',
+        metric_type: /\bbudget\b/.test(text) ? 'budget' : 'savings',
+        target_value: amount,
+        unit: currencyFrom(symbolFirst ? m[1] : m[2]),
+        period: period || 'monthly',
+      };
+    }
+  }
+  m = text.match(/\b(\d+(?:,\d{3})*)\s*steps?\b/);
+  if (m) return { domain: 'health', metric_type: 'steps', target_value: numberValue(m[1]), unit: 'steps', period: period || 'daily' };
+  m = text.match(/\b(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)\b/);
+  if (m && /\b(sleep|slept)\b/.test(text)) return { domain: 'health', metric_type: 'sleep', target_value: numberValue(m[1]), unit: 'hours', period: period || 'daily' };
+  m = text.match(/\b(\d+(?:\.\d+)?)\s*(?:l|liters?)\b/);
+  if (m && /\b(water|drink|drank)\b/.test(text)) return { domain: 'health', metric_type: 'water', target_value: numberValue(m[1]), unit: 'liters', period: period || 'daily' };
+  return null;
+};
+
+const GOAL_PERIOD_AR = { daily: 'يوميًا', weekly: 'أسبوعيًا', monthly: 'شهريًا' };
+const GOAL_CUR_AR = { USD: 'دولار', EUR: 'يورو', GBP: 'جنيه', ILS: 'شيكل' };
+const goalLabel = (g, ar) => {
+  if (g.domain === 'finance') {
+    const verb = g.metric_type === 'budget' ? (ar ? 'ميزانية' : 'budget of') : (ar ? 'ادخار' : 'save');
+    return ar
+      ? `${verb} ${g.target_value} ${GOAL_CUR_AR[g.unit] || g.unit} ${GOAL_PERIOD_AR[g.period]}`
+      : `${verb} ${g.unit} ${g.target_value} ${g.period}`;
+  }
+  const unitAr = { steps: 'خطوة', hours: 'ساعة نوم', liters: 'لتر ماء' }[g.unit] || g.unit;
+  return ar
+    ? `${g.target_value} ${unitAr} ${GOAL_PERIOD_AR[g.period]}`
+    : `${g.target_value} ${g.unit === 'hours' ? 'hours of sleep' : g.unit} ${g.period}`;
+};
+
 const buildContextSummary = (context = {}) => {
   const parts = [];
   const goals = Array.isArray(context.active_goals) ? context.active_goals : [];
@@ -474,6 +531,27 @@ const buildContextSummary = (context = {}) => {
   }
   if (!parts.length) return 'I do not have enough recent logs for a personalized trend yet.';
   return `Your recent context: ${parts.join('; ')}.`;
+};
+
+// Native-Arabic mirror of buildContextSummary — get_insight/query_* answers
+// must not switch to English mid-conversation for Arabic users.
+const buildContextSummaryAr = (context = {}) => {
+  const parts = [];
+  const goals = Array.isArray(context.active_goals) ? context.active_goals : [];
+  const health = context.health || {};
+  if (health.mood) parts.push(`متوسط مزاجك ${health.mood.average}/10 من ${health.mood.count} تسجيل`);
+  if (health.sleep) parts.push(`متوسط نومك ${health.sleep.average} ساعة`);
+  if (health.steps) parts.push(`متوسط خطواتك ${Math.round(health.steps.average)} في اليوم المسجَّل`);
+  if (health.water) parts.push(`متوسط شرب الماء ${health.water.average} لتر`);
+  const financeEntries = Object.entries(context.finance || {})
+    .sort((a, b) => b[1].transactions - a[1].transactions);
+  if (financeEntries.length) {
+    const [currency, summary] = financeEntries[0];
+    parts.push(`إنفاقك خلال ${context.window_days || 30} يومًا هو ${summary.expense} ${GOAL_CUR_AR[currency] || currency} ودخلك ${summary.income}`);
+  }
+  if (goals.length) parts.push(`لديك ${goals.length} هدف نشط`);
+  if (!parts.length) return 'لا أملك سجلات حديثة كافية لعرض اتجاه مخصّص بعد — واصل التسجيل وستظهر الأنماط.';
+  return `سياقك الأخير: ${parts.join('؛ ')}.`;
 };
 
 const buildAdviceResponse = (message, context, entities) => {
@@ -679,10 +757,19 @@ const buildResponse = (intent, entities, message, context = {}, adviceRequested 
     return buildGeneralResponse(message, context);
   }
   if (['get_insight', 'query_finance', 'query_health'].includes(intent)) {
+    if (ar) return buildContextSummaryAr(context);
     return `${buildContextSummary(context)}${memoryLine(context)}`;
   }
   if (intent === 'set_goal') {
-    return `Love that you're setting a goal.${memoryLine(context)} Open Goals to set the target and timeline, and I'll track your progress and nudge you along the way.`;
+    const goal = extractGoal(message);
+    if (goal) {
+      return ar
+        ? `تم تحديد هدفك: ${goalLabel(goal, true)}. سأتابع تقدّمك وأحسبه ضمن تحليلاتك الأسبوعية.`
+        : `Goal set: ${goalLabel(goal, false)}. I'll track your progress and factor it into your weekly insights.`;
+    }
+    return ar
+      ? 'هدف جميل! أخبرني بالرقم المستهدف — مثلًا «أريد أن أدخر ٥٠٠ شيكل شهريًا» أو «هدفي ١٠٠٠٠ خطوة يوميًا» — وسأتتبّعه لك.'
+      : `Love that you're setting a goal.${memoryLine(context)} Give me the target — e.g. "save 500 shekels monthly" or "goal: 10000 steps daily" — and I'll track it.`;
   }
   const health = entities.filter((entity) => entity.domain === 'health');
   const finance = entities.filter((entity) => entity.domain === 'finance');
@@ -878,6 +965,10 @@ const parseMessageWithBert = async (message, pendingClarification = null, contex
 
   const original = pendingClarification?.originalMessage || message;
   const forcedLabel = pendingClarification ? forcedLabelFromAnswer(message) : null;
+  // Answering a clarification: extraction must see BOTH turns — the amount
+  // lives in the original message, the purpose in the answer ("صرفت ٢٥ شيكل"
+  // then «طعام»). Joined with "on" so the purpose/category regexes parse it.
+  const extractionText = pendingClarification ? `${original} on ${message}` : original;
 
   // Cross-domain daily-assistant follow-up: an everyday plan ("going to town")
   // becomes a question about HOW the user travels, then links the answer to
@@ -971,12 +1062,12 @@ const parseMessageWithBert = async (message, pendingClarification = null, contex
 
   let entities = [];
   if (['log_expense', 'log_both'].includes(routedLabel)) {
-    entities.push(...extractFinanceEntities(original, {
+    entities.push(...extractFinanceEntities(extractionText, {
       allowBareAmount: allowBareFinance || routedLabel === 'log_both',
     }));
   }
   if (['log_health', 'log_both'].includes(routedLabel)) {
-    entities.push(...extractHealth(original, { allowBareExercise }));
+    entities.push(...extractHealth(extractionText, { allowBareExercise }));
   }
 
   let clarificationResult = null;
@@ -1042,6 +1133,8 @@ const parseMessageWithBert = async (message, pendingClarification = null, contex
   const needsClarification = Boolean(clarificationResult);
   if (needsClarification) entities = [];
   const intent = needsClarification ? 'unclear' : candidateIntent;
+  // Persisted by chatController as a UserGoal row — the reply promises tracking.
+  const goalSpec = intent === 'set_goal' ? extractGoal(original) : null;
   const domains = new Set(entities.map((entity) => entity.domain));
   let domain = 'general';
   if (domains.size === 2) domain = 'both';
@@ -1076,6 +1169,7 @@ const parseMessageWithBert = async (message, pendingClarification = null, contex
     confidence,
     processing_time_ms: Date.now() - started,
     original_message: original,
+    ...(goalSpec ? { _goal: goalSpec } : {}),
     context_used: {
       window_days: context.window_days || 30,
       messages: context.source_counts?.messages || 0,
@@ -1110,6 +1204,7 @@ module.exports = {
   _extractHealth: extractHealth,
   _extractBudget: extractBudget,
   _buildContextSummary: buildContextSummary,
+  _extractGoal: extractGoal,
   _detectOuting: detectOuting,
   _transportModeFromText: transportModeFromText,
   _buildResponse: buildResponse,
