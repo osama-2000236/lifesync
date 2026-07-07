@@ -21,6 +21,7 @@ const FinancialLog = require('../models/FinancialLog');
 const Category = require('../models/Category');
 const ChatLog = require('../models/ChatLog');
 const LinkedDomain = require('../models/LinkedDomain');
+const UserGoal = require('../models/UserGoal');
 const { getFirestore } = require('../config/firebase');
 const { success, error } = require('../utils/responseHelper');
 
@@ -458,6 +459,20 @@ const processMessageStream = async (req, res) => {
         linkedDomainEntries = await createCrossDomainLinks(
           healthEntries, financeEntries, nlpResult.original_message || message
         );
+      }
+    }
+
+    // set_goal with a parsed target → persist it (the reply promises tracking).
+    // Same active goal for the metric+period gets its target updated, not duplicated.
+    if (nlpResult._goal) {
+      try {
+        const g = nlpResult._goal;
+        const where = { user_id: userId, domain: g.domain, metric_type: g.metric_type, period: g.period, status: 'active' };
+        const existing = await UserGoal.findOne({ where });
+        if (existing) await existing.update({ target_value: g.target_value, unit: g.unit });
+        else await UserGoal.create({ ...where, target_value: g.target_value, unit: g.unit, start_date: new Date().toISOString().slice(0, 10) });
+      } catch (goalErr) {
+        console.error('Failed to persist goal from chat:', goalErr.message);
       }
     }
 
