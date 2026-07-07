@@ -19,7 +19,9 @@ const generateAccessToken = (user) => {
       role: user.role,
     },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    // Short-lived by default — the client silently refreshes on 401, so a
+    // leaked access token is only useful for a day, not a week.
+    { expiresIn: process.env.JWT_EXPIRES_IN || '1d' }
   );
 };
 
