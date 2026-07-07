@@ -10,7 +10,7 @@ export default function StreakCard({ data, loading }) {
   if (loading) return <SkeletonCard />;
   if (!data) return null;
 
-  const { streak = {}, stats = {}, achievements = [], unlocked_count = 0 } = data;
+  const { streak = {}, achievements = [], unlocked_count = 0 } = data;
   const current = streak.current || 0;
   const dayWord = current === 1 ? t('streak.day') : t('streak.days');
   const badgeTitle = (a) => (locale === 'ar' ? a.title_ar : a.title);

@@ -37,9 +37,10 @@ const mapHealthSummary = (payload) => {
   }, {});
 };
 
+const DASHBOARD_REFRESH_INTERVAL_MS = 30_000;
+const INSIGHTS_REFRESH_INTERVAL_MS = 5 * 60_000;
+
 export default function DashboardPage() {
-  const DASHBOARD_REFRESH_INTERVAL_MS = 30_000;
-  const INSIGHTS_REFRESH_INTERVAL_MS = 5 * 60_000;
   const { user } = useAuth();
   const { t } = useSettings();
   const [healthData, setHealthData] = useState([]);
@@ -154,6 +155,10 @@ export default function DashboardPage() {
       clearInterval(insightsInterval);
       window.removeEventListener('lifesync:data-changed', onDataChanged);
     };
+    // Mount-only by design: intervals + the data-changed listener must not be
+    // torn down and re-created on locale switches (`t` is only used for
+    // fallback error copy inside the fetchers).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const normalizedHealthSummary = useMemo(() => mapHealthSummary(healthSummary), [healthSummary]);

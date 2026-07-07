@@ -3,7 +3,6 @@ import axios from 'axios';
 import { getApiBaseUrl } from '../config/runtime';
 import { shouldAttemptTokenRefresh } from './authInterceptor';
 import {
-  CHAT_REQUEST_TIMEOUT_MS,
   DEFAULT_API_TIMEOUT_MS,
   INSIGHTS_REQUEST_TIMEOUT_MS,
 } from './requestTimeouts';
@@ -129,7 +128,7 @@ export const chatAPI = {
         let buf = '';
         let currentEvent = '';
 
-        // eslint-disable-next-line no-constant-condition
+         
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
