@@ -14,6 +14,25 @@
 // here — insightLocalizer.test.js locks the two files together.
 // ============================================
 
+// DB category names are seeded in English (server/seeders/seed.js) and get
+// interpolated into templates. Mirror of client/src/i18n/categoryNames.js —
+// keep both in sync when seed.js changes.
+const CATEGORY_AR = {
+  'Food & Dining': 'الطعام والمطاعم',
+  Transportation: 'المواصلات',
+  Entertainment: 'الترفيه',
+  Shopping: 'التسوق',
+  'Bills & Utilities': 'الفواتير والخدمات',
+  Healthcare: 'الرعاية الصحية',
+  Education: 'التعليم',
+  Groceries: 'البقالة',
+  'Income - Salary': 'دخل — راتب',
+  'Income - Freelance': 'دخل — عمل حر',
+  Savings: 'الادخار',
+  Other: 'أخرى',
+};
+const arCat = (name) => CATEGORY_AR[name] || name;
+
 // Ordered rules: [regex, arabic-replacer]. Applied with .replace(g) so
 // concatenated observations ("A. Additionally, B.") localize piecewise.
 const RULES = [
@@ -23,9 +42,9 @@ const RULES = [
   [/Weekly: \$(\d+) income vs \$(\d+) expenses/g,
     (_, inc, exp) => `أسبوعيًا: ${inc}$ دخل مقابل ${exp}$ مصروفات`],
   [/(.+?) accounts for ([\d.]+)% of spending\. Consider setting a weekly cap\./g,
-    (_, cat, pct) => `فئة «${cat}» تمثل ${pct}٪ من الإنفاق. فكّر في وضع سقف أسبوعي لها.`],
+    (_, cat, pct) => `فئة «${arCat(cat)}» تمثل ${pct}٪ من الإنفاق. فكّر في وضع سقف أسبوعي لها.`],
   [/\$(\d+) this week on (.+)/g,
-    (_, amt, cat) => `${amt}$ هذا الأسبوع على «${cat}»`],
+    (_, amt, cat) => `${amt}$ هذا الأسبوع على «${arCat(cat)}»`],
   [/Spending increased (\d+)% compared to last week\. Review recent transactions for non-essentials\./g,
     (_, pct) => `ارتفع الإنفاق ${pct}٪ مقارنة بالأسبوع الماضي. راجع أحدث المعاملات بحثًا عن غير الضروريات.`],
   [/This week: \$(\d+) vs last week: \$(\d+)/g,

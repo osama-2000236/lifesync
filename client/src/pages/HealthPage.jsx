@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { healthAPI } from '../services/api';
 import { useSettings } from '../contexts/SettingsContext';
+import { dateLocale } from '../i18n';
 import { getPaginatedItems, getPaginatedTotalPages } from '../utils/paginatedResponse';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { Card, FilterBar, EmptyListState, Pagination } from '../components/ui';
@@ -21,7 +22,7 @@ const typeConfig = {
 };
 
 export default function HealthPage() {
-  const { t } = useSettings();
+  const { t, locale } = useSettings();
   const typeLabel = (type) => (type === 'all' ? t('common.all') : t(`health.type.${type}`));
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -105,7 +106,7 @@ export default function HealthPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-navy-800 capitalize">{typeLabel(log.type)}</p>
                   <p className="text-xs text-navy-400 mt-0.5">
-                    {log.value_text || log.notes || ''} · {new Date(log.logged_at || log.created_at).toLocaleDateString()}
+                    {log.value_text || log.notes || ''} · {new Date(log.logged_at || log.created_at).toLocaleDateString(dateLocale(locale))}
                   </p>
                 </div>
                 <div className="text-end flex-shrink-0">

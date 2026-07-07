@@ -81,7 +81,7 @@ function ProfileInfoSection({ user, onUpdate }) {
           <div className="flex items-center gap-4 pb-4 border-b border-navy-50">
             <div className="w-16 h-16 rounded-2xl overflow-hidden bg-gradient-to-br from-navy-300 to-navy-500 flex-shrink-0">
               {avatarUrl ? (
-                <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                <img src={avatarUrl} alt={t('a11y.avatar')} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-white text-2xl font-bold">
                   {(name || user?.username || '?')[0].toUpperCase()}

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { externalAPI, healthAPI, financeAPI } from '../services/api';
 import { useSettings } from '../contexts/SettingsContext';
+import { dateLocale } from '../i18n';
 import { getApiErrorMessage } from '../utils/apiErrors';
 import { getPaginatedItems } from '../utils/paginatedResponse';
 import { Card, Alert, Button } from '../components/ui';
@@ -31,7 +32,7 @@ function splitAroundToken(translated, marker) {
 }
 
 function GoogleFitPanel({ status, onRefreshStatus }) {
-  const { t } = useSettings();
+  const { t, locale } = useSettings();
   const connected = status?.connected;
   const connectedAt = status?.connectedAt;
   const [syncing, setSyncing] = useState(false);
@@ -118,7 +119,7 @@ function GoogleFitPanel({ status, onRefreshStatus }) {
           <StatusBadge connected={connected} t={t} />
           {connected && connectedAt && (
             <span className="text-xs text-navy-400">
-              {t('integrations.connectedOn', { date: new Date(connectedAt).toLocaleDateString() })}
+              {t('integrations.connectedOn', { date: new Date(connectedAt).toLocaleDateString(dateLocale(locale)) })}
             </span>
           )}
         </div>

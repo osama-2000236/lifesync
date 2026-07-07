@@ -1,5 +1,6 @@
 // src/components/ui/Alert.jsx
 import { CheckCircle2, Info, AlertTriangle, AlertCircle, X } from 'lucide-react';
+import { closeLabel } from './closeLabel';
 
 const TONE_CONFIG = {
   info: { classes: 'bg-navy-50 border-navy-200 text-navy-700', icon: Info },
@@ -28,7 +29,7 @@ export function Alert({ tone = 'info', title, children, onDismiss, className = '
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="Dismiss"
+          aria-label={closeLabel()}
           className="focus-ring flex-shrink-0 p-0.5 rounded-md hover:bg-black/5 transition-colors"
         >
           <X className="w-3.5 h-3.5" />

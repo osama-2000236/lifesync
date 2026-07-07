@@ -5,6 +5,7 @@ import {
   BarElement, Tooltip, Legend,
 } from 'chart.js';
 import { useSettings } from '../../contexts/SettingsContext';
+import { localizeCategory } from '../../i18n/categoryNames';
 import ChartEmptyState from './ChartEmptyState';
 import { chartTheme, chartMotion } from './chartTheme';
 
@@ -23,7 +24,7 @@ const CATEGORY_COLORS = {
 };
 
 export default function SpendingChart({ financeData = [], financeSummary, loading, view = 'doughnut' }) {
-  const { t, theme } = useSettings();
+  const { t, theme, locale } = useSettings();
   const c = chartTheme(theme === 'dark');
   const { categoryData, totalSpent, totalIncome } = useMemo(() => {
     if (financeSummary?.categoryBreakdown?.length || financeSummary?.totals?.length) {
@@ -66,7 +67,7 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
   const hasExpenseData = categoryData.length > 0;
 
   const doughnutData = {
-    labels: categoryData.map(([category]) => category),
+    labels: categoryData.map(([category]) => localizeCategory(category, locale)),
     datasets: [{
       data: categoryData.map(([, amount]) => amount),
       backgroundColor: categoryData.map(([category]) => CATEGORY_COLORS[category] || '#94a3b8'),
@@ -77,7 +78,7 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
   };
 
   const barData = {
-    labels: categoryData.map(([category]) => category),
+    labels: categoryData.map(([category]) => localizeCategory(category, locale)),
     datasets: [{
       label: t('chart.spent'),
       data: categoryData.map(([, amount]) => amount),
@@ -97,8 +98,8 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
       legend: { display: false },
       tooltip: {
         backgroundColor: c.tooltipBg,
-        titleFont: { family: "'DM Sans'", size: 13, weight: '600' },
-        bodyFont: { family: "'DM Sans'", size: 12 },
+        titleFont: { family: c.font, size: 13, weight: '600' },
+        bodyFont: { family: c.font, size: 12 },
         padding: 12,
         cornerRadius: 10,
         callbacks: {
@@ -117,16 +118,16 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
       legend: { display: false },
       tooltip: {
         backgroundColor: c.tooltipBg,
-        titleFont: { family: "'DM Sans'", size: 13 },
-        bodyFont: { family: "'DM Sans'", size: 12 },
+        titleFont: { family: c.font, size: 13 },
+        bodyFont: { family: c.font, size: 12 },
         padding: 12,
         cornerRadius: 10,
         callbacks: { label: (ctx) => ` $${ctx.parsed.x.toFixed(2)}` },
       },
     },
     scales: {
-      x: { grid: { color: c.grid, drawBorder: false }, ticks: { font: { family: "'DM Sans'", size: 11 }, color: c.tick, callback: (value) => `$${value}` } },
-      y: { grid: { display: false }, ticks: { font: { family: "'DM Sans'", size: 11, weight: '500' }, color: c.legend } },
+      x: { grid: { color: c.grid, drawBorder: false }, ticks: { font: { family: c.font, size: 11 }, color: c.tick, callback: (value) => `$${value}` } },
+      y: { grid: { display: false }, ticks: { font: { family: c.font, size: 11, weight: '500' }, color: c.legend } },
     },
   };
 
@@ -169,7 +170,7 @@ export default function SpendingChart({ financeData = [], financeSummary, loadin
             {categoryData.slice(0, 6).map(([category, amount]) => (
               <div key={category} className="flex items-center gap-2 text-sm">
                 <div className="w-2.5 h-2.5 rounded-full" style={{ background: CATEGORY_COLORS[category] || '#94a3b8' }} />
-                <span className="flex-1 text-navy-600 truncate">{category}</span>
+                <span className="flex-1 text-navy-600 truncate">{localizeCategory(category, locale)}</span>
                 <span className="font-semibold text-navy-800">${amount.toFixed(0)}</span>
               </div>
             ))}

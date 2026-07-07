@@ -12,6 +12,10 @@ export const LOCALES = [
 
 export const dirFor = (locale) => (locale === 'ar' ? 'rtl' : 'ltr');
 
+// Intl locale for dates: Arabic month/day names but Latin digits (-u-nu-latn),
+// so numerals stay one system across the whole UI.
+export const dateLocale = (locale) => (locale === 'ar' ? 'ar-u-nu-latn' : 'en-US');
+
 /** Resolve a dotted key against a locale, with EN + key fallbacks. */
 export const translate = (locale, key, vars) => {
   const dict = DICTS[locale] || DICTS.en;

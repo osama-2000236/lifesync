@@ -2,13 +2,15 @@
 import { useState, useEffect } from 'react';
 import { financeAPI } from '../services/api';
 import { useSettings } from '../contexts/SettingsContext';
+import { localizeCategory } from '../i18n/categoryNames';
+import { dateLocale } from '../i18n';
 import { getPaginatedItems, getPaginatedTotalPages } from '../utils/paginatedResponse';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { Card, FilterBar, EmptyListState, Pagination } from '../components/ui';
 import { Wallet, TrendingUp, TrendingDown, Trash2 } from 'lucide-react';
 
 export default function FinancePage() {
-  const { t } = useSettings();
+  const { t, locale } = useSettings();
   const typeLabel = (type) => (type === 'all' ? t('common.all') : t(`fin.type.${type}`));
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -92,7 +94,7 @@ export default function FinancePage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-navy-800">{log.description || log.type}</p>
                   <p className="text-xs text-navy-400 mt-0.5">
-                    {log.category?.name || t('financepage.uncategorized')} · {new Date(log.logged_at || log.created_at).toLocaleDateString()}
+                    {localizeCategory(log.category?.name, locale) || t('financepage.uncategorized')} · {new Date(log.logged_at || log.created_at).toLocaleDateString(dateLocale(locale))}
                   </p>
                 </div>
                 <div className="text-end flex-shrink-0">

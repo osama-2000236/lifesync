@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { adminAPI } from '../services/api';
 import { useSettings } from '../contexts/SettingsContext';
+import { dateLocale } from '../i18n';
 import { getPaginatedItems } from '../utils/paginatedResponse';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { Card } from '../components/ui';
@@ -27,7 +28,7 @@ function StatCard({ icon: Icon, label, value, subtext, color, loading }) {
 }
 
 export default function AdminPage() {
-  const { t } = useSettings();
+  const { t, locale } = useSettings();
   const [dashboard, setDashboard] = useState(null);
   const [users, setUsers] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -202,7 +203,7 @@ export default function AdminPage() {
                     </span>
                     <span className="text-[10px] text-navy-400 uppercase tracking-wider">{log.log_type}</span>
                     <span className="text-[10px] text-navy-300 ms-auto">
-                      {new Date(log.created_at).toLocaleString()}
+                      {new Date(log.created_at).toLocaleString(dateLocale(locale))}
                     </span>
                   </div>
                   <p className="text-sm text-navy-700">{log.action}</p>

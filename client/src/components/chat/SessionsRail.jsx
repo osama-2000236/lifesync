@@ -4,10 +4,11 @@
 // Mobile: opened as a sheet from the header button (parent controls `open`).
 // ============================================
 import { Plus, MessageSquareText, X } from 'lucide-react';
+import { dateLocale } from '../../i18n';
 
 const sessionTitle = (s, t) => {
   const d = s.last_message_at ? new Date(s.last_message_at) : null;
-  return d ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : t('chat.title');
+  return d ? d.toLocaleDateString(dateLocale(document.documentElement.lang), { month: 'short', day: 'numeric' }) : t('chat.title');
 };
 
 export default function SessionsRail({ sessions, activeId, onSelect, onNew, open, onClose, t }) {
