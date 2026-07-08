@@ -108,9 +108,23 @@ describe('generateAssistantReply free fallback', () => {
       message: 'hi',
     });
     expect(out.error).toMatch(/429/);
-    // requested model deduped into the chain: 3 unique candidates, retried for a
+    // chain = 3 unique free candidates + 1 paid last resort = 4, retried for a
     // second pass (default FREE_POOL_PASSES=2) to ride out a :free flap.
-    expect(generateChat).toHaveBeenCalledTimes(FREE_FALLBACK_SLUGS.length * 2);
+    expect(generateChat).toHaveBeenCalledTimes((FREE_FALLBACK_SLUGS.length + 1) * 2);
+  });
+
+  test('spills to the paid model only after every free candidate 429s', async () => {
+    // All free pools busy; the paid last-resort answers.
+    for (let i = 0; i < FREE_FALLBACK_SLUGS.length; i++) generateChat.mockRejectedValueOnce(RATE_LIMIT);
+    generateChat.mockResolvedValueOnce({ provider: 'openrouter', model: 'openai/gpt-oss-120b', text: 'paid reply' });
+
+    const out = await generateAssistantReply({
+      provider: 'openrouter', model: FREE_FALLBACK_SLUGS[0], message: 'hi',
+    });
+    expect(out).toEqual({ text: 'paid reply', provider: 'openrouter', model: 'openai/gpt-oss-120b' });
+    // paid is LAST: reached only on the 4th call, after the 3 free ones failed.
+    expect(generateChat).toHaveBeenCalledTimes(FREE_FALLBACK_SLUGS.length + 1);
+    expect(generateChat.mock.calls[FREE_FALLBACK_SLUGS.length][0].model).toBe('openai/gpt-oss-120b');
   });
 });
 
@@ -120,16 +134,16 @@ describe('free-pool flap retry (whole chain 429, then clears)', () => {
   afterAll(() => { process.env.FREE_POOL_RETRY_MS = OLD; });
 
   test('retries the whole chain after a full 429 pass and succeeds', async () => {
-    // Every candidate 429 on pass 1 (all flapping busy at once), then pass 2 clears.
-    const n = FREE_FALLBACK_SLUGS.length;
-    for (let i = 0; i < n; i++) generateChat.mockRejectedValueOnce(RATE_LIMIT);
+    // Every candidate (3 free + 1 paid) 429 on pass 1, then pass 2 clears.
+    const total = FREE_FALLBACK_SLUGS.length + 1; // + paid last resort
+    for (let i = 0; i < total; i++) generateChat.mockRejectedValueOnce(RATE_LIMIT);
     generateChat.mockResolvedValueOnce({ provider: 'openrouter', model: FREE_FALLBACK_SLUGS[0], text: 'cleared' });
 
     const out = await generateAssistantReply({
       provider: 'openrouter', model: FREE_FALLBACK_SLUGS[0], message: 'hi',
     });
     expect(out.text).toBe('cleared');
-    expect(generateChat).toHaveBeenCalledTimes(n + 1); // one full failed pass + one retry hit
+    expect(generateChat).toHaveBeenCalledTimes(total + 1); // one full failed pass + one retry hit
   });
 
   test('does NOT retry a hard error (bad key) — no wasted second pass', async () => {

@@ -29,9 +29,21 @@ const isRetryableError = (err) => {
     || msg.includes('empty response') || msg.includes('empty streamed');
 };
 
-/** Ordered candidates: requested model first, then the free chain (deduped). */
+// Last-resort PAID model, reached only after every :free candidate 429s. The
+// :free upstream pools (Google AI Studio etc.) saturate globally and no retry
+// conjures capacity that isn't there; a funded account (is_free_tier:false) can
+// spill to the paid endpoint of the same open model for pennies/msg. Default is
+// gpt-oss-120b WITHOUT :free (no upstream free cap). Set OPENROUTER_PAID_FALLBACK=''
+// to disable and keep chat strictly zero-cost (falls back to the local reply).
+// ponytail: single fixed paid model; make it a per-user tier only if billing needs it.
+const paidFallbackSlug = () => {
+  const v = process.env.OPENROUTER_PAID_FALLBACK;
+  return (v === undefined ? 'openai/gpt-oss-120b' : v).trim();
+};
+
+/** Ordered candidates: requested model, the free chain, then a paid last resort. */
 const modelCandidates = (model) => {
-  const chain = [model, ...FREE_FALLBACK_SLUGS].filter(Boolean);
+  const chain = [model, ...FREE_FALLBACK_SLUGS, paidFallbackSlug()].filter(Boolean);
   return [...new Set(chain)];
 };
 
