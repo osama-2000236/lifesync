@@ -80,14 +80,14 @@ export function PublicPageFooter({ user }) {
     : { to: '/login', label: t('public.signIn') };
 
   return (
-    <footer className="bg-ink-950 text-white/40 px-6 py-10">
+    <footer className="bg-ink-950 text-white/60 px-6 py-10">
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center">
             <Activity className="w-4 h-4 text-emerald-400" strokeWidth={2.5} />
           </div>
           <span className="font-display font-bold text-white text-sm">LifeSync</span>
-          <span className="text-navy-600 text-xs ms-2">· {t('public.gradProject')}</span>
+          <span className="text-white/50 text-xs ms-2">· {t('public.gradProject')}</span>
         </div>
 
         <div className="flex items-center gap-6 text-sm">

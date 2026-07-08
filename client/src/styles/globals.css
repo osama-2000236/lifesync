@@ -325,6 +325,17 @@ h1, h2, h3, h4, h5, h6 {
    (higher specificity) still wins and hover feedback isn't lost. */
 @layer utilities {
   .text-navy-300:where(.dark, .dark *) { color: var(--color-navy-500); }
+
+  /* Light-mode AA: muted text tiers navy-300/400/500 fail as body text on light
+     surfaces (2.1–4.3:1). Darken to navy-600 (≥6:1 on white). Text utility only —
+     border/bg/dot/icon-fill uses of these tokens keep their subtle values — at low
+     specificity so per-element hover:text-* still wins. navy-500 nav labels inherit
+     the fix from their `text-navy-500` <a>. */
+  :where(:root:not(.dark)) :is(.text-navy-300, .text-navy-400, .text-navy-500) { color: var(--color-navy-600); }
+  /* Accent labels below AA on white → one step darker (light only; dark is handled
+     by the .dark accent remaps above). */
+  :where(:root:not(.dark)) .text-emerald-600 { color: var(--color-emerald-700); }
+  :where(:root:not(.dark)) .text-coral-500   { color: var(--color-coral-600); }
 }
 
 /* ─── RTL base ────────────────────────────────────────────────────────────
