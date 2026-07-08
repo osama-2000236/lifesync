@@ -11,7 +11,8 @@ const VARIANT_CLASSES = {
   ghost:
     'text-navy-600 bg-transparent hover:bg-navy-50 hover:text-navy-800',
   danger:
-    'text-white bg-coral-500 shadow-md shadow-coral-500/20 hover:brightness-95',
+    // coral-600 (not -500): white text needs ≥4.5:1 for AA; coral-500 was 3.67.
+    'text-white bg-coral-600 shadow-md shadow-coral-600/25 hover:brightness-95',
 };
 
 const SIZE_CLASSES = {

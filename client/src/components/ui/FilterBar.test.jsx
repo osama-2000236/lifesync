@@ -35,8 +35,8 @@ describe('FilterBar', () => {
         ]}
       />
     );
-    expect(screen.getByText('All').className).toContain('bg-emerald-500');
-    expect(screen.getByText('Income').className).not.toContain('bg-emerald-500');
+    expect(screen.getByText('All').className).toContain('bg-emerald-700');
+    expect(screen.getByText('Income').className).not.toContain('bg-emerald-700');
   });
 });
 

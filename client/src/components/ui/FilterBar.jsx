@@ -26,7 +26,7 @@ export function FilterBar({ search, onSearchChange, searchPlaceholder = 'Search.
               type="button"
               onClick={onClick}
               className={`focus-ring px-3.5 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all duration-200
-                ${active ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/20' : 'bg-white border border-navy-200 text-navy-600 hover:bg-navy-50'}`}
+                ${active ? 'bg-emerald-700 text-white shadow-sm shadow-emerald-700/25' : 'bg-white border border-navy-200 text-navy-600 hover:bg-navy-50'}`}
             >
               {label}
             </button>
