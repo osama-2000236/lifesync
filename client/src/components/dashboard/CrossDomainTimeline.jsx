@@ -10,6 +10,7 @@ import { scaleTime, scaleLinear, line as d3line, curveMonotoneX, extent, max } f
 import { useSettings } from '../../contexts/SettingsContext';
 import { dateLocale } from '../../i18n';
 import ChartEmptyState from './ChartEmptyState';
+import { chartTheme } from './chartTheme';
 
 const WIDTH = 640;
 const HEIGHT = 220;
@@ -43,9 +44,12 @@ export function buildDailySeries(healthData, financeData) {
 }
 
 export default function CrossDomainTimeline({ healthData = [], financeData = [], loading }) {
-  const { t, isRTL, locale } = useSettings();
+  const { t, isRTL, locale, theme } = useSettings();
   const [hoverIndex, setHoverIndex] = useState(null);
   const svgRef = useRef(null);
+  // Canvas/SVG stroke literals can't inherit the CSS `.dark` ramp, so pull the
+  // theme-varying axis/guide colors from the same source Chart.js charts use.
+  const c = chartTheme(theme === 'dark');
 
   const series = useMemo(() => buildDailySeries(healthData, financeData), [healthData, financeData]);
 
@@ -104,7 +108,7 @@ export default function CrossDomainTimeline({ healthData = [], financeData = [],
         onMouseLeave={() => setHoverIndex(null)}
       >
         <g transform={`translate(${MARGIN.left},${MARGIN.top})`}>
-          <line x1={0} y1={innerH} x2={innerW} y2={innerH} stroke="#e2e8f0" />
+          <line x1={0} y1={innerH} x2={innerW} y2={innerH} stroke={c.grid} />
           <path d={sleepPath} fill="none" stroke="#6366f1" strokeWidth={2.5} />
           <path d={spendPath} fill="none" stroke="#f43f5e" strokeWidth={2.5} />
           {series.map((d, i) => (
@@ -117,7 +121,7 @@ export default function CrossDomainTimeline({ healthData = [], financeData = [],
             <line
               x1={x(hovered.date)} x2={x(hovered.date)}
               y1={0} y2={innerH}
-              stroke="#829ab1" strokeDasharray="3,3"
+              stroke={c.tick} strokeDasharray="3,3"
             />
           )}
         </g>

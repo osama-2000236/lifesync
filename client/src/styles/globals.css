@@ -310,8 +310,21 @@ h1, h2, h3, h4, h5, h6 {
 .dark .bg-rose-50        { background-color: color-mix(in srgb, #f43f5e 16%, transparent); }
 .dark .bg-emerald-200    { background-color: color-mix(in srgb, #10b981 45%, transparent); }
 .dark .text-coral-600    { color: #fda4af; }
+/* Expense amounts / coral accents sit on dark raised cards where coral-500
+   (#f43f5e) only reaches 4.29:1 — just under AA. Lighten to coral-400 on dark. */
+.dark .text-coral-500    { color: var(--color-coral-400); }
 .dark .text-emerald-600\/80 { color: color-mix(in srgb, #6ee7b7 85%, transparent); }
 .dark .text-blue-600\/80    { color: color-mix(in srgb, #93c5fd 85%, transparent); }
+
+/* `navy-300` is a subtle label/icon tone in light mode, but the inverted dark
+   ramp makes it a dark BORDER color (#2f4868) — correct for its border/bg/dot
+   uses, yet dark-on-dark (fails AA) when used as TEXT (login divider, sidebar
+   section labels, table meta, muted icons). Remap the text utility only, at low
+   specificity (:where) inside the utilities layer, so per-element `hover:text-*`
+   (higher specificity) still wins and hover feedback isn't lost. */
+@layer utilities {
+  .text-navy-300:where(.dark, .dark *) { color: var(--color-navy-500); }
+}
 
 /* ─── RTL base ────────────────────────────────────────────────────────────
    dir="rtl" (set on <html> for Arabic) flips text + logical flow. These tweaks
