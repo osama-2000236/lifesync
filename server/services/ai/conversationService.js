@@ -14,11 +14,19 @@ const { generateChat, generateChatStream } = require('./providerClient');
 const { _buildContextSummary: buildContextSummary } = require('./bertNlpService');
 const { FREE_FALLBACK_SLUGS } = require('./modelRuntimeManager');
 
-// OpenRouter :free pools are shared and intermittently return upstream 429s.
-// Chat must never die on that — we hop to the next verified free model.
-const isRateLimitError = (err) => {
+// OpenRouter :free pools are shared and transiently unhealthy — they signal
+// "busy" as 429 AND as 503/502, request timeouts, dropped sockets, or an empty
+// completion body. Any of those means "this pool hiccupped", so hop to the next
+// verified free model instead of dropping to the deterministic template reply.
+// Real failures (bad/missing key, unsupported provider) must NOT hop.
+const isRetryableError = (err) => {
   const msg = String(err?.message || err || '').toLowerCase();
-  return msg.includes('429') || msg.includes('rate-limit') || msg.includes('rate limit');
+  return /\b(429|500|502|503|408|409|522|524)\b/.test(msg)
+    || msg.includes('rate limit') || msg.includes('rate-limit')
+    || msg.includes('timeout') || msg.includes('timed out')
+    || msg.includes('econnreset') || msg.includes('econnaborted') || msg.includes('socket hang up')
+    || msg.includes('overloaded') || msg.includes('busy')
+    || msg.includes('empty response') || msg.includes('empty streamed');
 };
 
 /** Ordered candidates: requested model first, then the free chain (deduped). */
@@ -135,11 +143,12 @@ const generateAssistantReply = async ({ provider, model, context = {}, loggedEnt
         maxTokens: 1200,
       });
       const text = stripReasoning(result?.text).trim();
-      if (!text) return null;
-      return { text, provider: result.provider, model: result.model };
+      if (text) return { text, provider: result.provider, model: result.model };
+      // Empty body = pool hiccup, not a real answer — try the next free model.
+      lastError = new Error(`empty response from ${candidate}`);
     } catch (error) {
       lastError = error;
-      if (!isRateLimitError(error)) break;
+      if (!isRetryableError(error)) break;
     }
   }
   return { error: lastError?.message || 'generation failed' };
@@ -232,11 +241,12 @@ const generateAssistantReplyStream = async ({
         onDelta: filter,
       });
       const finalText = text.trim() || stripReasoning(result?.text).trim();
-      if (!finalText) return null;
-      return { text: finalText, provider: result.provider, model: result.model };
+      if (finalText) return { text: finalText, provider: result.provider, model: result.model };
+      // Nothing streamed and empty body — pool hiccup, hop to the next free model.
+      lastError = new Error(`empty response from ${candidate}`);
     } catch (error) {
       lastError = error;
-      if (!isRateLimitError(error) || streamed || signal?.aborted) break;
+      if (!isRetryableError(error) || streamed || signal?.aborted) break;
     }
   }
   return { error: lastError?.message || 'generation failed' };

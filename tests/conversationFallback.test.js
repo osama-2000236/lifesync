@@ -68,6 +68,28 @@ describe('generateAssistantReply free fallback', () => {
     expect(generateChat).toHaveBeenCalledTimes(1);
   });
 
+  test('hops on a 503 busy pool (not just 429)', async () => {
+    generateChat
+      .mockRejectedValueOnce(new Error('Request failed with status code 503'))
+      .mockResolvedValueOnce({ provider: 'openrouter', model: FREE_FALLBACK_SLUGS[1], text: 'ok' });
+    const out = await generateAssistantReply({
+      provider: 'openrouter', model: FREE_FALLBACK_SLUGS[0], message: 'hi',
+    });
+    expect(out.text).toBe('ok');
+    expect(generateChat).toHaveBeenCalledTimes(2);
+  });
+
+  test('hops when a free pool returns an empty completion', async () => {
+    generateChat
+      .mockResolvedValueOnce({ provider: 'openrouter', model: FREE_FALLBACK_SLUGS[0], text: '   ' })
+      .mockResolvedValueOnce({ provider: 'openrouter', model: FREE_FALLBACK_SLUGS[1], text: 'real reply' });
+    const out = await generateAssistantReply({
+      provider: 'openrouter', model: FREE_FALLBACK_SLUGS[0], message: 'hi',
+    });
+    expect(out.text).toBe('real reply');
+    expect(generateChat).toHaveBeenCalledTimes(2);
+  });
+
   test('does NOT build a candidate chain for non-OpenRouter providers', async () => {
     generateChat.mockRejectedValueOnce(RATE_LIMIT);
     const out = await generateAssistantReply({ provider: 'anthropic', model: 'claude-x', message: 'hi' });
