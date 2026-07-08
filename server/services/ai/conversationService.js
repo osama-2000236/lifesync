@@ -35,6 +35,20 @@ const modelCandidates = (model) => {
   return [...new Set(chain)];
 };
 
+// :free pools flap in and out of 429 second-by-second — a whole pass can find
+// every model busy in the same instant, then all clear ~1s later. So when a full
+// pass fails on retryable errors, wait briefly and run the chain again before
+// giving up. Env-tunable; passes=1 disables retry (tests set delay=0).
+// ponytail: fixed 2 passes / 600ms is enough for :free flap; add jitter/backoff
+// curve only if a real burst pattern shows it's not. Read at call time so ops
+// (and tests) can tune via env without a restart.
+const freePoolPasses = () => Math.max(1, parseInt(process.env.FREE_POOL_PASSES, 10) || 2);
+const freePoolRetryMs = () => {
+  const n = parseInt(process.env.FREE_POOL_RETRY_MS, 10);
+  return Number.isFinite(n) ? Math.max(0, n) : 600;
+};
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 const describeLoggedFacts = (entities = []) => {
   if (!Array.isArray(entities) || entities.length === 0) return '';
   const parts = entities.map((e) => {
@@ -129,27 +143,33 @@ const generateAssistantReply = async ({ provider, model, context = {}, loggedEnt
   // OpenRouter free-pool 429s hop to the next verified free model; any other
   // provider (or error type) keeps the original single-attempt behavior.
   const candidates = provider === 'openrouter' ? modelCandidates(model) : [model];
+  const passes = provider === 'openrouter' ? freePoolPasses() : 1;
   let lastError = null;
-  for (const candidate of candidates) {
-    try {
-      const system = buildSystemPrompt(context, loggedEntities, locale, candidate, ambiguity);
-      const result = await generateChat({
-        system,
-        messages,
-        providerOverride: provider,
-        model: candidate,
-        temperature: 0.4,
-        // Headroom so reasoning models still reach a final answer.
-        maxTokens: 1200,
-      });
-      const text = stripReasoning(result?.text).trim();
-      if (text) return { text, provider: result.provider, model: result.model };
-      // Empty body = pool hiccup, not a real answer — try the next free model.
-      lastError = new Error(`empty response from ${candidate}`);
-    } catch (error) {
-      lastError = error;
-      if (!isRetryableError(error)) break;
+  for (let pass = 0; pass < passes; pass++) {
+    for (const candidate of candidates) {
+      try {
+        const system = buildSystemPrompt(context, loggedEntities, locale, candidate, ambiguity);
+        const result = await generateChat({
+          system,
+          messages,
+          providerOverride: provider,
+          model: candidate,
+          temperature: 0.4,
+          // Headroom so reasoning models still reach a final answer.
+          maxTokens: 1200,
+        });
+        const text = stripReasoning(result?.text).trim();
+        if (text) return { text, provider: result.provider, model: result.model };
+        // Empty body = pool hiccup, not a real answer — try the next free model.
+        lastError = new Error(`empty response from ${candidate}`);
+      } catch (error) {
+        lastError = error;
+        if (!isRetryableError(error)) return { error: lastError.message };
+      }
     }
+    // Whole pass failed on transient errors — wait for the :free flap to clear
+    // and run the chain once more before dropping to the deterministic reply.
+    if (pass < passes - 1) await sleep(freePoolRetryMs());
   }
   return { error: lastError?.message || 'generation failed' };
 };
@@ -221,33 +241,42 @@ const generateAssistantReplyStream = async ({
 }) => {
   const messages = buildMessages(context.conversation, message);
   const candidates = provider === 'openrouter' ? modelCandidates(model) : [model];
+  const passes = provider === 'openrouter' ? freePoolPasses() : 1;
   let lastError = null;
-  for (const candidate of candidates) {
-    // Hop only when nothing streamed to the client yet — after first delta the
-    // UI is already rendering this model's reply, so surface the error instead.
-    let streamed = false;
-    try {
-      const system = buildSystemPrompt(context, loggedEntities, locale, candidate, ambiguity);
-      let text = '';
-      const filter = makeReasoningFilter((chunk) => { text += chunk; streamed = true; onDelta?.(chunk); });
-      const result = await generateChatStream({
-        system,
-        messages,
-        providerOverride: provider,
-        model: candidate,
-        temperature: 0.4,
-        maxTokens: 1200,
-        signal,
-        onDelta: filter,
-      });
-      const finalText = text.trim() || stripReasoning(result?.text).trim();
-      if (finalText) return { text: finalText, provider: result.provider, model: result.model };
-      // Nothing streamed and empty body — pool hiccup, hop to the next free model.
-      lastError = new Error(`empty response from ${candidate}`);
-    } catch (error) {
-      lastError = error;
-      if (!isRetryableError(error) || streamed || signal?.aborted) break;
+  for (let pass = 0; pass < passes; pass++) {
+    let hardStop = false;
+    for (const candidate of candidates) {
+      // Hop only when nothing streamed to the client yet — after first delta the
+      // UI is already rendering this model's reply, so surface the error instead.
+      let streamed = false;
+      try {
+        const system = buildSystemPrompt(context, loggedEntities, locale, candidate, ambiguity);
+        let text = '';
+        const filter = makeReasoningFilter((chunk) => { text += chunk; streamed = true; onDelta?.(chunk); });
+        const result = await generateChatStream({
+          system,
+          messages,
+          providerOverride: provider,
+          model: candidate,
+          temperature: 0.4,
+          maxTokens: 1200,
+          signal,
+          onDelta: filter,
+        });
+        const finalText = text.trim() || stripReasoning(result?.text).trim();
+        if (finalText) return { text: finalText, provider: result.provider, model: result.model };
+        // Nothing streamed and empty body — pool hiccup, hop to the next free model.
+        lastError = new Error(`empty response from ${candidate}`);
+      } catch (error) {
+        lastError = error;
+        // Streamed/aborted/hard errors stop everything; a retryable pre-stream
+        // error just hops to the next candidate.
+        if (!isRetryableError(error) || streamed || signal?.aborted) { hardStop = true; break; }
+      }
     }
+    if (hardStop || signal?.aborted) break;
+    // Whole pass was transient with nothing streamed — wait out the flap, retry.
+    if (pass < passes - 1) await sleep(freePoolRetryMs());
   }
   return { error: lastError?.message || 'generation failed' };
 };

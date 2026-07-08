@@ -26,6 +26,9 @@ const { FREE_FALLBACK_SLUGS } = require('../server/services/ai/modelRuntimeManag
 const RATE_LIMIT = new Error('Provider returned error: 429 rate-limited upstream');
 const HARD_FAIL = new Error('invalid api key');
 
+// No real backoff sleeps in tests — retry passes fire instantly.
+process.env.FREE_POOL_RETRY_MS = '0';
+
 beforeEach(() => {
   generateChat.mockReset();
   generateChatStream.mockReset();
@@ -105,8 +108,37 @@ describe('generateAssistantReply free fallback', () => {
       message: 'hi',
     });
     expect(out.error).toMatch(/429/);
-    // requested model deduped into the chain: 3 unique candidates
-    expect(generateChat).toHaveBeenCalledTimes(FREE_FALLBACK_SLUGS.length);
+    // requested model deduped into the chain: 3 unique candidates, retried for a
+    // second pass (default FREE_POOL_PASSES=2) to ride out a :free flap.
+    expect(generateChat).toHaveBeenCalledTimes(FREE_FALLBACK_SLUGS.length * 2);
+  });
+});
+
+describe('free-pool flap retry (whole chain 429, then clears)', () => {
+  const OLD = process.env.FREE_POOL_RETRY_MS;
+  beforeAll(() => { process.env.FREE_POOL_RETRY_MS = '0'; });
+  afterAll(() => { process.env.FREE_POOL_RETRY_MS = OLD; });
+
+  test('retries the whole chain after a full 429 pass and succeeds', async () => {
+    // Every candidate 429 on pass 1 (all flapping busy at once), then pass 2 clears.
+    const n = FREE_FALLBACK_SLUGS.length;
+    for (let i = 0; i < n; i++) generateChat.mockRejectedValueOnce(RATE_LIMIT);
+    generateChat.mockResolvedValueOnce({ provider: 'openrouter', model: FREE_FALLBACK_SLUGS[0], text: 'cleared' });
+
+    const out = await generateAssistantReply({
+      provider: 'openrouter', model: FREE_FALLBACK_SLUGS[0], message: 'hi',
+    });
+    expect(out.text).toBe('cleared');
+    expect(generateChat).toHaveBeenCalledTimes(n + 1); // one full failed pass + one retry hit
+  });
+
+  test('does NOT retry a hard error (bad key) — no wasted second pass', async () => {
+    generateChat.mockRejectedValue(HARD_FAIL);
+    const out = await generateAssistantReply({
+      provider: 'openrouter', model: FREE_FALLBACK_SLUGS[0], message: 'hi',
+    });
+    expect(out).toEqual({ error: 'invalid api key' });
+    expect(generateChat).toHaveBeenCalledTimes(1); // stops on first candidate, no retry pass
   });
 });
 
