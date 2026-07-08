@@ -1,0 +1,10 @@
+[
+  {
+    "id": "XD-SHADOW-01",
+    "lang": "ar",
+    "message": "كم أنفقت هذا الأسبوع؟",
+    "expected": { "intent": "query_finance", "domain": "finance" },
+    "actual_today": { "intent": "get_insight", "domain": "both" },
+    "note": "Arabic spending question routes to get_insight/both instead of query_finance (English 'how much did I spend' → query_finance). Insight still answers spending, so not user-broken, but EN/AR parity is the quality goal. Promote to gating once the Arabic lexicon routes كم أنفقت → query_finance."
+  }
+]

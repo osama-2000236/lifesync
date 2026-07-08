@@ -28,6 +28,7 @@
     "test:qa:e2e": "playwright test",
     "test:qa:api": "playwright test tests/qa/api.spec.ts",
     "test:model:eval": "node scripts/evaluate-local-model.js",
+    "test:eval:xdom": "node scripts/evaluate-cross-domain.js",
     "model:export": "python model_runtime/export_onnx.py && python model_runtime/prepare_directml_onnx.py",
     "model:prepare:gpu": "python model_runtime/prepare_directml_onnx.py",
     "model:serve:gpu": "python model_runtime/server.py --provider directml --onnx model_runtime/artifacts/bert_intent_directml.onnx",

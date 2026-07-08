@@ -82,11 +82,19 @@ const describeLoggedFacts = (entities = []) => {
 /** Language directive: native, not translated. LLMs mirror the user's language
  *  reliably; the locale hint biases short/ambiguous turns toward Arabic. */
 const buildLanguageDirective = (locale) => {
-  const base = 'LANGUAGE: Reply in the SAME language the user writes in. If they write Arabic, reply in fluent, natural Modern Standard Arabic (فصحى) — native phrasing, not literal/translated wording, and never mix English words into an Arabic reply.';
-  if (String(locale || '').toLowerCase().startsWith('ar')) {
-    return `${base}\nThe user's app is set to Arabic, so default to Arabic unless they clearly switch to English. Keep units and currency natural in Arabic.`;
+  const lc = String(locale || '').toLowerCase();
+  // When the turn language is known (detected from the user's text), assert it
+  // explicitly and forbid third languages — the free/open models occasionally
+  // drift into Chinese/other on short English turns (caught by the eval harness).
+  if (lc.startsWith('ar')) {
+    return 'LANGUAGE: Reply ONLY in fluent, natural Modern Standard Arabic (فصحى) — native phrasing, not literal/translated wording. Do NOT use English, Chinese, or any other language, and never mix foreign words into the reply (proper nouns and numerals aside). Keep units and currency natural in Arabic.';
   }
-  return base;
+  if (lc.startsWith('en')) {
+    return 'LANGUAGE: Reply ONLY in English. Do NOT use Arabic, Chinese, or any other language under any circumstances. Match the user\'s tone.';
+  }
+  // Script-less/unknown input — mirror whatever language the user used, but never
+  // a third language.
+  return 'LANGUAGE: Reply in the SAME language the user writes in — Arabic → natural Modern Standard Arabic, English → English. Never switch to a third language such as Chinese.';
 };
 
 /** System prompt: persona + language + grounded LifeSync context + memory + just-logged facts. */
