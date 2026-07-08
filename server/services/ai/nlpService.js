@@ -18,6 +18,20 @@ const {
 const { parseMessageWithBert } = require('./bertNlpService');
 const { generateAssistantReply, generateAssistantReplyStream } = require('./conversationService');
 
+// Detect the language the user actually wrote/spoke this turn so the reply
+// mirrors it regardless of the app's UI locale. Arabic script anywhere → 'ar'
+// (if they typed any Arabic they're conversing in Arabic); else Latin letters →
+// 'en'; script-less input (digits/emoji) → null so the caller keeps the prior
+// language. ponytail: regex over the Arabic Unicode blocks beats a langdetect
+// dependency for an ar/en app — widen the ranges if a third language is added.
+const AR_SCRIPT = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
+const detectLang = (text) => {
+  const s = String(text || '');
+  if (AR_SCRIPT.test(s)) return 'ar';
+  if (/[A-Za-z]/.test(s)) return 'en';
+  return null;
+};
+
 const AI_SERVICE_ERROR_PATTERNS = [
   /timeout/i,
   /timed out/i,
@@ -719,9 +733,13 @@ const currentRuntimeMetadata = () => {
 const parseMessage = async (message, pendingClarification = null, context = {}, options = {}, onDelta = null) => {
   const provider = options.provider || _getProvider('chat');
 
-  // Carry the UI locale into the deterministic track so its replies/clarifications
-  // can be native Arabic too (not just the conversational models).
-  if (options.lang && !context.locale) context.locale = options.lang;
+  // Reply in the language the user ACTUALLY used this turn — detected from the
+  // message text, overriding the UI locale hint (Arabic-app user typing English
+  // gets English back, and vice versa). Script-less input keeps the prior/UI
+  // language. Drives BOTH the deterministic Track-A Arabic replies (via
+  // context.locale) and Track-B's language directive (via turnLang below).
+  const turnLang = detectLang(message) || options.lang || context.locale || null;
+  if (turnLang) context.locale = turnLang;
 
   // Track A — deterministic actions + a safe baseline reply.
   const actions = await parseMessageWithBert(message, pendingClarification, context);
@@ -748,7 +766,7 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
         context,
         loggedEntities: actions.entities,
         message: actions.original_message || message,
-        locale: options.lang || context.locale || null,
+        locale: turnLang,
         ambiguity,
         onDelta,
         signal: options.signal,
@@ -759,7 +777,7 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
         context,
         loggedEntities: actions.entities,
         message: actions.original_message || message,
-        locale: options.lang || context.locale || null,
+        locale: turnLang,
         ambiguity,
       });
 
@@ -1089,6 +1107,7 @@ Respond ONLY with valid JSON:
 module.exports = {
   parseMessage,
   generateWeeklyInsights,
+  _detectLang: detectLang,
   _validateEntity: validateEntity,
   _normalizeNLPResponse: normalizeNLPResponse,
   _buildContextAwarePrompt: buildContextAwarePrompt,

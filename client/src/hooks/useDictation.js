@@ -100,7 +100,9 @@ export function useDictation({ locale = 'en', onText } = {}) {
     chunksRef.current = [];
     releaseStream();
     try {
-      const { data } = await voiceAPI.transcribe(blob, locale);
+      // No forced language → Whisper auto-detects, so dictation works whichever
+      // language the user speaks (the reviewed text is then sent as-is).
+      const { data } = await voiceAPI.transcribe(blob);
       const text = data?.data?.text || '';
       setState('idle');
       if (text) { setPartial(text); emit(text); }

@@ -4,6 +4,7 @@
 // only handles microphone capture and reading replies aloud. For production-grade
 // transcription, swap startListening() to POST audio to /api/voice/transcribe.
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { detectLang, speechLangTag } from '../utils/speech';
 
 const SR = typeof window !== 'undefined'
   ? (window.SpeechRecognition || window.webkitSpeechRecognition)
@@ -72,10 +73,12 @@ export function useVoice({ locale = 'en', onTranscript } = {}) {
     try {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(String(text));
-      u.lang = langTag(locale);
-      const wanted = langTag(locale).slice(0, 2);
+      // Speak in the language of the reply text (mirrors the user), not the UI
+      // locale — an Arabic reply is read by an Arabic voice even in an English UI.
+      const lang = detectLang(String(text), locale);
+      u.lang = speechLangTag(lang);
       const pool = voicesRef.current.length ? voicesRef.current : (window.speechSynthesis.getVoices() || []);
-      const voice = pool.find((v) => v.lang?.toLowerCase().startsWith(wanted));
+      const voice = pool.find((v) => v.lang?.toLowerCase().startsWith(lang));
       if (voice) u.voice = voice;
       window.speechSynthesis.speak(u);
     } catch { /* ignore */ }

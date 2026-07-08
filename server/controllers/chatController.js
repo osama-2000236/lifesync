@@ -267,7 +267,9 @@ const processMessageStream = async (req, res) => {
   const { message, session_id } = req.body;
   const userId = req.user.id;
   const currentSessionId = session_id || randomUUID();
-  const aiOptions = resolveChatOptions(req.body?.model);
+  // lang = UI locale hint (tiebreaker for script-less input); the server also
+  // detects the actual language from the message text and that takes priority.
+  const aiOptions = { ...resolveChatOptions(req.body?.model), lang: req.body?.lang || null };
 
   // If the client disconnects mid-stream (voice barge-in, tab close), stop the
   // upstream model call instead of burning tokens on a reply nobody will see.

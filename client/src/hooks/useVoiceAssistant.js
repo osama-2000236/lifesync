@@ -6,13 +6,12 @@
 // overlay; this hook owns the microphone, recognition, audio metering, and TTS.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { voiceAPI } from '../services/api';
-import { chunkForSpeech, pickVoice } from '../utils/speech';
+import { chunkForSpeech, pickVoice, detectLang, speechLangTag } from '../utils/speech';
 
 const SR = typeof window !== 'undefined'
   ? (window.SpeechRecognition || window.webkitSpeechRecognition)
   : null;
 
-const langTag = (locale) => (locale === 'ar' ? 'ar-SA' : 'en-US');
 const SILENCE_MS = 1300; // pause after speech that finalizes a turn
 
 // Native SR errors meaning "this engine can't do this language here" (Arabic
@@ -43,6 +42,11 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
   const silenceTimerRef = useRef(null);
   const finalRef = useRef('');
   const voicesRef = useRef([]);
+  // Language of the CURRENT turn: seeded from the UI locale, then re-detected
+  // from each utterance so the user can switch languages mid-session and STT
+  // (recognizer lang) + TTS (voice) follow. In a ref because the recognizer/TTS
+  // callbacks close over stale state otherwise.
+  const sessionLangRef = useRef(locale === 'ar' ? 'ar' : 'en');
   const smoothRef = useRef(0);
   const lastSetRef = useRef(0);
   // Live frequency bands for the audio-reactive orb ring. Mutated in place
@@ -175,12 +179,16 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
       setPhase('thinking');
       try {
         const blob = new Blob(chunks, { type: 'audio/webm' });
-        const { data } = await voiceAPI.transcribe(blob, locale);
+        // No language forced → Whisper auto-detects, so a bilingual user is
+        // transcribed correctly whichever language they spoke.
+        const { data } = await voiceAPI.transcribe(blob);
         const text = String(data?.data?.text || '').trim();
         if (!activeRef.current) return;
         if (text) {
+          const lang = detectLang(text, sessionLangRef.current);
+          sessionLangRef.current = lang;
           setTranscript(text);
-          onUtteranceRef.current?.(text);
+          onUtteranceRef.current?.(text, lang);
         } else if (activeRef.current) {
           startCloudTurnRef.current();
         }
@@ -223,7 +231,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     finalRef.current = '';
     setTranscript('');
     const rec = new SR();
-    rec.lang = langTag(locale);
+    rec.lang = speechLangTag(sessionLangRef.current);
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = (e) => {
@@ -241,7 +249,11 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
         if (utterance && activeRef.current) {
           try { rec.stop(); } catch { /* ignore */ }
           setPhase('thinking');
-          onUtteranceRef.current?.(utterance);
+          // Re-detect the language from what was actually said so the next turn's
+          // recognizer + the spoken reply follow a mid-session language switch.
+          const lang = detectLang(utterance, sessionLangRef.current);
+          sessionLangRef.current = lang;
+          onUtteranceRef.current?.(utterance, lang);
         }
       }, SILENCE_MS);
     };
@@ -292,7 +304,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     if (!SR || !activeRef.current || engineRef.current === 'cloud') return;
     stopBargeListener();
     const rec = new SR();
-    rec.lang = langTag(locale);
+    rec.lang = speechLangTag(sessionLangRef.current);
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = (e) => {
@@ -336,9 +348,12 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
       if (!bargeRecRef.current) startBargeListener(); // keep one barge listener alive across the whole speaking turn, not per-sentence
       try {
         const u = new SpeechSynthesisUtterance(next);
-        u.lang = langTag(locale);
+        // Speak in the language of THIS chunk (the reply mirrors the user), so an
+        // Arabic reply gets an Arabic voice even when the app UI is English.
+        const lang = detectLang(next, sessionLangRef.current);
+        u.lang = speechLangTag(lang);
         const pool = voicesRef.current.length ? voicesRef.current : (window.speechSynthesis.getVoices() || []);
-        const voice = pickVoice(pool, locale);
+        const voice = pickVoice(pool, lang);
         if (voice) u.voice = voice;
         u.onend = () => { speakingRef.current = false; drainQueueImplRef.current(); };
         u.onerror = () => { speakingRef.current = false; drainQueueImplRef.current(); };
@@ -393,9 +408,13 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     startListening();
   }, [supported, startMeter, startListening, setPhase]);
 
-  // Retry the native engine when the language changes — it may work for the
-  // new locale even if it was broken for the previous one.
-  useEffect(() => { engineRef.current = 'native'; }, [locale]);
+  // Retry the native engine when the UI language changes — it may work for the
+  // new locale even if it was broken for the previous one — and re-seed the
+  // turn language so the next utterance starts from the user's new UI choice.
+  useEffect(() => {
+    engineRef.current = 'native';
+    sessionLangRef.current = locale === 'ar' ? 'ar' : 'en';
+  }, [locale]);
 
   const stop = useCallback(() => {
     activeRef.current = false;

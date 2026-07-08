@@ -6,6 +6,22 @@
 const SENTENCE_END = /([.!?؟…]|\n)+/;
 const COMMA = /[,،;؛]/;
 
+// Detect the language of a piece of text so speech (STT lang + TTS voice) follows
+// what the user actually said, not the app's UI locale. Arabic script → 'ar',
+// else Latin → 'en', else the fallback. Mirrors the server's detector so the
+// spoken voice matches the model's reply language. ponytail: script regex, not a
+// langdetect dependency — widen the ranges only if a third language is added.
+const AR_SCRIPT = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
+export const detectLang = (text, fallback = 'en') => {
+  const s = String(text || '');
+  if (AR_SCRIPT.test(s)) return 'ar';
+  if (/[A-Za-z]/.test(s)) return 'en';
+  return fallback;
+};
+
+/** BCP-47 tag for the Web Speech / SpeechSynthesis APIs. */
+export const speechLangTag = (lang) => (lang === 'ar' ? 'ar-SA' : 'en-US');
+
 /** Strip markdown markers so TTS doesn't read "asterisk asterisk". */
 export const stripMarkdownForSpeech = (text) => String(text || '')
   .replace(/```[\s\S]*?(```|$)/g, ' ')  // drop code blocks entirely

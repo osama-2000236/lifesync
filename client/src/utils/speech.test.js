@@ -1,5 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { stripMarkdownForSpeech, chunkForSpeech, pickVoice } from './speech';
+import { stripMarkdownForSpeech, chunkForSpeech, pickVoice, detectLang, speechLangTag } from './speech';
+
+describe('detectLang', () => {
+  it('detects Arabic, English, and falls back for script-less input', () => {
+    expect(detectLang('مرحبا كيف حالك')).toBe('ar');
+    expect(detectLang('hello there')).toBe('en');
+    expect(detectLang('اشتريت iPhone')).toBe('ar'); // any Arabic → ar
+    expect(detectLang('123', 'ar')).toBe('ar');      // fallback when no letters
+    expect(detectLang('')).toBe('en');               // default fallback
+  });
+  it('maps to a BCP-47 speech tag', () => {
+    expect(speechLangTag('ar')).toBe('ar-SA');
+    expect(speechLangTag('en')).toBe('en-US');
+  });
+});
 
 describe('stripMarkdownForSpeech', () => {
   it('removes bold, inline code, list markers, and whole code blocks', () => {

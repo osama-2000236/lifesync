@@ -19,7 +19,7 @@ import { chatAPI, aiAPI } from '../services/api';
 import { MODEL_OPTIONS, DEFAULT_CHAT_MODEL_ID } from '../config/models';
 import ChatComposer from '../components/chat/ChatComposer';
 import Markdown from '../components/chat/Markdown';
-import { stripMarkdownForSpeech, chunkForSpeech, pickVoice } from '../utils/speech';
+import { stripMarkdownForSpeech, chunkForSpeech, pickVoice, detectLang, speechLangTag } from '../utils/speech';
 import ModelPicker from '../components/chat/ModelPicker';
 import EntityReceipts from '../components/chat/EntityReceipts';
 import SessionsRail from '../components/chat/SessionsRail';
@@ -122,12 +122,16 @@ export default function ChatPage() {
     try {
       // cancel() first also unfreezes Chrome's occasionally-stuck engine.
       window.speechSynthesis.cancel();
-      const voice = pickVoice(window.speechSynthesis.getVoices() || [], locale);
+      // Speak in the reply's own language (mirrors the user), not the UI locale —
+      // so an Arabic reply in an English UI is read by an Arabic voice.
+      const clean = stripMarkdownForSpeech(text);
+      const lang = detectLang(clean, locale);
+      const voice = pickVoice(window.speechSynthesis.getVoices() || [], lang);
       // Chunk under Chrome's ~200-char cutoff; the native queue plays them in
       // order. Voice + lang must be re-set per utterance (Chrome drops them).
-      for (const chunk of chunkForSpeech(stripMarkdownForSpeech(text))) {
+      for (const chunk of chunkForSpeech(clean)) {
         const u = new SpeechSynthesisUtterance(chunk);
-        u.lang = locale === 'ar' ? 'ar-SA' : 'en-US';
+        u.lang = speechLangTag(lang);
         if (voice) u.voice = voice;
         window.speechSynthesis.speak(u);
       }

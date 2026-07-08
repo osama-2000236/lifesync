@@ -13,7 +13,7 @@ import { Link } from 'react-router-dom';
 import { Sparkles, Mic, MessageSquareText, Square, RefreshCw, MessageCircle } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { useVoiceAssistant } from '../hooks/useVoiceAssistant';
-import { stripMarkdownForSpeech } from '../utils/speech';
+import { stripMarkdownForSpeech, detectLang } from '../utils/speech';
 import { chatAPI, assistantAPI } from '../services/api';
 import { DEFAULT_CHAT_MODEL_ID } from '../config/models';
 import VoiceOrb from '../components/assistant/VoiceOrb';
@@ -54,8 +54,13 @@ export default function AssistantPage() {
   const abortRef = useRef(null);
 
   // ─── Streamed chat reply (used by both converse + dictate) ───
-  const streamReply = useCallback((text, { speak } = {}) => {
+  const streamReply = useCallback((text, { speak, lang } = {}) => {
     if (abortRef.current) abortRef.current();
+    // Reply in the language actually used this turn (voice passes the detected
+    // lang; dictate/text detects from the message) so replies switch with the
+    // user, not the UI locale. The server also detects from text as the source
+    // of truth — this hint just covers ultra-short/script-less input.
+    const replyLang = lang || detectLang(text, locale);
     setMessages((prev) => [...prev.slice(-5), { role: 'user', text }]);
 
     let full = '';
@@ -108,11 +113,11 @@ export default function AssistantPage() {
       onError: (err) => {
         setMessages((prev) => [...prev.slice(-5), { role: 'assistant', text: err.message || t('va.err.streamFailed') }]);
       },
-    }, { model: voiceModel(), lang: locale });
+    }, { model: voiceModel(), lang: replyLang });
   }, [sessionId, locale, t]);
 
   // ─── Converse: hands-free loop ───
-  const handleUtterance = useCallback((text) => streamReply(text, { speak: true }), [streamReply]);
+  const handleUtterance = useCallback((text, lang) => streamReply(text, { speak: true, lang }), [streamReply]);
   const voice = useVoiceAssistant({
     locale,
     onUtterance: handleUtterance,
