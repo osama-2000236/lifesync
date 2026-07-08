@@ -6,7 +6,7 @@
 // overlay; this hook owns the microphone, recognition, audio metering, and TTS.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { voiceAPI } from '../services/api';
-import { chunkForSpeech, pickVoice, detectLang, speechLangTag } from '../utils/speech';
+import { chunkForSpeech, pickVoice, detectLang, speechLangTag, hasVoiceForLang } from '../utils/speech';
 
 const SR = typeof window !== 'undefined'
   ? (window.SpeechRecognition || window.webkitSpeechRecognition)
@@ -34,6 +34,10 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
   const [transcript, setTranscript] = useState('');
   const [level, setLevel] = useState(0); // 0..1 mic amplitude for the orb
   const [error, setError] = useState(null);
+  // True once we've had to speak a reply whose language has no local device
+  // voice (Arabic on Windows/Chrome). The UI shows a hint; audio still plays via
+  // cloud TTS when configured, else the browser reads it with its default voice.
+  const [ttsVoiceMissing, setTtsVoiceMissing] = useState(false);
 
   const recRef = useRef(null);
   const streamRef = useRef(null);
@@ -77,6 +81,27 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
   const speakingRef = useRef(false);
   const streamDoneRef = useRef(true);
   const bargeRecRef = useRef(null);
+  // Cloud TTS fallback (Arabic-on-Windows etc.): whether the server has a TTS
+  // provider configured (fetched once), and the currently-playing audio element.
+  const cloudTtsRef = useRef(false);
+  const cloudAudioRef = useRef(null);
+  const speakViaCloudRef = useRef(() => {});
+
+  // Learn once whether server-side TTS is available, so we only reach for it
+  // when the device genuinely lacks a local voice. Absent/failed → stay browser.
+  useEffect(() => {
+    let alive = true;
+    voiceAPI.getConfig()
+      .then((res) => { if (alive) cloudTtsRef.current = Boolean(res?.data?.data?.tts?.cloud); })
+      .catch(() => { /* stay on browser TTS */ });
+    return () => { alive = false; };
+  }, []);
+
+  const stopCloudAudio = useCallback(() => {
+    const a = cloudAudioRef.current;
+    cloudAudioRef.current = null;
+    try { if (a) { a.pause(); a.src = ''; } } catch { /* ignore */ }
+  }, []);
 
   // ─── Mic level metering (drives the orb) ───
   const startMeter = useCallback(async () => {
@@ -313,6 +338,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
       if (txt.length < 3) return;
       stopBargeListener();
       try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+      stopCloudAudio();
       speechQueueRef.current = [];
       speakingRef.current = false;
       streamDoneRef.current = true;
@@ -327,7 +353,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     };
     bargeRecRef.current = rec;
     try { rec.start(); } catch { /* ignore */ }
-  }, [locale, stopBargeListener, startListening]);
+  }, [locale, stopBargeListener, startListening, stopCloudAudio]);
 
   // Speaks the queue sequentially; resumes listening once it's drained AND the
   // caller has signaled no more chunks are coming (finishSpeechStream). Recurses
@@ -346,22 +372,61 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
       speakingRef.current = true;
       setPhase('speaking');
       if (!bargeRecRef.current) startBargeListener(); // keep one barge listener alive across the whole speaking turn, not per-sentence
-      try {
-        const u = new SpeechSynthesisUtterance(next);
-        // Speak in the language of THIS chunk (the reply mirrors the user), so an
-        // Arabic reply gets an Arabic voice even when the app UI is English.
-        const lang = detectLang(next, sessionLangRef.current);
-        u.lang = speechLangTag(lang);
-        const pool = voicesRef.current.length ? voicesRef.current : (window.speechSynthesis.getVoices() || []);
-        const voice = pickVoice(pool, lang);
-        if (voice) u.voice = voice;
-        u.onend = () => { speakingRef.current = false; drainQueueImplRef.current(); };
-        u.onerror = () => { speakingRef.current = false; drainQueueImplRef.current(); };
-        window.speechSynthesis.speak(u);
-      } catch { speakingRef.current = false; drainQueueImplRef.current(); }
+      // Speak in the language of THIS chunk (the reply mirrors the user), so an
+      // Arabic reply gets an Arabic voice even when the app UI is English.
+      const lang = detectLang(next, sessionLangRef.current);
+      const pool = voicesRef.current.length ? voicesRef.current : (window.speechSynthesis.getVoices() || []);
+      const advance = () => { speakingRef.current = false; drainQueueImplRef.current(); };
+      const speakWithBrowser = () => {
+        try {
+          const u = new SpeechSynthesisUtterance(next);
+          u.lang = speechLangTag(lang);
+          const voice = pickVoice(pool, lang);
+          if (voice) u.voice = voice;
+          u.onend = advance;
+          u.onerror = advance;
+          window.speechSynthesis.speak(u);
+        } catch { advance(); }
+      };
+      // No local device voice for this language (Arabic on Windows/Chrome has
+      // none) → the browser would read it with the wrong voice or stay silent.
+      // Use cloud TTS when configured; otherwise flag it so the UI can hint.
+      if (!hasVoiceForLang(pool, lang)) {
+        if (cloudTtsRef.current) { speakViaCloudRef.current(next, lang, advance, speakWithBrowser); return; }
+        setTtsVoiceMissing(true);
+      }
+      speakWithBrowser();
     };
   }, [locale, setPhase, startListening, startBargeListener, stopBargeListener]);
   const drainQueue = useCallback(() => drainQueueImplRef.current(), []);
+
+  // Cloud TTS: fetch synthesized audio and play it, calling done() when it ends.
+  // On any failure (incl. 501 = provider unconfigured) fall back to the browser
+  // voice for this chunk and stop reaching for cloud the rest of the session.
+  useEffect(() => {
+    speakViaCloudRef.current = (text, lang, done, fallback) => {
+      let settled = false;
+      const finish = (fn) => { if (!settled) { settled = true; fn(); } };
+      voiceAPI.speak(text, lang)
+        .then((res) => {
+          if (!activeRef.current) { finish(done); return; }
+          const url = URL.createObjectURL(res.data);
+          const audio = new Audio(url);
+          cloudAudioRef.current = audio;
+          const cleanup = () => {
+            try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+            if (cloudAudioRef.current === audio) cloudAudioRef.current = null;
+          };
+          audio.onended = () => { cleanup(); finish(done); };
+          audio.onerror = () => { cleanup(); finish(fallback); };
+          audio.play().catch(() => { cleanup(); finish(fallback); });
+        })
+        .catch((err) => {
+          if (err?.response?.status === 501) cloudTtsRef.current = false;
+          finish(fallback);
+        });
+    };
+  }, []);
 
   // Enqueue one finished sentence/chunk for speech (called as the reply streams in).
   const enqueueSpeech = useCallback((text) => {
@@ -423,6 +488,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     try { recRef.current?.abort(); } catch { /* ignore */ }
     stopBargeListener();
     try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+    stopCloudAudio();
     speechQueueRef.current = [];
     speakingRef.current = false;
     streamDoneRef.current = true;
@@ -430,12 +496,12 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     setTranscript('');
     setPhase('idle');
     setActive(false);
-  }, [stopMeter, setPhase, stopBargeListener, stopCloudTurn]);
+  }, [stopMeter, setPhase, stopBargeListener, stopCloudTurn, stopCloudAudio]);
 
   useEffect(() => () => { stop(); }, [stop]);
 
   return {
-    supported, active, state, transcript, level, error, bandsRef,
+    supported, active, state, transcript, level, error, ttsVoiceMissing, bandsRef,
     start, stop, speak, enqueueSpeech, finishSpeechStream, setPhase,
   };
 }

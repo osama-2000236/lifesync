@@ -304,6 +304,7 @@ export const en = {
   'va.close': 'Close',
   'va.micDenied': 'Microphone access denied. Enable it in your browser settings.',
   'va.micFailed': 'Microphone unavailable on this device.',
+  'va.noArabicVoice': 'No Arabic voice on this device, so the reply is shown as text. Install an Arabic voice (Windows: Settings → Time & language → Language → add Arabic) to hear it spoken.',
   'va.err.streamFailed': "Couldn't reach the assistant. Try again.",
   // gamification
   'streak.title': 'Your Streak',

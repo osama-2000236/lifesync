@@ -248,6 +248,11 @@ export default function AssistantPage() {
                     {t('assistant.micDeniedBody')}
                   </p>
                 )}
+                {voice.ttsVoiceMissing && !voice.error && (
+                  <p className="max-w-sm text-center text-xs leading-5 text-amber-200/80" data-testid="no-arabic-voice-help">
+                    {t('va.noArabicVoice')}
+                  </p>
+                )}
                 <button
                   onClick={toggleConverse}
                   className="px-6 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white font-medium transition-colors inline-flex items-center gap-2"

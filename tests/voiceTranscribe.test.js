@@ -91,6 +91,66 @@ describe('POST /transcribe', () => {
   });
 });
 
+describe('POST /speak (cloud TTS fallback)', () => {
+  const configureTts = () => {
+    process.env.VOICE_TTS_ENDPOINT = 'https://tts.example/v1/audio/speech';
+    process.env.VOICE_TTS_API_KEY = 'test-tts-key';
+  };
+  const unconfigureTts = () => {
+    delete process.env.VOICE_TTS_ENDPOINT;
+    delete process.env.VOICE_TTS_API_KEY;
+    delete process.env.VOICE_TTS_MODEL;
+    delete process.env.VOICE_TTS_VOICE;
+  };
+  beforeEach(unconfigureTts);
+
+  test('config reports tts.cloud on only when configured', async () => {
+    let res = await request(app).get('/api/voice/config');
+    expect(res.body.data.tts).toMatchObject({ browser: true, cloud: false, default: 'browser' });
+    configureTts();
+    res = await request(app).get('/api/voice/config');
+    expect(res.body.data.tts.cloud).toBe(true);
+  });
+
+  test('501 when cloud TTS not configured', async () => {
+    const res = await request(app).post('/api/voice/speak').send({ text: 'مرحبا' });
+    expect(res.status).toBe(501);
+    expect(res.body.code).toBe('VOICE_TTS_NOT_CONFIGURED');
+  });
+
+  test('400 when no text provided', async () => {
+    configureTts();
+    const res = await request(app).post('/api/voice/speak').send({ text: '   ' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('VOICE_TTS_NO_TEXT');
+  });
+
+  test('200 returns audio bytes on success', async () => {
+    configureTts();
+    axios.post.mockResolvedValue({ data: Buffer.from([1, 2, 3, 4]), headers: { 'content-type': 'audio/mpeg' } });
+    const res = await request(app).post('/api/voice/speak').send({ text: 'مرحبا كيف حالك', language: 'ar' });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('audio/mpeg');
+    expect(res.body).toEqual(Buffer.from([1, 2, 3, 4]));
+    expect(axios.post).toHaveBeenCalledWith(
+      process.env.VOICE_TTS_ENDPOINT,
+      expect.objectContaining({ input: 'مرحبا كيف حالك', model: 'tts-1', voice: 'alloy' }),
+      expect.objectContaining({
+        responseType: 'arraybuffer',
+        headers: expect.objectContaining({ Authorization: 'Bearer test-tts-key' }),
+      }),
+    );
+  });
+
+  test('502 when upstream synthesis fails', async () => {
+    configureTts();
+    axios.post.mockRejectedValue(new Error('upstream 500'));
+    const res = await request(app).post('/api/voice/speak').send({ text: 'hello' });
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe('VOICE_TTS_UPSTREAM_ERROR');
+  });
+});
+
 describe('transcribeAudio helper', () => {
   test('sends language + default model, returns text', async () => {
     configure();

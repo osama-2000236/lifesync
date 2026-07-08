@@ -261,6 +261,15 @@ export const voiceAPI = {
       timeout: 30000,
     });
   },
+  // Cloud TTS fallback — only called when the device has no local voice for the
+  // reply language (e.g. Arabic on Windows). Returns an audio Blob to play.
+  // Rejects (501/502) when the server has no TTS provider; caller falls back to
+  // the browser voice.
+  speak: (text, language) => api.post(
+    '/voice/speak',
+    { text, language },
+    { responseType: 'blob', timeout: 30000 },
+  ),
 };
 
 // ─── External Integrations API ───

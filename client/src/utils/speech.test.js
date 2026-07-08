@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripMarkdownForSpeech, chunkForSpeech, pickVoice, detectLang, speechLangTag } from './speech';
+import { stripMarkdownForSpeech, chunkForSpeech, pickVoice, detectLang, speechLangTag, hasVoiceForLang } from './speech';
 
 describe('detectLang', () => {
   it('detects Arabic, English, and falls back for script-less input', () => {
@@ -81,5 +81,11 @@ describe('pickVoice', () => {
     expect(pickVoice([], 'ar')).toBeNull();
     expect(pickVoice(null, 'en')).toBeNull();
     expect(pickVoice([{ name: 'NoLang' }], 'en')).toBeNull();
+  });
+
+  it('hasVoiceForLang reflects device voice availability (Arabic-on-Windows = false)', () => {
+    expect(hasVoiceForLang(voices, 'ar')).toBe(true);
+    expect(hasVoiceForLang([{ lang: 'en-US', name: 'Sam' }], 'ar')).toBe(false); // no ar voice → cloud/hint
+    expect(hasVoiceForLang([], 'en')).toBe(false);
   });
 });

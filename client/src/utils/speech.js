@@ -11,7 +11,7 @@ const COMMA = /[,،;؛]/;
 // else Latin → 'en', else the fallback. Mirrors the server's detector so the
 // spoken voice matches the model's reply language. ponytail: script regex, not a
 // langdetect dependency — widen the ranges only if a third language is added.
-const AR_SCRIPT = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
+const AR_SCRIPT = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
 export const detectLang = (text, fallback = 'en') => {
   const s = String(text || '');
   if (AR_SCRIPT.test(s)) return 'ar';
@@ -71,3 +71,8 @@ export const pickVoice = (voices, locale) => {
   const wanted = locale === 'ar' ? 'ar' : 'en';
   return (voices || []).find((v) => v.lang?.toLowerCase().startsWith(wanted)) || null;
 };
+
+/** True if the device has any speechSynthesis voice for the language. Chrome on
+ *  Windows ships no ar-* voice, so an Arabic reply has no local voice and must
+ *  fall back to cloud TTS (or show a hint). Drives that decision. */
+export const hasVoiceForLang = (voices, lang) => Boolean(pickVoice(voices, lang));

@@ -36,6 +36,40 @@ const cloudSttConfigured = () =>
 
 const sttModel = () => process.env.VOICE_STT_MODEL || 'whisper-large-v3';
 
+// True once a server-side TTS provider + key is configured. The browser's
+// speechSynthesis is the default voice; this cloud path exists ONLY as a
+// fallback for languages the device has no local voice for — most notably
+// Arabic on Windows/Chrome, which ships no ar-* voice, so an Arabic reply is
+// otherwise silent or read (garbled) by an English voice.
+const cloudTtsConfigured = () =>
+  Boolean(process.env.VOICE_TTS_API_KEY && process.env.VOICE_TTS_ENDPOINT);
+
+const ttsModel = () => process.env.VOICE_TTS_MODEL || 'tts-1';
+// OpenAI-style TTS voices are language-agnostic (the model speaks the input
+// language). One configurable default is enough; make it per-lang only if a
+// provider needs distinct voice ids per language.
+// ponytail: single env voice; add a lang→voice map only if a provider needs it.
+const ttsVoice = () => process.env.VOICE_TTS_VOICE || 'alloy';
+
+// Forward text to an OpenAI-compatible /audio/speech endpoint and return the
+// raw audio bytes + content-type. Separate from the route so it can be
+// unit-tested with a mocked axios (same pattern as transcribeAudio).
+const synthesizeSpeech = async (text, language) => {
+  const { data, headers } = await axios.post(
+    process.env.VOICE_TTS_ENDPOINT,
+    { model: ttsModel(), input: String(text), voice: ttsVoice(), ...(language ? { language } : {}) },
+    {
+      headers: { Authorization: `Bearer ${process.env.VOICE_TTS_API_KEY}` },
+      responseType: 'arraybuffer',
+      timeout: 30_000,
+    },
+  );
+  return {
+    buffer: Buffer.from(data),
+    contentType: headers?.['content-type'] || 'audio/mpeg',
+  };
+};
+
 // Forward an audio buffer to an OpenAI-compatible /audio/transcriptions endpoint.
 // Kept separate from the route handler so it can be unit-tested with a mocked axios.
 const transcribeAudio = async (buffer, filename, language) => {
@@ -54,7 +88,7 @@ const transcribeAudio = async (buffer, filename, language) => {
 // Public, secret-free snapshot so the client knows what to enable.
 router.get('/config', (req, res) => success(res, {
   stt: { browser: true, cloud: cloudSttConfigured(), default: 'browser' },
-  tts: { browser: true, cloud: false, default: 'browser' },
+  tts: { browser: true, cloud: cloudTtsConfigured(), default: 'browser' },
   languages: SUPPORTED_LANGUAGES,
   rtl_languages: ['ar'],
 }, 'Voice config'));
@@ -83,6 +117,37 @@ router.post('/transcribe', authenticate, upload.single('file'), async (req, res)
   }
 });
 
+// Server-side TTS fallback. The client uses the browser's speechSynthesis by
+// default and only calls this when the device has NO local voice for the reply
+// language (Arabic on Windows/Chrome). Returns audio bytes the client plays
+// directly. Disabled (501) until VOICE_TTS_* env vars are set, so the key never
+// reaches the browser. JSON body: `text` (required), `language` (optional hint).
+router.post('/speak', authenticate, async (req, res) => {
+  if (!cloudTtsConfigured()) {
+    return error(
+      res,
+      'Cloud text-to-speech is not configured. The browser voice (speechSynthesis) is used by default. Set VOICE_TTS_ENDPOINT + VOICE_TTS_API_KEY to enable server-side TTS for languages the device has no local voice for (e.g. Arabic on Windows).',
+      501,
+      'VOICE_TTS_NOT_CONFIGURED',
+    );
+  }
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+  if (!text) return error(res, 'No text provided.', 400, 'VOICE_TTS_NO_TEXT');
+  // Cap input so a runaway reply can't request a huge synthesis (provider limit
+  // is ~4096 chars; the client already chunks, this is defense in depth).
+  if (text.length > 4096) return error(res, 'Text too long for synthesis.', 413, 'VOICE_TTS_TOO_LONG');
+  try {
+    const { buffer, contentType } = await synthesizeSpeech(text, req.body?.language);
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'no-store');
+    return res.send(buffer);
+  } catch (err) {
+    return error(res, 'Speech synthesis failed. Falling back to the browser voice.', 502, 'VOICE_TTS_UPSTREAM_ERROR');
+  }
+});
+
 module.exports = router;
 module.exports.transcribeAudio = transcribeAudio;
 module.exports.cloudSttConfigured = cloudSttConfigured;
+module.exports.synthesizeSpeech = synthesizeSpeech;
+module.exports.cloudTtsConfigured = cloudTtsConfigured;
