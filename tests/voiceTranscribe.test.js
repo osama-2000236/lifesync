@@ -101,6 +101,7 @@ describe('POST /speak (cloud TTS fallback)', () => {
     delete process.env.VOICE_TTS_API_KEY;
     delete process.env.VOICE_TTS_MODEL;
     delete process.env.VOICE_TTS_VOICE;
+    delete process.env.VOICE_TTS_FORMAT;
   };
   beforeEach(unconfigureTts);
 
@@ -150,6 +151,30 @@ describe('POST /speak (cloud TTS fallback)', () => {
     const res = await request(app).post('/api/voice/speak').send({ text: 'hello' });
     expect(res.status).toBe(502);
     expect(res.body.code).toBe('VOICE_TTS_UPSTREAM_ERROR');
+  });
+
+  test('413 when text exceeds synthesis cap', async () => {
+    configureTts();
+    const res = await request(app).post('/api/voice/speak').send({ text: 'x'.repeat(4097) });
+    expect(res.status).toBe(413);
+    expect(res.body.code).toBe('VOICE_TTS_TOO_LONG');
+  });
+
+  test('honors VOICE_TTS_FORMAT=mp3 and defaults Content-Type when upstream omits it', async () => {
+    configureTts();
+    process.env.VOICE_TTS_FORMAT = 'mp3';
+    axios.post.mockResolvedValue({ data: Buffer.from([9, 9]), headers: {} });
+    const res = await request(app).post('/api/voice/speak').send({ text: 'hi' });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/audio\/mpeg/);
+    expect(axios.post.mock.calls[0][1].response_format).toBe('mp3');
+  });
+
+  test('contentTypeFromFormat maps known containers', () => {
+    expect(voiceRoutes.contentTypeFromFormat('wav')).toBe('audio/wav');
+    expect(voiceRoutes.contentTypeFromFormat('mp3')).toBe('audio/mpeg');
+    expect(voiceRoutes.contentTypeFromFormat('opus')).toBe('audio/opus');
+    expect(voiceRoutes.contentTypeFromFormat('unknown')).toBe('audio/wav');
   });
 });
 

@@ -27,4 +27,12 @@ describe('ConsentCard', () => {
     render(<ConsentCard prompt="P" busy onAccept={() => {}} onDecline={() => {}} t={t} />);
     expect(screen.getByTestId('consent-accept')).toBeDisabled();
   });
+
+  // Light emerald/white gradient must not stay in dark mode (glare + false light card).
+  it('uses a dark-mode surface on the card gradient', () => {
+    render(<ConsentCard prompt="P" onAccept={() => {}} onDecline={() => {}} t={t} />);
+    const card = screen.getByTestId('consent-card');
+    expect(card.className).toMatch(/dark:from-emerald-500\/10/);
+    expect(card.className).toMatch(/dark:to-surface-raised/);
+  });
 });

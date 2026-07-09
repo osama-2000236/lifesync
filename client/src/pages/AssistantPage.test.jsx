@@ -16,22 +16,35 @@ vi.mock('../services/api', () => ({
   chatAPI: { sendMessageStream: vi.fn() },
   assistantAPI: { getSuggestion: vi.fn(), startInterview: vi.fn(), answer: vi.fn() },
   voiceAPI: { transcribe: vi.fn() },
+  aiAPI: { getModels: vi.fn() },
 }));
 
 import AssistantPage from './AssistantPage';
-import { chatAPI, assistantAPI } from '../services/api';
+import { chatAPI, assistantAPI, aiAPI } from '../services/api';
 
 const wrap = (payload) => ({ data: { data: payload } });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  h.settings = { t: (k) => k, locale: 'en', isRTL: false };
+  localStorage.clear();
+  h.settings = {
+    t: (k, vars) => (vars ? `${k}:${JSON.stringify(vars)}` : k),
+    locale: 'en',
+    isRTL: false,
+  };
   voiceStub = {
     state: 'idle', level: 0, transcript: '', error: null,
     start: vi.fn(), stop: vi.fn(), enqueueSpeech: vi.fn(), finishSpeechStream: vi.fn(),
   };
   assistantAPI.getSuggestion.mockResolvedValue(wrap({ topic: null }));
   chatAPI.sendMessageStream.mockReturnValue(vi.fn());
+  aiAPI.getModels.mockResolvedValue(wrap({
+    models: [
+      { id: 'bert_local', label: 'BERT', pricing: 'local' },
+      { id: 'gemma4_local', label: 'Gemma 4 31B', pricing: 'free', description: 'free' },
+      { id: 'openai_chat', label: 'GPT-OSS', pricing: 'free' },
+    ],
+  }));
 });
 
 const renderPage = async () => {
@@ -118,9 +131,10 @@ describe('AssistantPage — interview flow', () => {
     expect(screen.getByTestId('consent-card')).toBeInTheDocument();
   });
 
-  it('answer error keeps the current question', async () => {
+  it('answer error keeps the current question and surfaces an error', async () => {
     assistantAPI.startInterview.mockResolvedValue(wrap({ question: { id: 'q0', step: 0, total: 2, prompt: 'Hours?', input_type: 'number', options: [] } }));
-    assistantAPI.answer.mockRejectedValue(new Error('boom'));
+    const err = Object.assign(new Error('boom'), { response: { status: 500, data: { code: 'SERVER' } } });
+    assistantAPI.answer.mockRejectedValue(err);
     await renderPage();
     fireEvent.click(await screen.findByTestId('consent-accept'));
     await screen.findByTestId('interview-panel');
@@ -128,6 +142,55 @@ describe('AssistantPage — interview flow', () => {
     fireEvent.click(screen.getByTestId('number-submit'));
     await waitFor(() => expect(assistantAPI.answer).toHaveBeenCalled());
     expect(await screen.findByTestId('interview-panel')).toBeInTheDocument();
+    expect(await screen.findByTestId('interview-error')).toHaveTextContent('assistant.answerError');
+  });
+
+  it('invalid answer (422) shows invalidAnswer, not a silent freeze', async () => {
+    assistantAPI.startInterview.mockResolvedValue(wrap({ question: { id: 'q0', step: 0, total: 2, prompt: 'Hours?', input_type: 'number', options: [] } }));
+    const err = Object.assign(new Error('bad'), { response: { status: 422, data: { code: 'INVALID_ANSWER' } } });
+    assistantAPI.answer.mockRejectedValue(err);
+    await renderPage();
+    fireEvent.click(await screen.findByTestId('consent-accept'));
+    await screen.findByTestId('interview-panel');
+    fireEvent.change(screen.getByTestId('number-input'), { target: { value: '0' } });
+    fireEvent.click(screen.getByTestId('number-submit'));
+    expect(await screen.findByTestId('interview-error')).toHaveTextContent('assistant.invalidAnswer');
+  });
+
+  it('mood_nutrition 3-step (number → number → choice) never stalls', async () => {
+    assistantAPI.getSuggestion.mockResolvedValue(wrap({ topic: 'mood_nutrition', prompt: 'Food?', cross_domain: false }));
+    assistantAPI.startInterview.mockResolvedValue(wrap({
+      question: { id: 'mood', step: 0, total: 3, prompt: 'Mood?', input_type: 'number', options: [] },
+    }));
+    assistantAPI.answer
+      .mockResolvedValueOnce(wrap({
+        done: false,
+        question: { id: 'water', step: 1, total: 3, prompt: 'Water?', input_type: 'number', options: [] },
+      }))
+      .mockResolvedValueOnce(wrap({
+        done: false,
+        question: {
+          id: 'meal', step: 2, total: 3, prompt: 'Meals?', input_type: 'choice',
+          options: [{ value: 'healthy', label: 'Healthy' }, { value: 'junk', label: 'Junk' }],
+        },
+      }))
+      .mockResolvedValueOnce(wrap({
+        done: true,
+        advice: { advice: [{ text: 'Drink more', priority: 'medium', domain: 'health' }], scores: null },
+      }));
+
+    await renderPage();
+    fireEvent.click(await screen.findByTestId('consent-accept'));
+    await screen.findByText('Mood?');
+    fireEvent.change(screen.getByTestId('number-input'), { target: { value: '6' } });
+    fireEvent.click(screen.getByTestId('number-submit'));
+    await screen.findByText('Water?');
+    fireEvent.change(screen.getByTestId('number-input'), { target: { value: '2' } });
+    fireEvent.click(screen.getByTestId('number-submit'));
+    await screen.findByText('Meals?');
+    fireEvent.click(screen.getByText('Healthy'));
+    expect(await screen.findByTestId('advice-cards')).toBeInTheDocument();
+    expect(assistantAPI.answer).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -239,7 +302,6 @@ describe('AssistantPage — converse + dictate', () => {
     await renderPage();
     act(() => voiceArgs.onUtterance('hi'));
     expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('openai_chat');
-    localStorage.removeItem('lifesync.chat.model');
   });
 
   it('never converses with BERT — a stored bert pick maps to the free default', async () => {
@@ -247,7 +309,6 @@ describe('AssistantPage — converse + dictate', () => {
     await renderPage();
     act(() => voiceArgs.onUtterance('hi'));
     expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('gemma4_local');
-    localStorage.removeItem('lifesync.chat.model');
   });
 
   it('falls back to the free default when storage is unavailable', async () => {
@@ -256,6 +317,39 @@ describe('AssistantPage — converse + dictate', () => {
     act(() => voiceArgs.onUtterance('hi'));
     expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('gemma4_local');
     spy.mockRestore();
+  });
+
+  it('shows a model picker and powered-by status (no BERT in the menu)', async () => {
+    await renderPage();
+    expect(screen.getByTestId('model-picker')).toBeInTheDocument();
+    expect(screen.getByTestId('voice-model-status')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('model-picker-button'));
+    expect(screen.getByTestId('model-option-gemma4_local')).toBeInTheDocument();
+    expect(screen.getByTestId('model-option-openai_chat')).toBeInTheDocument();
+    expect(screen.queryByTestId('model-option-bert_local')).not.toBeInTheDocument();
+  });
+
+  it('switching the picker persists and is used on the next turn', async () => {
+    await renderPage();
+    fireEvent.click(screen.getByTestId('model-picker-button'));
+    fireEvent.click(screen.getByTestId('model-option-openai_chat'));
+    expect(localStorage.getItem('lifesync.chat.model')).toBe('openai_chat');
+    act(() => voiceArgs.onUtterance('hello'));
+    expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('openai_chat');
+  });
+
+  it('attributes the reply model after onComplete', async () => {
+    await renderPage();
+    act(() => voiceArgs.onUtterance('hi'));
+    const cbs = chatAPI.sendMessageStream.mock.calls[0][2];
+    act(() => {
+      cbs.onDelta({ text: 'Hello there' });
+      cbs.onComplete({
+        response: 'Hello there',
+        model_runtime: { model: 'google/gemma-4-31b-it:free', provider: 'openrouter', conversational: true },
+      });
+    });
+    expect(await screen.findByTestId('voice-model-attribution')).toHaveTextContent('google/gemma-4-31b-it:free');
   });
 
   it('dictate mode sends a typed message without speaking', async () => {

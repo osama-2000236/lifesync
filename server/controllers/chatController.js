@@ -184,8 +184,17 @@ const createFinanceEntries = async (entities, userId) => {
 };
 
 const createCrossDomainLinks = async (healthEntries, financeEntries, originalMessage) => {
+  // Prefer substantive health metrics when pairing; fall back to all health rows
+  // so food-meal + expense still links, but never invent rows here.
+  const substantive = healthEntries.filter((h) => {
+    const unit = String(h.unit || '').toLowerCase();
+    if (unit === 'meal') return true; // qualitative meal presence is intentional XD
+    const v = Number(h.getDataValue ? h.getDataValue('value') : h.value);
+    return Number.isFinite(v) && v > 0;
+  });
+  const healthSide = substantive.length ? substantive : healthEntries;
   const links = [];
-  for (const hEntry of healthEntries) {
+  for (const hEntry of healthSide) {
     for (const fEntry of financeEntries) {
       const link = await LinkedDomain.create({
         health_log_id: hEntry.id,

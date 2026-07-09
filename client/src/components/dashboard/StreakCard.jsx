@@ -29,7 +29,7 @@ export default function StreakCard({ data, loading }) {
 
       {/* Streak numbers */}
       <div className="flex items-stretch gap-3 mb-5">
-        <div className="flex-1 rounded-xl bg-gradient-to-br from-coral-50 to-amber-50 border border-coral-200/60 p-4 text-center">
+        <div className="flex-1 rounded-xl bg-gradient-to-br from-coral-50 to-amber-50 dark:from-coral-500/15 dark:to-amber-500/15 border border-coral-200/60 p-4 text-center">
           <div className="flex items-center justify-center gap-1.5">
             <Flame className="w-6 h-6 text-coral-500" />
             <span className="text-3xl font-bold text-navy-900 tabular-nums">{current}</span>

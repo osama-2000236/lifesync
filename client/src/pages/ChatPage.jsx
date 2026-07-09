@@ -342,7 +342,7 @@ export default function ChatPage() {
           <div className="mx-auto max-w-3xl px-4 py-6 space-y-5" role="log" aria-live="polite" aria-atomic="false">
             {messages.length === 0 && !streamingText && (
               <div className="pt-10 text-center" data-testid="chat-welcome">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-navy-700 shadow-lg shadow-emerald-500/20">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-ink-800 shadow-lg shadow-emerald-500/20">
                   <Sparkles className="h-6 w-6 text-white" />
                 </div>
                 <h2 className="font-display text-xl font-bold text-navy-900">{t('chat.welcome.tagline')}</h2>
@@ -380,7 +380,7 @@ export default function ChatPage() {
                 </div>
               ) : (
                 <div key={m.id} className="flex gap-2.5 msg-in" data-testid="assistant-message">
-                  <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-navy-700 shadow-sm" aria-hidden="true" data-testid="assistant-avatar">
+                  <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-ink-800 shadow-sm" aria-hidden="true" data-testid="assistant-avatar">
                     <Sparkles className="h-3.5 w-3.5 text-white" />
                   </div>
                   <div className={`min-w-0 max-w-[92%] border-s-2 ps-4 ${m.isError ? 'border-coral-400' : m.isCrossDomain ? 'border-amber-400' : 'border-emerald-400'}`}>
@@ -437,7 +437,7 @@ export default function ChatPage() {
               // aria-hidden keeps token spam away from screen readers; the
               // finalized message announces once via the role=log container.
               <div className="flex gap-2.5" aria-hidden="true" data-testid="streaming-message">
-                <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-navy-700 shadow-sm">
+                <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-ink-800 shadow-sm">
                   <Sparkles className="h-3.5 w-3.5 text-white" />
                 </div>
                 <div className="min-w-0 border-s-2 border-emerald-400 ps-4">

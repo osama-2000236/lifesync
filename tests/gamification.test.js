@@ -60,7 +60,7 @@ describe('buildGamification', () => {
   test('achievements are bilingual', () => {
     const a = computeAchievements({ total: 1, health: 1, finance: 0, net: 0, streak: { current: 0, longest: 0 } });
     const first = a.find((x) => x.id === 'first_log');
-    expect(first.title).toBe('First Step');
+    expect(first.title).toBe('First step');
     expect(first.title_ar).toMatch(/[؀-ۿ]/);
   });
 

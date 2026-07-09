@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { voiceAPI } from '../services/api';
 import { chunkForSpeech, pickVoice, detectLang, speechLangTag, hasVoiceForLang } from '../utils/speech';
+import { attachBlobUrl, stopAndRevokeAudio } from '../utils/cloudAudio';
 
 const SR = typeof window !== 'undefined'
   ? (window.SpeechRecognition || window.webkitSpeechRecognition)
@@ -100,7 +101,8 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
   const stopCloudAudio = useCallback(() => {
     const a = cloudAudioRef.current;
     cloudAudioRef.current = null;
-    try { if (a) { a.pause(); a.src = ''; } } catch { /* ignore */ }
+    // Must revoke blob: URLs on barge-in/stop — onended cleanup never runs if paused.
+    stopAndRevokeAudio(a);
   }, []);
 
   // ─── Mic level metering (drives the orb) ───
@@ -407,14 +409,17 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     speakViaCloudRef.current = (text, lang, done, fallback) => {
       let settled = false;
       const finish = (fn) => { if (!settled) { settled = true; fn(); } };
+      // Drop any previous cloud clip before starting a new one (queue drain).
+      stopAndRevokeAudio(cloudAudioRef.current);
+      cloudAudioRef.current = null;
       voiceAPI.speak(text, lang)
         .then((res) => {
           if (!activeRef.current) { finish(done); return; }
           const url = URL.createObjectURL(res.data);
-          const audio = new Audio(url);
+          const audio = attachBlobUrl(new Audio(url), url);
           cloudAudioRef.current = audio;
           const cleanup = () => {
-            try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+            stopAndRevokeAudio(audio);
             if (cloudAudioRef.current === audio) cloudAudioRef.current = null;
           };
           audio.onended = () => { cleanup(); finish(done); };

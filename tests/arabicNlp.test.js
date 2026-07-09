@@ -105,9 +105,10 @@ describe('Arabic deterministic logging', () => {
     expect(cat('وفرت ١٠٠ شيكل هذا الشهر')).toBe('Savings');
   });
 
-  test('Arabic spending question routes to summary, not expense logging', async () => {
+  test('Arabic spending question routes to query_finance (parity with EN), summary stays get_insight', async () => {
     const r = await parseMessageWithBert('كم أنفقت هذا الأسبوع؟', null, {});
-    expect(r.intent).toBe('get_insight');
+    expect(r.intent).toBe('query_finance');
+    expect(r.domain).toBe('finance');
     const r2 = await parseMessageWithBert('أعطني ملخص الأسبوع', null, {});
     expect(r2.intent).toBe('get_insight');
   });
@@ -135,7 +136,7 @@ describe('Arabic deterministic logging', () => {
     const r = await parseMessageWithBert('كم أنفقت هذا الأسبوع؟', null, {
       health: { sleep: { average: 7 } }, finance: {}, active_goals: [],
     });
-    expect(r.intent).toBe('get_insight');
+    expect(r.intent).toBe('query_finance');
     expect(r.response).toMatch(/سياقك الأخير/);
     expect(r.response).not.toMatch(/Your recent context/);
   });

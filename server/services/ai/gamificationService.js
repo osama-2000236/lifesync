@@ -51,13 +51,13 @@ const computeStreak = (dates = [], today = new Date()) => {
 
 // Achievement catalog — bilingual, ordered by ascending difficulty.
 const ACHIEVEMENTS = [
-  { id: 'first_log', title: 'First Step', title_ar: 'الخطوة الأولى', icon: '🌱', test: (s) => s.total >= 1 },
-  { id: 'cross_domain', title: 'Whole Picture', title_ar: 'الصورة الكاملة', icon: '🔗', test: (s) => s.health >= 1 && s.finance >= 1 },
-  { id: 'streak_3', title: '3-Day Streak', title_ar: 'سلسلة 3 أيام', icon: '🔥', test: (s) => s.streak.current >= 3 || s.streak.longest >= 3 },
-  { id: 'logs_25', title: 'Getting Consistent', title_ar: 'انتظام متزايد', icon: '📈', test: (s) => s.total >= 25 },
-  { id: 'streak_7', title: 'Week Warrior', title_ar: 'محارب الأسبوع', icon: '🏆', test: (s) => s.streak.current >= 7 || s.streak.longest >= 7 },
-  { id: 'saver', title: 'In the Green', title_ar: 'في المنطقة الخضراء', icon: '💰', test: (s) => s.net > 0 },
-  { id: 'logs_100', title: 'Centurion', title_ar: 'المئوية', icon: '💯', test: (s) => s.total >= 100 },
+  { id: 'first_log', title: 'First step', title_ar: 'أول خطوة', icon: '🌱', test: (s) => s.total >= 1 },
+  { id: 'cross_domain', title: 'Both sides', title_ar: 'الجانبان معًا', icon: '🔗', test: (s) => s.health >= 1 && s.finance >= 1 },
+  { id: 'streak_3', title: '3-day streak', title_ar: '٣ أيام متتالية', icon: '🔥', test: (s) => s.streak.current >= 3 || s.streak.longest >= 3 },
+  { id: 'logs_25', title: 'Getting consistent', title_ar: 'أصبحت منتظمًا', icon: '📈', test: (s) => s.total >= 25 },
+  { id: 'streak_7', title: 'Full week', title_ar: 'أسبوع كامل', icon: '🏆', test: (s) => s.streak.current >= 7 || s.streak.longest >= 7 },
+  { id: 'saver', title: 'In the green', title_ar: 'في المنطقة الخضراء', icon: '💰', test: (s) => s.net > 0 },
+  { id: 'logs_100', title: '100 logs', title_ar: '١٠٠ تسجيل', icon: '💯', test: (s) => s.total >= 100 },
 ];
 
 /** Evaluate which achievements are unlocked for the given stats. */

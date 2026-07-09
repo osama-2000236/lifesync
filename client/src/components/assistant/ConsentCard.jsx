@@ -5,7 +5,7 @@ import { Sparkles, Check, X } from 'lucide-react';
 
 export default function ConsentCard({ prompt, crossDomain, busy, onAccept, onDecline, t }) {
   return (
-    <div className="rounded-2xl border border-emerald-200/70 bg-gradient-to-br from-emerald-50 to-white p-5 shadow-[var(--shadow-card)] dark:border-emerald-500/20" dir="auto" data-testid="consent-card">
+    <div className="rounded-2xl border border-emerald-200/70 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-500/10 dark:to-surface-raised p-5 shadow-[var(--shadow-card)] dark:border-emerald-500/20" dir="auto" data-testid="consent-card">
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-600 flex items-center justify-center flex-shrink-0">
           <Sparkles className="w-5 h-5" />

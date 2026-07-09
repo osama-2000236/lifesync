@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../contexts/SettingsContext';
+import { resolveAvatarUrl } from '../../utils/avatarStorage';
 import SettingsControls from '../common/SettingsControls';
 import {
   LayoutDashboard, MessageCircle, Heart, Wallet, Shield,
@@ -42,6 +43,7 @@ export default function AppLayout() {
     }`;
 
   const userInitial = (user?.name || user?.username || '?')[0].toUpperCase();
+  const avatarSrc = resolveAvatarUrl(user);
 
   return (
     <div className="flex h-screen bg-surface overflow-hidden">
@@ -111,9 +113,10 @@ export default function AppLayout() {
           </div>
           <div className="flex items-center gap-3 p-3 rounded-xl bg-navy-50/60 hover:bg-navy-100/60 transition-colors duration-200">
             <Link to="/profile" className="flex items-center gap-3 flex-1 min-w-0 group">
-              <div className="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-navy-300 to-navy-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 group-hover:ring-2 group-hover:ring-emerald-400 transition-all">
-                {user?.avatar_url ? (
-                  <img src={user.avatar_url} alt={t('a11y.avatar')} className="w-full h-full object-cover" />
+              {/* ponytail: ink (not navy) — navy ramp inverts under .dark and white initials fail AA */}
+              <div className="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-ink-800 to-ink-700 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 group-hover:ring-2 group-hover:ring-emerald-400 transition-all">
+                {avatarSrc ? (
+                  <img src={avatarSrc} alt={t('a11y.avatar')} className="w-full h-full object-cover" />
                 ) : (
                   userInitial
                 )}

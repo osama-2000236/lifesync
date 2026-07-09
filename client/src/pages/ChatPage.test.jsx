@@ -90,6 +90,10 @@ describe('ChatPage — shell', () => {
     await renderPage();
     expect(screen.getByTestId('chat-welcome')).toBeInTheDocument();
     expect(screen.getAllByTestId('welcome-suggestion')).toHaveLength(4);
+    // Welcome mark ends on theme-invariant ink (navy-* would lighten under .dark).
+    const welcome = screen.getByTestId('chat-welcome');
+    expect(welcome.innerHTML).toMatch(/to-ink-800/);
+    expect(welcome.innerHTML).not.toMatch(/to-navy-/);
     // custom_local filtered out of the picker
     fireEvent.click(screen.getByTestId('model-picker-button'));
     expect(screen.queryByTestId('model-option-custom_local')).not.toBeInTheDocument();

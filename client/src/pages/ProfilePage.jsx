@@ -1,15 +1,23 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { authAPI, aiAPI } from '../services/api';
 import { getApiErrorMessage } from '../utils/apiErrors';
+import {
+  compressImageFile,
+  clearLocalAvatar,
+  getLocalAvatar,
+  isRemoteAvatarUrl,
+  resolveAvatarUrl,
+  setLocalAvatar,
+} from '../utils/avatarStorage';
 import { MODEL_OPTIONS } from '../config/models';
 import { Card, Alert, Button, FormField, Input } from '../components/ui';
 import {
   User, Mail, Lock, Trash2, Save, Loader2, Eye, EyeOff,
   CheckCircle, LogOut, ArrowLeft, Shield,
-  BrainCircuit, Cpu,
+  BrainCircuit, Cpu, Camera, ImagePlus,
 } from 'lucide-react';
 
 function PasswordFieldRow({ id, label, value, onChange, placeholder }) {
@@ -43,8 +51,14 @@ function PasswordFieldRow({ id, label, value, onChange, placeholder }) {
 
 function ProfileInfoSection({ user, onUpdate }) {
   const { t } = useSettings();
+  const fileRef = useRef(null);
   const [name, setName] = useState(user?.name || '');
+  // Remote URL field (optional). File picks live in localPreview until save.
   const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || '');
+  const [localPreview, setLocalPreview] = useState(() => resolveAvatarUrl(user));
+  const [pendingFile, setPendingFile] = useState(null); // data URL from file pick
+  const [cleared, setCleared] = useState(false);
+  const [picking, setPicking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
@@ -52,7 +66,46 @@ function ProfileInfoSection({ user, onUpdate }) {
   useEffect(() => {
     setName(user?.name || '');
     setAvatarUrl(user?.avatar_url || '');
-  }, [user]);
+    if (!pendingFile && !cleared) setLocalPreview(resolveAvatarUrl(user));
+  }, [user, pendingFile, cleared]);
+
+  const displaySrc = cleared ? null : (pendingFile || localPreview || null);
+  const initial = (name || user?.username || '?')[0].toUpperCase();
+
+  const handlePickFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError('');
+    setOk('');
+    setPicking(true);
+    try {
+      const dataUrl = await compressImageFile(file);
+      setPendingFile(dataUrl);
+      setLocalPreview(dataUrl);
+      setCleared(false);
+      // File pick replaces a typed remote URL for this edit session.
+      setAvatarUrl('');
+    } catch (err) {
+      const code = err?.code;
+      setError(
+        code === 'TOO_LARGE' ? t('profile.info.avatarTooLarge')
+          : code === 'NOT_IMAGE' ? t('profile.info.avatarNotImage')
+            : t('profile.info.avatarReadFailed'),
+      );
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    setPendingFile(null);
+    setLocalPreview(null);
+    setAvatarUrl('');
+    setCleared(true);
+    setError('');
+    setOk('');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -60,8 +113,36 @@ function ProfileInfoSection({ user, onUpdate }) {
     setOk('');
     setLoading(true);
     try {
-      const { data } = await authAPI.updateProfile({ name: name || null, avatar_url: avatarUrl || null });
-      onUpdate(data.data.user);
+      // Server still only stores short URLs (STRING 500). File photos stay local
+      // until a dedicated upload endpoint is added later.
+      let payload = { name: name || null };
+      let displayAfter = null;
+
+      if (pendingFile) {
+        setLocalAvatar(user.id, pendingFile);
+        displayAfter = pendingFile;
+        // Keep any previous remote URL on the server as-is (don't send data:).
+      } else if (cleared) {
+        clearLocalAvatar(user.id);
+        payload = { ...payload, avatar_url: null };
+        displayAfter = null;
+      } else if (isRemoteAvatarUrl(avatarUrl)) {
+        clearLocalAvatar(user.id);
+        payload = { ...payload, avatar_url: avatarUrl.trim() };
+        displayAfter = avatarUrl.trim();
+      } else {
+        // Name-only save: keep local photo or existing server URL.
+        displayAfter = getLocalAvatar(user.id) || user?.avatar_url || null;
+      }
+
+      const { data } = await authAPI.updateProfile(payload);
+      const serverUser = data.data.user;
+      // Surface local photo on the shared user object so sidebar updates now.
+      onUpdate({ ...serverUser, avatar_url: displayAfter || serverUser.avatar_url || null });
+      setPendingFile(null);
+      setCleared(false);
+      setLocalPreview(displayAfter || resolveAvatarUrl({ ...serverUser, id: user.id }));
+      setAvatarUrl(isRemoteAvatarUrl(displayAfter) ? displayAfter : (serverUser.avatar_url || ''));
       setOk(t('profile.info.updated'));
     } catch (err) {
       setError(getApiErrorMessage(err, t('profile.info.updateFailed')));
@@ -79,23 +160,67 @@ function ProfileInfoSection({ user, onUpdate }) {
           {ok && <Alert tone="success" onDismiss={() => setOk('')}>{ok}</Alert>}
 
           <div className="flex items-center gap-4 pb-4 border-b border-navy-50">
-            <div className="w-16 h-16 rounded-2xl overflow-hidden bg-gradient-to-br from-navy-300 to-navy-500 flex-shrink-0">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={t('a11y.avatar')} className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-white text-2xl font-bold">
-                  {(name || user?.username || '?')[0].toUpperCase()}
-                </div>
-              )}
+            {/* ponytail: ink stays dark in both themes; navy-* would invert under .dark */}
+            <div className="relative w-16 h-16 flex-shrink-0">
+              <div className="w-16 h-16 rounded-2xl overflow-hidden bg-gradient-to-br from-ink-800 to-ink-700">
+                {displaySrc ? (
+                  <img src={displaySrc} alt={t('a11y.avatar')} className="w-full h-full object-cover" data-testid="profile-avatar-img" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-white text-2xl font-bold" data-testid="profile-avatar-initial">
+                    {initial}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={picking || loading}
+                className="absolute -bottom-1 -end-1 w-8 h-8 rounded-full bg-emerald-600 text-white shadow-md flex items-center justify-center hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:opacity-50"
+                aria-label={t('profile.info.changePhoto')}
+                data-testid="profile-avatar-pick"
+              >
+                {picking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={handlePickFile}
+                data-testid="profile-avatar-input"
+              />
             </div>
-            <div>
-              <p className="font-semibold text-navy-900">{user?.username}</p>
-              <p className="text-sm text-navy-400">{user?.email}</p>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-navy-900 truncate">{user?.username}</p>
+              <p className="text-sm text-navy-400 truncate">{user?.email}</p>
               <span className={`inline-block mt-1 text-xs font-medium px-2 py-0.5 rounded-full ${
                 user?.role === 'admin' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'
               }`}>
                 {user?.role}
               </span>
+              <div className="flex flex-wrap gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={picking || loading}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-800 disabled:opacity-50"
+                >
+                  <ImagePlus className="w-3.5 h-3.5" />
+                  {t('profile.info.uploadPhoto')}
+                </button>
+                {displaySrc && (
+                  <button
+                    type="button"
+                    onClick={handleRemovePhoto}
+                    disabled={loading}
+                    className="text-xs font-semibold text-coral-600 hover:text-coral-700 disabled:opacity-50"
+                    data-testid="profile-avatar-remove"
+                  >
+                    {t('profile.info.removePhoto')}
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-navy-400 mt-1">{t('profile.info.photoHint')}</p>
             </div>
           </div>
 
@@ -103,8 +228,23 @@ function ProfileInfoSection({ user, onUpdate }) {
             <Input id="profile-name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('profile.info.namePlaceholder')} />
           </FormField>
 
-          <FormField id="profile-avatar" label={<>{t('profile.info.avatarUrl')} <span className="text-navy-400">{t('reg.optional')}</span></>}>
-            <Input id="profile-avatar" type="url" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} placeholder="https://..." />
+          <FormField
+            id="profile-avatar"
+            label={<>{t('profile.info.avatarUrl')} <span className="text-navy-400">{t('reg.optional')}</span></>}
+            hint={t('profile.info.avatarUrlHint')}
+          >
+            <Input
+              id="profile-avatar"
+              type="url"
+              value={avatarUrl}
+              onChange={(e) => {
+                setAvatarUrl(e.target.value);
+                setPendingFile(null);
+                setCleared(false);
+                if (e.target.value) setLocalPreview(e.target.value);
+              }}
+              placeholder="https://..."
+            />
           </FormField>
 
           <FormField id="profile-username" label={t('reg.username')} hint={t('profile.info.usernameLocked')}>

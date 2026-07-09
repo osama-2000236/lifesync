@@ -33,11 +33,37 @@ describe('BERT intent routing and deterministic extraction', () => {
 
   test('cross-domain message extracts health and finance atomically', async () => {
     const result = await parseMessageWithBert('I slept 7 hours and spent $15 on breakfast.');
-    expect(result).toMatchObject({ intent: 'log_both', domain: 'both', needs_clarification: false });
+    expect(result).toMatchObject({
+      intent: 'log_both', domain: 'both', needs_clarification: false, is_cross_domain: true,
+    });
     expect(result.entities).toEqual(expect.arrayContaining([
       expect.objectContaining({ domain: 'health', type: 'sleep', value: 7 }),
       expect.objectContaining({ domain: 'finance', type: 'expense', amount: 15 }),
     ]));
+  });
+
+  test('walked 5k parses as 5000 steps (not phantom nutrition with coffee spend)', async () => {
+    const result = await parseMessageWithBert('walked 5k then bought coffee for 4 dollars');
+    expect(result.is_cross_domain).toBe(true);
+    expect(result.entities).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'steps', value: 5000 }),
+      expect.objectContaining({ type: 'expense', amount: 4 }),
+    ]));
+    expect(result.entities.some((e) => e.type === 'nutrition')).toBe(false);
+  });
+
+  test('healthy dinner nutrition is meal presence (value 1), never 0 kcal', async () => {
+    const result = await parseMessageWithBert('I spent $50 on a healthy dinner.');
+    const nut = result.entities.find((e) => e.type === 'nutrition');
+    expect(nut).toMatchObject({ value: 1, unit: 'meal' });
+    expect(result.is_cross_domain).toBe(true);
+  });
+
+  test('Arabic spend query routes to query_finance (EN/AR parity)', async () => {
+    const result = await parseMessageWithBert('كم أنفقت هذا الأسبوع؟');
+    expect(result).toMatchObject({
+      intent: 'query_finance', domain: 'finance', is_cross_domain: false, needs_clarification: false,
+    });
   });
 
   test('missing finance purpose asks before any write', async () => {
@@ -75,8 +101,40 @@ describe('BERT intent routing and deterministic extraction', () => {
     expect(_extractHealth('I slept 7.5 hours.')[0]).toMatchObject({ type: 'sleep', value: 7.5, duration: 450 });
   });
 
+  test('soft sleep phrases (EN + AR) map to a 5h marker', () => {
+    expect(_extractHealth('slept a little last night')[0]).toMatchObject({
+      type: 'sleep', value: 5, value_text: 'poor sleep', unit: 'hours',
+    });
+    expect(_extractHealth('نمت قليل الليلة')[0]).toMatchObject({
+      type: 'sleep', value: 5, value_text: 'poor sleep',
+    });
+    expect(_extractHealth('poor sleep last night')[0]).toMatchObject({ type: 'sleep', value: 5 });
+  });
+
+  test('distance runs/walks become exercise minutes (not steps)', () => {
+    expect(_extractHealth('I ran 5 km')[0]).toMatchObject({
+      type: 'exercise', value: 30, value_text: '5 km run', unit: 'minutes', activity: 'running',
+    });
+    expect(_extractHealth('walked 3 miles')[0]).toMatchObject({
+      type: 'exercise', value: 60, value_text: '3 mi walk', unit: 'minutes', activity: 'walking',
+    });
+    // "5k" still means thousand steps, not kilometers
+    expect(_extractHealth('walked 5k')[0]).toMatchObject({ type: 'steps', value: 5000 });
+  });
+
   test('heart rate extracts bpm', () => {
     expect(_extractHealth('My heart rate was 72 bpm.')[0]).toMatchObject({ type: 'heart_rate', value: 72, unit: 'bpm' });
+  });
+
+  test('ran + spend is true cross-domain (HEALTH_SIGNAL includes ran)', async () => {
+    const result = await parseMessageWithBert('I ran 5 km then spent $12 on a smoothie');
+    expect(result).toMatchObject({
+      intent: 'log_both', domain: 'both', is_cross_domain: true, needs_clarification: false,
+    });
+    expect(result.entities).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'exercise', value: 30 }),
+      expect.objectContaining({ type: 'expense', amount: 12 }),
+    ]));
   });
 
   test('income extracts amount and income category', () => {
@@ -115,7 +173,8 @@ describe('BERT intent routing and deterministic extraction', () => {
       domain: 'both',
       entities: [],
       needs_clarification: false,
-      is_cross_domain: true,
+      // Advice-only turns are domain "both" but not linked-log cross-domain.
+      is_cross_domain: false,
       context_used: { messages: 6, health_logs: 9, finance_logs: 8 },
     });
     expect(result.response).toContain('For ILS 20');

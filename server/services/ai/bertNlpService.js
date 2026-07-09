@@ -40,6 +40,10 @@ const AR_LEXICON = [
   [/مشيت|مشي|امشي|أمشي/g, ' walked '],
   [/خطوات|خطوة|خطوه/g, ' steps '],
   [/نمت|أنام|انام|النوم|نوم/g, ' slept '],
+  // Soft sleep qualifiers — must land before residual Arabic strip so
+  // "نمت قليل" → "slept little" (not bare "slept" with قليل dropped).
+  [/قليلاً|قليلا|قليل|قليلة/g, ' little '],
+  [/سيء|سيئ|سئ|رديء/g, ' poor '],
   [/ساعات|ساعة|ساعه/g, ' hours '],
   [/دقائق|دقيقة|دقيقه/g, ' minutes '],
   [/شربت|اشرب|أشرب/g, ' drank '],
@@ -53,6 +57,7 @@ const AR_LEXICON = [
   [/الإفطار|الافطار|إفطار|افطار|فطور/g, ' breakfast '],
   [/قهوة|قهوه/g, ' coffee '],
   [/طعام|وجبة|وجبه|الأكل|أكل|اكل/g, ' food '],
+  [/طلبات|طلب/g, ' takeout '],
   [/صحية|صحّي|صحي/g, ' healthy '],
   // Expense-category stems → the English tokens financeCategory() matches.
   // Without these every non-food Arabic expense lands in "Other".
@@ -107,7 +112,8 @@ const numberValue = (value) => Number(String(value).replace(/,/g, ''));
 const wantsArabic = (message, context = {}) =>
   /[؀-ۿ]/.test(String(message || '')) || String(context?.locale || '').toLowerCase().startsWith('ar');
 
-const HEALTH_SIGNAL = /\b(steps?|walk(?:ed|ing)?|run(?:ning)?|jogg(?:ed|ing)?|sleep|slept|mood|feel(?:ing)?|water|hydration|exercis(?:e|ed|ing)|workout|gym|heart\s*rate|bpm|calories?|kcal|nutrition|healthy)\b/i;
+// Include past tense "ran" — `run(?:ning)?` alone misses "I ran 5 km".
+const HEALTH_SIGNAL = /\b(steps?|walk(?:ed|ing)?|ran|run(?:ning)?|jogg(?:ed|ing)?|sleep|slept|mood|feel(?:ing)?|water|hydration|exercis(?:e|ed|ing)|workout|gym|heart\s*rate|bpm|calories?|kcal|nutrition|healthy)\b/i;
 const FINANCE_SIGNAL = /(?:[$€£₪]|\b(?:spent|spend|paid|pay|bought|purchase(?:d)?|cost|expense|earned|income|salary|paycheck|freelance|received|usd|dollars?|ils|nis|shekels?|eur|euros?|gbp|pounds?)\b)/i;
 const ADVICE_SIGNAL = /\b(advice|advise|recommend(?:ation|ed|s)?|suggest(?:ion|ed|s)?|what\s+(?:can|should|could)\s+i|what\s+to\s+(?:buy|eat|do)|how\s+(?:can|should|do)\s+i|best\s+(?:food|choice|option)|help\s+me\s+(?:choose|plan|improve))\b/i;
 const HEALTH_LOG_EVENT = /\b(?:slept|walked|ran|jogged|exercised|worked\s*out|drank|my\s+mood\s+(?:was|is)|my\s+heart\s*rate|ate)\b/i;
@@ -245,7 +251,7 @@ const currencyFrom = (symbolOrCode) => {
 
 const financeCategory = (text, type) => {
   if (type === 'income') return /freelance|client/.test(text) ? 'Income - Freelance' : 'Income - Salary';
-  if (/lunch|breakfast|dinner|food|restaurant|coffee|meal/.test(text)) return 'Food & Dining';
+  if (/lunch|breakfast|dinner|food|restaurant|coffee|meal|smoothie|takeout|snack/.test(text)) return 'Food & Dining';
   if (/bus|taxi|uber|fuel|gas|transport|train/.test(text)) return 'Transportation';
   if (/movie|game|concert|entertainment/.test(text)) return 'Entertainment';
   if (/electric|water bill|internet|rent|utility|utilities|phone bill|\bbills?\b/.test(text)) return 'Bills & Utilities';
@@ -334,11 +340,25 @@ const pushHealth = (entities, entity) => {
 const extractHealth = (message, { allowBareExercise = false } = {}) => {
   const text = normalize(message);
   const entities = [];
-  let match = text.match(/\b(\d+(?:,\d{3})*)\s*steps?\b/);
-  if (match) pushHealth(entities, {
-    domain: 'health', activity: 'walking', type: 'steps', value: numberValue(match[1]),
-    value_text: null, unit: 'steps', duration: null, category: 'Steps',
-  });
+  // "8000 steps", "8k steps", "walked 5k" (k = thousand steps; not "5 km")
+  let match = text.match(/\b(\d+(?:,\d{3})*)\s*steps?\b/)
+    || text.match(/\b(\d+(?:\.\d+)?)\s*k\s*steps?\b/);
+  if (match) {
+    let steps = numberValue(match[1]);
+    if (/\bk\s*steps?\b/i.test(match[0])) steps *= 1000;
+    pushHealth(entities, {
+      domain: 'health', activity: 'walking', type: 'steps', value: steps,
+      value_text: null, unit: 'steps', duration: null, category: 'Steps',
+    });
+  } else {
+    match = text.match(/\b(?:walk(?:ed|ing)?|ran|run(?:ning)?)\s+(\d+(?:\.\d+)?)\s*k\b(?!\s*m)/);
+    if (match) {
+      pushHealth(entities, {
+        domain: 'health', activity: 'walking', type: 'steps', value: numberValue(match[1]) * 1000,
+        value_text: null, unit: 'steps', duration: null, category: 'Steps',
+      });
+    }
+  }
 
   match = text.match(/\b(?:slept|sleep(?:ing)?(?:\s+for)?)\s*(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)\b/)
     || text.match(/\b(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)\s+(?:of\s+)?sleep\b/);
@@ -347,6 +367,16 @@ const extractHealth = (message, { allowBareExercise = false } = {}) => {
     pushHealth(entities, {
       domain: 'health', activity: 'sleep', type: 'sleep', value: hours,
       value_text: null, unit: 'hours', duration: Math.round(hours * 60), category: 'Sleep',
+    });
+  } else if (/\b(?:poor|bad|little|rough)\s+sleep\b/.test(text)
+    || /\bslept?\s+(?:a\s+)?(?:little|poorly|badly|terrible|awful|poor|bad|rough)\b/.test(text)
+    || /\bno\s+sleep\b/.test(text)
+    // Arabic residual after normalize: "slept little" (قليل→little) without "sleep" noun
+    || /\bslept\s+little\b/.test(text)) {
+    // Causal phrasing ("poor sleep so I spent…") — soft 5h marker, not a fake 0.
+    pushHealth(entities, {
+      domain: 'health', activity: 'sleep', type: 'sleep', value: 5,
+      value_text: 'poor sleep', unit: 'hours', duration: 300, category: 'Sleep',
     });
   }
 
@@ -369,14 +399,51 @@ const extractHealth = (message, { allowBareExercise = false } = {}) => {
     value_text: null, unit: 'bpm', duration: null, category: 'Heart Rate',
   });
 
-  const exerciseSignal = /\b(run(?:ning)?|jogg(?:ing)?|walk(?:ed|ing)?|exercis(?:e|ed|ing)|workout|gym|cycled?|cycling)\b/.test(text);
+  const exerciseSignal = /\b(ran|run(?:ning)?|jogg(?:ed|ing)?|walk(?:ed|ing)?|exercis(?:e|ed|ing)|workout|gym|cycled?|cycling)\b/.test(text);
+  // Distance → estimated minutes (health unit contract is minutes).
+  // "ran 5 km", "walked 3 miles", "5km run". Does NOT steal "walked 5k" (steps).
+  const distMatch = text.match(
+    /\b(walk(?:ed|ing)?|ran|run(?:ning)?|jogg(?:ed|ing)?)\s+(\d+(?:\.\d+)?)\s*(km|kilometers?|kilometres?|mi|miles?)\b/
+  ) || text.match(
+    /\b(\d+(?:\.\d+)?)\s*(km|kilometers?|kilometres?|mi|miles?)\s+(run|walk|jog)(?:ning|ing)?\b/
+  );
+  if (distMatch && !entities.some((e) => e.type === 'exercise' || e.type === 'steps')) {
+    let verb;
+    let dist;
+    let unitTok;
+    if (/^(walk|ran|run|jogg)/i.test(distMatch[1])) {
+      verb = distMatch[1];
+      dist = numberValue(distMatch[2]);
+      unitTok = distMatch[3];
+    } else {
+      dist = numberValue(distMatch[1]);
+      unitTok = distMatch[2];
+      verb = distMatch[3];
+    }
+    const isWalk = /^walk/i.test(verb);
+    const isKm = /^k/i.test(unitTok);
+    // Rough pace: walk ~12 min/km (~20/mi); run/jog ~6 min/km (~10/mi).
+    const minPer = isWalk ? (isKm ? 12 : 20) : (isKm ? 6 : 10);
+    const minutes = Math.max(1, Math.round(dist * minPer));
+    const label = `${dist} ${isKm ? 'km' : 'mi'} ${isWalk ? 'walk' : 'run'}`;
+    pushHealth(entities, {
+      domain: 'health',
+      activity: isWalk ? 'walking' : (/jogg/i.test(verb) ? 'jogging' : 'running'),
+      type: 'exercise',
+      value: minutes,
+      value_text: label,
+      unit: 'minutes',
+      duration: minutes,
+      category: 'Exercise',
+    });
+  }
   match = exerciseSignal && (text.match(/\b(\d+(?:\.\d+)?)\s*(minutes?|mins?|hours?|hrs?)\b/));
   if (!match && exerciseSignal && allowBareExercise) match = text.match(/\b(\d+(?:\.\d+)?)\b/);
-  if (match) {
+  if (match && !entities.some((e) => e.type === 'exercise')) {
     const raw = numberValue(match[1]);
     const minutes = match[2] && /hour|hr/.test(match[2]) ? raw * 60 : raw;
     pushHealth(entities, {
-      domain: 'health', activity: text.match(/run(?:ning)?|jogg(?:ing)?|walking|walked|workout|gym|cycling/)?.[0] || 'exercise',
+      domain: 'health', activity: text.match(/ran|run(?:ning)?|jogg(?:ed|ing)?|walking|walked|workout|gym|cycling/)?.[0] || 'exercise',
       type: 'exercise', value: minutes, value_text: null, unit: 'minutes',
       duration: Math.round(minutes), category: 'Exercise',
     });
@@ -612,7 +679,10 @@ const describeLogged = (entities) => {
     if (e.type === 'sleep') return `${e.value} hours of sleep`;
     if (e.type === 'steps') return `${Number(e.value).toLocaleString()} steps`;
     if (e.type === 'water') return `${e.value} L of water`;
-    if (e.type === 'exercise') return `${e.value} minutes of ${e.activity || 'exercise'}`;
+    if (e.type === 'exercise') {
+      if (e.value_text) return `${e.value_text} (~${e.value} min)`;
+      return `${e.value} minutes of ${e.activity || 'exercise'}`;
+    }
     if (e.type === 'mood') return `mood ${e.value}/10`;
     if (e.type === 'heart_rate') return `heart rate ${e.value} bpm`;
     if (e.type === 'nutrition') return e.value ? `${e.value} kcal` : 'a meal';
@@ -633,7 +703,10 @@ const describeLoggedAr = (entities) => {
     if (e.type === 'sleep') return `${e.value} ساعات نوم`;
     if (e.type === 'steps') return `${e.value} خطوة`;
     if (e.type === 'water') return `${e.value} لتر ماء`;
-    if (e.type === 'exercise') return `${e.value} دقيقة ${e.activity ? '' : 'تمرين'}`.trim();
+    if (e.type === 'exercise') {
+      if (e.value_text) return `${e.value_text} (≈${e.value} دقيقة)`;
+      return `${e.value} دقيقة ${e.activity ? '' : 'تمرين'}`.trim();
+    }
     if (e.type === 'mood') return `المزاج ${e.value}/10`;
     if (e.type === 'heart_rate') return `نبض ${e.value}`;
     if (e.type === 'nutrition') return e.value ? `${e.value} سعرة` : 'وجبة';
@@ -1051,8 +1124,10 @@ const parseMessageWithBert = async (message, pendingClarification = null, contex
 
   let candidateIntent = LABEL_TO_INTENT[routedLabel] || 'unclear';
   if (routedLabel === 'query_summary' && !adviceRequested) {
-    const asksFinance = /\b(spend|spent|expense|income|budget|finance|money|transaction)\b/i.test(original);
-    const asksHealth = /\b(health|sleep|steps|mood|water|exercise|heart\s*rate|calories)\b/i.test(original);
+    // Match on normalized text so Arabic ("كم أنفقت" → "how much did i spend")
+    // gets the same EN intent routing as the English phrasing.
+    const asksFinance = /\b(spend|spent|expense|income|budget|finance|money|transaction|how much did i spend)\b/i.test(normOriginal);
+    const asksHealth = /\b(health|sleep|steps|mood|water|exercise|heart\s*rate|calories)\b/i.test(normOriginal);
     if (asksFinance && !asksHealth) candidateIntent = 'query_finance';
     else if (asksHealth && !asksFinance) candidateIntent = 'query_health';
   }
@@ -1106,15 +1181,16 @@ const parseMessageWithBert = async (message, pendingClarification = null, contex
   } else if (!adviceRequested && routedLabel === 'log_both') {
     let hasHealth = entities.some((entity) => entity.domain === 'health');
     const financeEntity = entities.find((entity) => entity.domain === 'finance');
-    // "$50 on a healthy dinner" → finance expense + a qualitative nutrition log.
+    // "$50 on a healthy dinner" → finance expense + a meal presence log.
+    // unit "meal" (value 1) = qualitative presence, NOT 0 kcal (which polluted charts/links).
     if (!hasHealth && financeEntity && FOOD_CONTEXT.test(normOriginal)) {
       entities.push({
         domain: 'health',
         activity: 'nutrition',
         type: 'nutrition',
-        value: 0,
+        value: 1,
         value_text: financeEntity.description || financeEntity.activity || 'meal',
-        unit: 'kcal',
+        unit: 'meal',
         duration: null,
         category: 'Nutrition',
       });
@@ -1162,7 +1238,10 @@ const parseMessageWithBert = async (message, pendingClarification = null, contex
     response: needsClarification
       ? clarificationResult.clarification_question
       : buildResponse(intent, entities, original, context, adviceRequested),
-    is_cross_domain: domain === 'both' && (entities.length > 1 || adviceRequested),
+    // True cross-domain = both health AND finance entities on this turn.
+    // Advice-only "both" is domain-level, not a linked log pair.
+    is_cross_domain: entities.some((e) => e.domain === 'health')
+      && entities.some((e) => e.domain === 'finance'),
     needs_clarification: needsClarification,
     clarification_question: clarificationResult?.clarification_question || null,
     clarification_options: clarificationResult?.clarification_options || null,

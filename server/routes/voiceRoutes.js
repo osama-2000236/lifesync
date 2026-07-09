@@ -55,15 +55,27 @@ const ttsVoice = () => process.env.VOICE_TTS_VOICE || 'alloy';
 // OpenAI-default mp3. Override per provider if you want smaller mp3 payloads.
 const ttsFormat = () => process.env.VOICE_TTS_FORMAT || 'wav';
 
+// Map response_format → MIME when the upstream omits Content-Type.
+const contentTypeFromFormat = (fmt) => {
+  const f = String(fmt || 'wav').toLowerCase();
+  if (f === 'mp3') return 'audio/mpeg';
+  if (f === 'opus') return 'audio/opus';
+  if (f === 'aac') return 'audio/aac';
+  if (f === 'flac') return 'audio/flac';
+  if (f === 'pcm') return 'audio/L16';
+  return 'audio/wav';
+};
+
 // Forward text to an OpenAI-compatible /audio/speech endpoint and return the
 // raw audio bytes + content-type. Separate from the route so it can be
 // unit-tested with a mocked axios (same pattern as transcribeAudio).
 // No `language` field: it isn't part of the /audio/speech contract (Groq 400s
 // on it) — the model speaks the input text's language natively.
 const synthesizeSpeech = async (text) => {
+  const format = ttsFormat();
   const { data, headers } = await axios.post(
     process.env.VOICE_TTS_ENDPOINT,
-    { model: ttsModel(), input: String(text), voice: ttsVoice(), response_format: ttsFormat() },
+    { model: ttsModel(), input: String(text), voice: ttsVoice(), response_format: format },
     {
       headers: { Authorization: `Bearer ${process.env.VOICE_TTS_API_KEY}` },
       responseType: 'arraybuffer',
@@ -72,7 +84,7 @@ const synthesizeSpeech = async (text) => {
   );
   return {
     buffer: Buffer.from(data),
-    contentType: headers?.['content-type'] || 'audio/wav',
+    contentType: headers?.['content-type'] || contentTypeFromFormat(format),
   };
 };
 
@@ -119,6 +131,8 @@ router.post('/transcribe', authenticate, upload.single('file'), async (req, res)
     const text = await transcribeAudio(req.file.buffer, req.file.originalname, req.body?.language);
     return success(res, { text }, 'Transcribed');
   } catch (err) {
+    // Surface status for ops; never forward provider body (may contain keys).
+    console.error('[voice/transcribe] upstream error', err?.response?.status || err?.message);
     return error(res, 'Transcription failed. Falling back to the browser microphone.', 502, 'VOICE_STT_UPSTREAM_ERROR');
   }
 });
@@ -148,6 +162,7 @@ router.post('/speak', authenticate, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     return res.send(buffer);
   } catch (err) {
+    console.error('[voice/speak] upstream error', err?.response?.status || err?.message);
     return error(res, 'Speech synthesis failed. Falling back to the browser voice.', 502, 'VOICE_TTS_UPSTREAM_ERROR');
   }
 });
@@ -157,3 +172,5 @@ module.exports.transcribeAudio = transcribeAudio;
 module.exports.cloudSttConfigured = cloudSttConfigured;
 module.exports.synthesizeSpeech = synthesizeSpeech;
 module.exports.cloudTtsConfigured = cloudTtsConfigured;
+module.exports.contentTypeFromFormat = contentTypeFromFormat;
+module.exports.ttsFormat = ttsFormat;

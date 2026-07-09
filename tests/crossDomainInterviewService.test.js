@@ -318,4 +318,21 @@ describe('db-backed helpers', () => {
     const link = await LinkedDomain.findByPk(res.links[0]);
     expect(link.source_message).toBe('custom source');
   });
+
+  test('end-to-end sleep_spending via logAnswerEntities creates durable rows + link', async () => {
+    runInsightEngine.mockResolvedValue({
+      recommendations: [{ text: 'Aim for 7+ hours of sleep — tired days often come with more impulse spending.', domain: 'both', priority: 'high' }],
+      health_score: 50,
+      financial_health_score: 50,
+    });
+    const sleep = await svc.logAnswerEntities(1, 'sleep_spending', 0, 4);
+    const spend = await svc.logAnswerEntities(1, 'sleep_spending', 1, 80);
+    const out = await svc.finalizeInterview(1, 'sleep_spending', {
+      healthIds: [sleep.id], financeIds: [spend.id],
+    }, 'en');
+    expect(out.links.length).toBe(1);
+    expect(out.advice.advice[0].text).toMatch(/sleep/i);
+    expect(await HealthLog.count({ where: { type: 'sleep' } })).toBe(1);
+    expect(await FinancialLog.count({ where: { type: 'expense' } })).toBe(1);
+  });
 });

@@ -15,6 +15,7 @@ const FinancialLog = require('../../models/FinancialLog');
 const Category = require('../../models/Category');
 const AISummary = require('../../models/AISummary');
 const { localizeInsights } = require('./insightLocalizer');
+const { T } = require('./insightTemplates');
 
 // ────────────────────────────────────────────
 // STATISTICAL HELPERS
@@ -206,14 +207,14 @@ function detectSleepSpendingCorrelation(healthRows, financeRows) {
   let severity = 'neutral';
 
   if (corr.r < -0.4 && corr.significance !== 'negligible') {
-    observation = `Negative correlation detected (r=${corr.r}): you tend to spend more on days you sleep less. ` +
-      `Low-sleep days averaged $${(lowSleepHighSpend.reduce((s, d) => s + d.spend, 0) / (lowSleepHighSpend.length || 1)).toFixed(0)} in spending.`;
+    const avgSpend = (lowSleepHighSpend.reduce((s, d) => s + d.spend, 0) / (lowSleepHighSpend.length || 1)).toFixed(0);
+    observation = T.sleepSpendNegative(corr.r, avgSpend);
     severity = 'concerning';
   } else if (corr.r > 0.4) {
-    observation = `Positive pattern: better sleep aligns with steady spending habits (r=${corr.r}).`;
+    observation = T.sleepSpendPositive(corr.r);
     severity = 'positive';
   } else {
-    observation = `No strong link found between sleep and spending this week (r=${corr.r}).`;
+    observation = T.sleepSpendNone(corr.r);
     severity = 'neutral';
   }
 
@@ -244,7 +245,9 @@ function detectMoodNutritionImpact(healthRows) {
   days.forEach((day) => {
     const entries = byDay[day];
     const moods = entries.filter((e) => e.type === 'mood');
-    const nutrition = entries.filter((e) => e.type === 'nutrition');
+    // Exclude qualitative meal flags (unit=meal, value=1) — not kcal and would
+    // corrupt correlation with phantom "1 kcal" points from food expenses.
+    const nutrition = entries.filter((e) => e.type === 'nutrition' && String(e.unit || '') !== 'meal');
     const water = entries.filter((e) => e.type === 'water');
 
     const avgMood = moods.length > 0
@@ -269,13 +272,13 @@ function detectMoodNutritionImpact(healthRows) {
   const observations = [];
 
   if (moodNutritionCorr.r > 0.4 && moodNutritionCorr.significance !== 'negligible') {
-    observations.push(`Better mood correlates with higher nutrition tracking (r=${moodNutritionCorr.r})`);
+    observations.push(T.moodNutritionPositive(moodNutritionCorr.r));
   } else if (moodNutritionCorr.r < -0.4) {
-    observations.push(`Lower mood correlates with more eating (r=${moodNutritionCorr.r}) — possible emotional eating pattern`);
+    observations.push(T.moodNutritionEmotional(moodNutritionCorr.r));
   }
 
   if (moodWaterCorr.r > 0.4) {
-    observations.push(`Higher water intake days align with better mood (r=${moodWaterCorr.r})`);
+    observations.push(T.moodWaterPositive(moodWaterCorr.r));
   }
 
   const avgMood = moodValues.reduce((a, b) => a + b, 0) / moodValues.length;
@@ -286,8 +289,8 @@ function detectMoodNutritionImpact(healthRows) {
     mood_nutrition_correlation: moodNutritionCorr,
     mood_water_correlation: moodWaterCorr,
     observation: observations.length > 0
-      ? observations.join('. ') + '.'
-      : `No strong link between mood and nutrition this week. Avg mood: ${avgMood.toFixed(1)}/10.`,
+      ? `${observations.join('. ')}.`
+      : T.moodNutritionNone(avgMood.toFixed(1)),
     severity: observations.length > 0 ? 'informative' : 'neutral',
     trend: trend(moodValues),
     avg_mood: Math.round(avgMood * 10) / 10,
@@ -340,29 +343,29 @@ function detectBudgetPatterns(financeAgg, financeAggPrev) {
   // finance logs otherwise gets "your savings rate is 0%" on an empty account.
   if (income > 0 && savingsRate < 10) {
     suggestions.push({
-      text: `Your savings rate is ${savingsRate.toFixed(0)}% — aim for at least 20% by reducing discretionary spending.`,
+      text: T.savingsLow(savingsRate.toFixed(0)),
       priority: 'high',
       domain: 'finance',
-      reason: `Weekly: $${income.toFixed(0)} income vs $${expenses.toFixed(0)} expenses`,
+      reason: T.weekInOut(income.toFixed(0), expenses.toFixed(0)),
     });
   }
 
   if (topCategories.length > 0 && Number(topCategories[0].percentage) > 35) {
     suggestions.push({
-      text: `${topCategories[0].category} accounts for ${topCategories[0].percentage}% of spending. Consider setting a weekly cap.`,
+      text: T.categoryShare(topCategories[0].category, topCategories[0].percentage),
       priority: 'medium',
       domain: 'finance',
-      reason: `$${topCategories[0].amount.toFixed(0)} this week on ${topCategories[0].category}`,
+      reason: T.categorySpend(topCategories[0].amount.toFixed(0), topCategories[0].category),
     });
   }
 
   if (expenses > prevExpenses * 1.2 && prevExpenses > 0) {
     const increase = ((expenses - prevExpenses) / prevExpenses * 100).toFixed(0);
     suggestions.push({
-      text: `Spending increased ${increase}% compared to last week. Review recent transactions for non-essentials.`,
+      text: T.spendingJump(increase),
       priority: 'medium',
       domain: 'finance',
-      reason: `This week: $${expenses.toFixed(0)} vs last week: $${prevExpenses.toFixed(0)}`,
+      reason: T.weekCompare(expenses.toFixed(0), prevExpenses.toFixed(0)),
     });
   }
 
@@ -424,10 +427,10 @@ function detectActivityMoodLink(healthRows) {
     domain: 'health',
     correlation: corr,
     observation: corr.r > 0.4
-      ? `Active days correlate with better mood (r=${corr.r}). Keep moving!`
+      ? T.activityMoodPositive(corr.r)
       : corr.r < -0.3
-      ? `Interestingly, higher activity days show slightly lower mood (r=${corr.r}). You might be over-exerting.`
-      : `No strong activity-mood link this week (r=${corr.r}).`,
+        ? T.activityMoodNegative(corr.r)
+        : T.activityMoodNone(corr.r),
     severity: corr.r > 0.4 ? 'positive' : 'neutral',
   };
 }
@@ -545,10 +548,10 @@ async function runInsightEngine(userId) {
     crossDomainInsights = sleepSpendPattern.observation;
   }
   if (moodNutritionPattern && moodNutritionPattern.observation.includes('emotional eating')) {
-    crossDomainInsights += (crossDomainInsights ? ' Additionally, ' : '') + moodNutritionPattern.observation;
+    crossDomainInsights += (crossDomainInsights ? T.alsoJoin() : '') + moodNutritionPattern.observation;
   }
   if (!crossDomainInsights) {
-    crossDomainInsights = 'No strong cross-domain patterns detected this week. Keep logging for better insights!';
+    crossDomainInsights = T.crossDomainNone();
   }
 
   // Build summary text
@@ -560,10 +563,10 @@ async function runInsightEngine(userId) {
     summaryParts.push(budgetPattern.suggestions[0].text);
   }
   if (moodTrend === 'improving') {
-    summaryParts.push('Your mood has been trending upward — great job!');
+    summaryParts.push(T.moodTrendingUp());
   }
   if (summaryParts.length === 0) {
-    summaryParts.push(`Health score: ${healthScore}/100. Financial score: ${financialScore}/100. Keep tracking for more personalized insights.`);
+    summaryParts.push(T.scoresFallback(healthScore, financialScore));
   }
 
   // Aggregate recommendations from all patterns
@@ -572,7 +575,7 @@ async function runInsightEngine(userId) {
 
   if (sleepSpendPattern?.severity === 'concerning') {
     recommendations.push({
-      text: 'Try to get 7+ hours of sleep to reduce impulse spending on low-energy days.',
+      text: T.recSleepSpend(),
       priority: 'high',
       domain: 'both',
       reason: sleepSpendPattern.observation,
@@ -582,7 +585,7 @@ async function runInsightEngine(userId) {
   const activityMoodPattern = patterns.find((p) => p.pattern === 'activity_mood_link');
   if (activityMoodPattern?.correlation?.r > 0.4) {
     recommendations.push({
-      text: 'Your mood improves on active days. Aim for at least 30 min of movement daily.',
+      text: T.recActivityMood(),
       priority: 'medium',
       domain: 'health',
       reason: activityMoodPattern.observation,
@@ -591,10 +594,10 @@ async function runInsightEngine(userId) {
 
   if (moodNutritionPattern?.mood_water_correlation?.r > 0.4) {
     recommendations.push({
-      text: 'Staying hydrated correlates with better mood. Try to drink 2L+ daily.',
+      text: T.recWaterMood(),
       priority: 'medium',
       domain: 'health',
-      reason: 'Water-mood correlation detected',
+      reason: T.reasonWaterMood(),
     });
   }
 

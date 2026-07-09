@@ -47,8 +47,8 @@ const QUESTION_BANK = {
   sleep_spending: {
     cross_domain: true,
     prompt: {
-      en: 'I noticed your sleep and spending might be linked. Can I ask two quick questions to give you tailored advice?',
-      ar: 'لاحظت أن نومك وإنفاقك قد يكونان مرتبطين. هل يمكنني طرح سؤالين سريعين لأقدم لك نصيحة مخصصة؟',
+      en: 'Your sleep and spending look connected. Mind two quick questions so I can give you a useful tip?',
+      ar: 'يبدو أن نومك وإنفاقك مرتبطان. هل يمكنني طرح سؤالين سريعين لأعطيك نصيحة مفيدة؟',
     },
     questions: [
       {
@@ -60,10 +60,11 @@ const QUESTION_BANK = {
       {
         id: 'impulse_spend',
         prompt: {
-          en: 'Roughly how much did you spend on takeout, snacks, or impulse buys today?',
-          ar: 'كم أنفقت تقريبًا اليوم على الطعام الجاهز أو الوجبات الخفيفة أو المشتريات العشوائية؟',
+          en: 'Roughly how much did you spend today on takeout, snacks, or spur-of-the-moment buys?',
+          ar: 'تقريبًا كم أنفقت اليوم على طلبات الطعام أو الوجبات الخفيفة أو المشتريات العشوائية؟',
         },
-        input_type: 'number', min: 0, max: 100000,
+        // FinancialLog validates amount >= 0.01 — never accept a zero spend row.
+        input_type: 'number', min: 0.01, max: 100000,
         entity: { domain: 'finance', type: 'expense', currency: 'USD', description: 'Impulse / takeout (voice interview)' },
       },
     ],
@@ -71,30 +72,30 @@ const QUESTION_BANK = {
   mood_nutrition: {
     cross_domain: false,
     prompt: {
-      en: 'Your mood and nutrition may affect each other. Can I ask a couple of questions to help?',
-      ar: 'قد يؤثر مزاجك وتغذيتك على بعضهما. هل يمكنني طرح بعض الأسئلة للمساعدة؟',
+      en: 'Mood and food often pull on each other. Can I ask a couple of quick questions?',
+      ar: 'غالبًا ما يؤثر المزاج والطعام أحدهما في الآخر. هل يمكنني طرح سؤالين سريعين؟',
     },
     questions: [
       {
         id: 'mood',
-        prompt: { en: 'How is your mood today, from 1 to 10?', ar: 'كيف هو مزاجك اليوم من 1 إلى 10؟' },
+        prompt: { en: 'How is your mood today, from 1 to 10?', ar: 'كيف مزاجك اليوم من 1 إلى 10؟' },
         input_type: 'number', min: 1, max: 10,
         entity: { domain: 'health', type: 'mood', unit: 'rating' },
       },
       {
         id: 'water',
-        prompt: { en: 'About how many liters of water did you drink today?', ar: 'كم لترًا من الماء شربت اليوم تقريبًا؟' },
+        prompt: { en: 'About how many liters of water did you drink today?', ar: 'تقريبًا كم لترًا من الماء شربت اليوم؟' },
         input_type: 'number', min: 0, max: 20,
         entity: { domain: 'health', type: 'water', unit: 'liters' },
       },
       {
         id: 'meal_quality',
-        prompt: { en: 'How healthy were your meals today?', ar: 'ما مدى صحة وجباتك اليوم؟' },
+        prompt: { en: 'How healthy were your meals today?', ar: 'كيف كانت وجباتك اليوم؟' },
         input_type: 'choice',
         options: [
-          { value: 'healthy', label: { en: 'Mostly healthy', ar: 'صحية غالبًا' }, score: 3 },
+          { value: 'healthy', label: { en: 'Mostly healthy', ar: 'صحية في الغالب' }, score: 3 },
           { value: 'mixed', label: { en: 'A mix', ar: 'مختلطة' }, score: 2 },
-          { value: 'junk', label: { en: 'Mostly junk', ar: 'غير صحية غالبًا' }, score: 1 },
+          { value: 'junk', label: { en: 'Mostly junk', ar: 'غير صحية في الغالب' }, score: 1 },
         ],
         entity: { domain: 'health', type: 'nutrition', unit: 'rating' },
       },
@@ -103,19 +104,19 @@ const QUESTION_BANK = {
   activity_mood: {
     cross_domain: false,
     prompt: {
-      en: 'Movement often lifts mood. Can I ask two questions to check your pattern?',
-      ar: 'غالبًا ما تحسن الحركة المزاج. هل يمكنني طرح سؤالين للتحقق من نمطك؟',
+      en: 'A little movement often lifts mood. Two quick questions about your day?',
+      ar: 'القليل من الحركة غالبًا يرفع المزاج. سؤالان سريعان عن يومك؟',
     },
     questions: [
       {
         id: 'exercise_minutes',
-        prompt: { en: 'How many minutes did you exercise today?', ar: 'كم دقيقة مارست الرياضة اليوم؟' },
+        prompt: { en: 'How many minutes did you exercise today?', ar: 'كم دقيقة تحركت أو تمرّنت اليوم؟' },
         input_type: 'number', min: 0, max: 1000,
         entity: { domain: 'health', type: 'exercise', unit: 'minutes' },
       },
       {
         id: 'mood',
-        prompt: { en: 'And your mood today, from 1 to 10?', ar: 'وكيف مزاجك اليوم من 1 إلى 10؟' },
+        prompt: { en: 'And your mood today, from 1 to 10?', ar: 'ومزاجك اليوم من 1 إلى 10؟' },
         input_type: 'number', min: 1, max: 10,
         entity: { domain: 'health', type: 'mood', unit: 'rating' },
       },
@@ -124,20 +125,20 @@ const QUESTION_BANK = {
   budget_savings: {
     cross_domain: false,
     prompt: {
-      en: 'Let me help with your budget. Can I ask about this week\'s money in and out?',
-      ar: 'دعني أساعدك في ميزانيتك. هل يمكنني السؤال عن دخل ومصروف هذا الأسبوع؟',
+      en: 'Want a clearer picture of this week\'s money? Two quick numbers.',
+      ar: 'هل تريد صورة أوضح عن مالك هذا الأسبوع؟ رقمان فقط.',
     },
     questions: [
       {
         id: 'income',
-        prompt: { en: 'About how much income did you receive this week?', ar: 'كم دخلًا تلقيت هذا الأسبوع تقريبًا؟' },
-        input_type: 'number', min: 0, max: 10000000,
+        prompt: { en: 'About how much income did you get this week?', ar: 'تقريبًا كم دخلك هذا الأسبوع؟' },
+        input_type: 'number', min: 0.01, max: 10000000,
         entity: { domain: 'finance', type: 'income', currency: 'USD', description: 'Weekly income (voice interview)' },
       },
       {
         id: 'expense',
-        prompt: { en: 'And about how much did you spend this week?', ar: 'وكم أنفقت هذا الأسبوع تقريبًا؟' },
-        input_type: 'number', min: 0, max: 10000000,
+        prompt: { en: 'And about how much did you spend this week?', ar: 'وكم أنفقت تقريبًا هذا الأسبوع؟' },
+        input_type: 'number', min: 0.01, max: 10000000,
         entity: { domain: 'finance', type: 'expense', currency: 'USD', description: 'Weekly expense (voice interview)' },
       },
     ],
@@ -203,10 +204,13 @@ const mapAnswerToEntities = (topic, step, answer) => {
   if (question.max != null && num > question.max) return null;
 
   if (entity.domain === 'finance') {
+    const amount = Math.round(num * 100) / 100;
+    // Match FinancialLog.amount validate min 0.01 — never throw at create time.
+    if (amount < 0.01) return null;
     return {
       domain: 'finance',
       type: entity.type,
-      amount: Math.round(num * 100) / 100,
+      amount,
       currency: entity.currency,
       description: entity.description,
     };
@@ -452,8 +456,8 @@ const buildAdvice = async (userId, topic, lang = 'en') => {
     }));
 
   const fallback = {
-    en: 'Thanks — I\'ve logged that. Keep tracking for a day or two and I\'ll surface a tailored tip on your dashboard.',
-    ar: 'شكرًا — سجّلت ذلك. تابع التسجيل ليوم أو يومين وسأعرض لك نصيحة مخصصة على لوحتك.',
+    en: 'Thanks — I saved that. Keep logging for a day or two and I\'ll drop a tip that fits you on your dashboard.',
+    ar: 'شكرًا — سجّلت ذلك. واصل التسجيل يومًا أو يومين وسأعرض لك نصيحة تناسبك على لوحتك.',
   };
 
   return {

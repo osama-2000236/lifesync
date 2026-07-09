@@ -1,23 +1,14 @@
 /* eslint-disable no-console */
 // scripts/evaluate-cross-domain.js
 // ============================================
-// Cross-domain + bilingual intent SCORECARD (richer than the CI gate).
+// Cross-domain + bilingual SCORECARD (richer than CI gate, still offline by default).
 // ============================================
-// Two layers, following the 2026 eval-harness pattern (deterministic asserts +
-// model-assisted checks):
-//   1. OFFLINE (default): the deterministic Track-A extractor over the golden
-//      set → intent/domain accuracy, cross-domain precision/recall/F1, entity
-//      F1, language-detection accuracy, per-language breakdown. Free, no network.
-//   2. MODEL-ASSISTED (RUN_LLM_EVAL=1): actually generate the reply and check it
-//      is in the RIGHT language (detectLang(reply) === case.lang) and, for
-//      cross-domain cases, that it references BOTH domains. Costs model calls, so
-//      it's opt-in and never runs in CI.
-// ponytail: the reply "judge" is a deterministic language+domain-term heuristic,
-// not an LLM judge — free and exact for ar/en; swap in an LLM rubric only if the
-// heuristic proves too coarse.
+// Offline (default): Track-A over intent golden + XD suite → accuracy, XD F1,
+// entity F1, language accuracy, floors that fail CI-style callers.
+// Model-assisted (RUN_LLM_EVAL=1): reply language + dual-domain term check.
 //
-// Run: npm run test:eval:xdom   (offline)
-//      RUN_LLM_EVAL=1 npm run test:eval:xdom   (adds reply checks)
+// Run: npm run test:eval:xdom
+//      RUN_LLM_EVAL=1 npm run test:eval:xdom
 
 const fs = require('fs');
 const path = require('path');
@@ -29,6 +20,7 @@ const outputPath = process.env.XDOM_EVAL_OUTPUT
   || path.join(__dirname, '..', 'output', 'model-eval', 'cross-domain-latest.json');
 const NUM_TOL = Number(process.env.MODEL_EVAL_NUMERIC_TOLERANCE || 0.01);
 const runLlm = process.env.RUN_LLM_EVAL === '1';
+const MIN_TRUE_XD = Number(process.env.XDOM_MIN_TRUE_XD || 10);
 
 const load = (f) => JSON.parse(fs.readFileSync(path.join(evalDir, f), 'utf8'));
 const pct = (n, d) => (d ? Number((100 * n / d).toFixed(2)) : null);
@@ -42,16 +34,16 @@ const entityMatches = (a, e) => {
   return true;
 };
 
-// Health/finance term presence — used to check a cross-domain reply actually
-// connects the two domains (both English and Arabic vocab).
 const HEALTH_TERMS = /(health|healthy|sleep|slept|rest|steps|walk|run|water|exercise|workout|meal|dinner|lunch|food|eat|diet|nutrition|mood|feel|energy|heart|calorie|صحة|صحي|نوم|نمت|راحة|خطوة|مشي|ماء|تمرين|وجبة|عشاء|غداء|طعام|أكل|مزاج|طاقة|سعرات)/i;
 const FINANCE_TERMS = /(spent|spend|spending|earn|income|budget|cost|price|save|saving|money|expense|dollar|\$|₪|أنفقت|صرفت|دخل|ميزانية|تكلفة|سعر|ادخار|توفير|مال|إنفاق|دولار|شيكل)/i;
 
 const evalOffline = (cases) => {
   const rows = [];
-  const xd = { tp: 0, fp: 0, fn: 0 };            // cross-domain confusion
+  const xd = { tp: 0, fp: 0, fn: 0, tn: 0 };
   const ent = { expected: 0, predicted: 0, matched: 0 };
   let intentOk = 0; let domainOk = 0; let langOk = 0; let langTotal = 0;
+  let phantomNutrition0 = 0;
+  let contractBreaks = 0;
 
   for (const c of cases) {
     const r = c._actual; const exp = c.expected;
@@ -65,14 +57,36 @@ const evalOffline = (cases) => {
       if (exp.is_cross_domain && pred) xd.tp += 1;
       else if (!exp.is_cross_domain && pred) xd.fp += 1;
       else if (exp.is_cross_domain && !pred) xd.fn += 1;
+      else xd.tn += 1;
     }
+
+    const hasH = (r.entities || []).some((e) => e.domain === 'health');
+    const hasF = (r.entities || []).some((e) => e.domain === 'finance');
+    if (Boolean(r.is_cross_domain) !== (hasH && hasF)) contractBreaks += 1;
+    if ((r.entities || []).some((e) => e.type === 'nutrition' && Number(e.value) === 0)) {
+      phantomNutrition0 += 1;
+    }
+
     const expEnts = exp.entities || [];
     ent.expected += expEnts.length;
     ent.predicted += (r.entities || []).length;
     ent.matched += expEnts.filter((e) => (r.entities || []).some((a) => entityMatches(a, e))).length;
 
     if (c.lang) { langTotal += 1; langOk += detectLang(c.message) === c.lang ? 1 : 0; }
-    rows.push({ id: c.id, lang: c.lang, intent_ok: iOk, domain_ok: dOk, actual: { intent: r.intent, domain: r.domain, is_cross_domain: Boolean(r.is_cross_domain) } });
+    rows.push({
+      id: c.id,
+      lang: c.lang,
+      intent_ok: iOk,
+      domain_ok: dOk,
+      actual: {
+        intent: r.intent,
+        domain: r.domain,
+        is_cross_domain: Boolean(r.is_cross_domain),
+        entities: (r.entities || []).map((e) => ({
+          domain: e.domain, type: e.type, value: e.value, amount: e.amount, unit: e.unit,
+        })),
+      },
+    });
   }
 
   const xdP = xd.tp + xd.fp ? xd.tp / (xd.tp + xd.fp) : 1;
@@ -97,15 +111,31 @@ const evalOffline = (cases) => {
     cases: cases.length,
     intent_accuracy_pct: pct(intentOk, cases.length),
     domain_accuracy_pct: pct(domainOk, cases.length),
-    cross_domain: { precision: Number(xdP.toFixed(4)), recall: Number(xdR.toFixed(4)), f1: f1(xdP, xdR), tp: xd.tp, fp: xd.fp, fn: xd.fn },
-    entity_type: { precision_pct: Number((eP * 100).toFixed(2)), recall_pct: Number((eR * 100).toFixed(2)), f1_pct: Number((f1(eP, eR) * 100).toFixed(2)) },
+    cross_domain: {
+      precision: Number(xdP.toFixed(4)),
+      recall: Number(xdR.toFixed(4)),
+      f1: f1(xdP, xdR),
+      tp: xd.tp,
+      fp: xd.fp,
+      fn: xd.fn,
+      tn: xd.tn,
+    },
+    entity_type: {
+      precision_pct: Number((eP * 100).toFixed(2)),
+      recall_pct: Number((eR * 100).toFixed(2)),
+      f1_pct: Number((f1(eP, eR) * 100).toFixed(2)),
+    },
     language_detect_accuracy_pct: pct(langOk, langTotal),
+    quality_guards: {
+      phantom_nutrition_zero: phantomNutrition0,
+      is_cross_domain_contract_breaks: contractBreaks,
+      true_xd_labeled: cases.filter((c) => c.expected.is_cross_domain === true).length,
+    },
     by_language: byLang,
     rows,
   };
 };
 
-// Model-assisted: generate the real reply and score language + cross-domain link.
 const evalReplies = async (cases) => {
   const rows = [];
   let langOk = 0; let langTotal = 0; let linkOk = 0; let linkTotal = 0;
@@ -114,7 +144,9 @@ const evalReplies = async (cases) => {
     try {
       const res = await parseMessage(c.message, null, {}, { provider: 'openrouter' });
       reply = String(res.response || '');
-    } catch (e) { reply = ''; }
+    } catch {
+      reply = '';
+    }
     const replyLang = detectLang(reply);
     const langMatch = !c.lang || replyLang === c.lang;
     if (c.lang && reply) { langTotal += 1; langOk += langMatch ? 1 : 0; }
@@ -123,7 +155,10 @@ const evalReplies = async (cases) => {
       linkMatch = HEALTH_TERMS.test(reply) && FINANCE_TERMS.test(reply);
       linkTotal += 1; linkOk += linkMatch ? 1 : 0;
     }
-    rows.push({ id: c.id, lang: c.lang, reply_lang: replyLang, lang_match: langMatch, cross_domain_link: linkMatch, reply: reply.slice(0, 120) });
+    rows.push({
+      id: c.id, lang: c.lang, reply_lang: replyLang, lang_match: langMatch,
+      cross_domain_link: linkMatch, reply: reply.slice(0, 120),
+    });
     console.log(`  ${langMatch ? 'LANG_OK ' : 'LANG_BAD'} ${c.id} [${c.lang}→${replyLang}]${c.expected.is_cross_domain ? (linkMatch ? ' LINK_OK' : ' LINK_MISS') : ''}`);
   }
   return {
@@ -156,12 +191,41 @@ const main = async () => {
   fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
 
   console.log('\n===== CROSS-DOMAIN SCORECARD =====');
-  console.log(JSON.stringify({ offline: { intent_accuracy_pct: offline.intent_accuracy_pct, domain_accuracy_pct: offline.domain_accuracy_pct, cross_domain: offline.cross_domain, entity_type_f1_pct: offline.entity_type.f1_pct, language_detect_accuracy_pct: offline.language_detect_accuracy_pct, by_language: offline.by_language }, model_assisted: replies && { reply_language_match_pct: replies.reply_language_match_pct, cross_domain_link_pct: replies.cross_domain_link_pct } }, null, 2));
+  console.log(JSON.stringify({
+    offline: {
+      intent_accuracy_pct: offline.intent_accuracy_pct,
+      domain_accuracy_pct: offline.domain_accuracy_pct,
+      cross_domain: offline.cross_domain,
+      entity_type_f1_pct: offline.entity_type.f1_pct,
+      language_detect_accuracy_pct: offline.language_detect_accuracy_pct,
+      quality_guards: offline.quality_guards,
+      by_language: offline.by_language,
+    },
+    model_assisted: replies && {
+      reply_language_match_pct: replies.reply_language_match_pct,
+      cross_domain_link_pct: replies.cross_domain_link_pct,
+    },
+  }, null, 2));
   console.log(`\nEvidence written to ${path.relative(path.join(__dirname, '..'), outputPath)}`);
 
-  // Non-zero exit if the offline gate slips, so CI/callers notice.
-  const gate = offline.intent_accuracy_pct === 100 && offline.domain_accuracy_pct === 100;
-  process.exitCode = gate ? 0 : 2;
+  const floors = {
+    intent: offline.intent_accuracy_pct === 100,
+    domain: offline.domain_accuracy_pct === 100,
+    xd_f1: offline.cross_domain.f1 === 1,
+    xd_mass: offline.quality_guards.true_xd_labeled >= MIN_TRUE_XD,
+    no_phantom0: offline.quality_guards.phantom_nutrition_zero === 0,
+    contract: offline.quality_guards.is_cross_domain_contract_breaks === 0,
+    lang: offline.language_detect_accuracy_pct === 100,
+    no_unknown_lang: !offline.by_language.unknown,
+  };
+  const failed = Object.entries(floors).filter(([, ok]) => !ok).map(([k]) => k);
+  if (failed.length) {
+    console.error('\nFLOOR FAIL:', failed.join(', '));
+    process.exitCode = 2;
+  } else {
+    console.log('\nFLOORS: all green (intent/domain/xd/f1/mass/phantom/contract/lang).');
+    process.exitCode = 0;
+  }
 };
 
 main().catch((e) => { console.error(e); process.exitCode = 1; });

@@ -1,28 +1,280 @@
 [
-  { "id": "XD-EN-01", "lang": "en", "message": "I walked 8000 steps today.",
-    "expected": { "intent": "log_health", "domain": "health", "is_cross_domain": false, "needs_clarification": false, "entities": [{ "domain": "health", "type": "steps", "value": 8000 }] } },
-  { "id": "XD-EN-02", "lang": "en", "message": "I spent $15 on lunch.",
-    "expected": { "intent": "log_finance", "domain": "finance", "is_cross_domain": false, "needs_clarification": false, "entities": [{ "domain": "finance", "type": "expense", "amount": 15 }] } },
-  { "id": "XD-EN-03", "lang": "en", "message": "I earned $500 from freelance work.",
-    "expected": { "intent": "log_finance", "domain": "finance", "is_cross_domain": false, "needs_clarification": false, "entities": [{ "domain": "finance", "type": "income", "amount": 500 }] } },
-  { "id": "XD-EN-04", "lang": "en", "message": "I slept 4 hours and spent $80 on coffee and takeout.",
-    "expected": { "intent": "log_both", "domain": "both", "is_cross_domain": true, "needs_clarification": false, "entities": [{ "domain": "health", "type": "sleep", "value": 4 }, { "domain": "finance", "type": "expense", "amount": 80 }] } },
-  { "id": "XD-EN-05", "lang": "en", "message": "I spent $50 on a healthy dinner.",
-    "expected": { "intent": "log_both", "domain": "both", "is_cross_domain": true, "needs_clarification": false, "entities": [{ "domain": "finance", "type": "expense", "amount": 50 }, { "domain": "health", "type": "nutrition" }] } },
-  { "id": "XD-EN-06", "lang": "en", "message": "I spent 10.",
-    "expected": { "intent": "unclear", "domain": "finance", "is_cross_domain": false, "needs_clarification": true, "entities": [] } },
-  { "id": "XD-EN-07", "lang": "en", "message": "Hello, how are you?",
-    "expected": { "intent": "query_general", "domain": "general", "is_cross_domain": false, "needs_clarification": false, "entities": [] } },
-  { "id": "XD-AR-01", "lang": "ar", "message": "مشيت ٦٠٠٠ خطوة اليوم",
-    "expected": { "intent": "log_health", "domain": "health", "is_cross_domain": false, "needs_clarification": false, "entities": [{ "domain": "health", "type": "steps", "value": 6000 }] } },
-  { "id": "XD-AR-02", "lang": "ar", "message": "صرفت ٢٠ دولار على الغداء",
-    "expected": { "intent": "log_finance", "domain": "finance", "is_cross_domain": false, "needs_clarification": false, "entities": [{ "domain": "finance", "type": "expense", "amount": 20 }] } },
-  { "id": "XD-AR-03", "lang": "ar", "message": "ربحت ١٠٠ دولار",
-    "expected": { "intent": "log_finance", "domain": "finance", "is_cross_domain": false, "needs_clarification": false, "entities": [{ "domain": "finance", "type": "income", "amount": 100 }] } },
-  { "id": "XD-AR-04", "lang": "ar", "message": "نمت ٤ ساعات وصرفت ٨٠ دولار على القهوة",
-    "expected": { "intent": "log_both", "domain": "both", "is_cross_domain": true, "needs_clarification": false, "entities": [{ "domain": "health", "type": "sleep", "value": 4 }, { "domain": "finance", "type": "expense", "amount": 80 }] } },
-  { "id": "XD-AR-05", "lang": "ar", "message": "أريد أن أدخر ٣٠٠ شهريا",
-    "expected": { "intent": "set_goal", "domain": "general", "is_cross_domain": false, "needs_clarification": false, "entities": [] } },
-  { "id": "XD-AR-06", "lang": "ar", "message": "مرحبا كيف حالك",
-    "expected": { "intent": "query_general", "domain": "general", "is_cross_domain": false, "needs_clarification": false, "entities": [] } }
+  {
+    "id": "XD-EN-01",
+    "lang": "en",
+    "message": "I slept 4 hours and spent $80 on coffee and takeout.",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "health", "type": "sleep", "value": 4 },
+        { "domain": "finance", "type": "expense", "amount": 80 }
+      ],
+      "forbid_entities": [{ "domain": "health", "type": "nutrition", "value": 0 }]
+    }
+  },
+  {
+    "id": "XD-EN-02",
+    "lang": "en",
+    "message": "I slept 7 hours and spent $15 on breakfast.",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "health", "type": "sleep", "value": 7 },
+        { "domain": "finance", "type": "expense", "amount": 15 }
+      ]
+    }
+  },
+  {
+    "id": "XD-EN-03",
+    "lang": "en",
+    "message": "I spent $50 on a healthy dinner.",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "finance", "type": "expense", "amount": 50 },
+        { "domain": "health", "type": "nutrition" }
+      ],
+      "forbid_entities": [{ "domain": "health", "type": "nutrition", "value": 0 }]
+    }
+  },
+  {
+    "id": "XD-EN-04",
+    "lang": "en",
+    "message": "I walked 5000 steps then bought coffee for 4 dollars",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "health", "type": "steps", "value": 5000 },
+        { "domain": "finance", "type": "expense", "amount": 4 }
+      ],
+      "forbid_entities": [{ "domain": "health", "type": "nutrition" }]
+    }
+  },
+  {
+    "id": "XD-EN-05",
+    "lang": "en",
+    "message": "walked 5k then bought coffee for 4 dollars",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "health", "type": "steps", "value": 5000 },
+        { "domain": "finance", "type": "expense", "amount": 4 }
+      ],
+      "forbid_entities": [{ "domain": "health", "type": "nutrition" }]
+    }
+  },
+  {
+    "id": "XD-EN-06",
+    "lang": "en",
+    "message": "mood 3/10 and spent 100 on shopping",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "health", "type": "mood", "value": 3 },
+        { "domain": "finance", "type": "expense", "amount": 100 }
+      ]
+    }
+  },
+  {
+    "id": "XD-EN-07",
+    "lang": "en",
+    "message": "I feel tired so I ordered takeout for $30",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "health", "type": "mood", "value": 4 },
+        { "domain": "finance", "type": "expense", "amount": 30 }
+      ]
+    }
+  },
+  {
+    "id": "XD-EN-08",
+    "lang": "en",
+    "message": "poor sleep last night so I impulse bought $60 of snacks",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "health", "type": "sleep" },
+        { "domain": "finance", "type": "expense", "amount": 60 }
+      ]
+    }
+  },
+  {
+    "id": "XD-AR-01",
+    "lang": "ar",
+    "message": "نمت ٤ ساعات وصرفت ٨٠ دولار على القهوة",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "health", "type": "sleep", "value": 4 },
+        { "domain": "finance", "type": "expense", "amount": 80 }
+      ]
+    }
+  },
+  {
+    "id": "XD-AR-02",
+    "lang": "ar",
+    "message": "صرفت ٥٠ دولار على عشاء صحي",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "finance", "type": "expense", "amount": 50 },
+        { "domain": "health", "type": "nutrition" }
+      ],
+      "forbid_entities": [{ "domain": "health", "type": "nutrition", "value": 0 }]
+    }
+  },
+  {
+    "id": "XD-AR-03",
+    "lang": "ar",
+    "message": "مزاجي ٣ وصرفت ١٠٠ دولار على التسوق",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "health", "type": "mood", "value": 3 },
+        { "domain": "finance", "type": "expense", "amount": 100 }
+      ]
+    }
+  },
+  {
+    "id": "XD-AR-04",
+    "lang": "ar",
+    "message": "كم أنفقت هذا الأسبوع؟",
+    "expected": {
+      "intent": "query_finance",
+      "domain": "finance",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": []
+    }
+  },
+  {
+    "id": "XD-AR-05",
+    "lang": "ar",
+    "message": "مشيت ٦٠٠٠ خطوة اليوم",
+    "expected": {
+      "intent": "log_health",
+      "domain": "health",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": [{ "domain": "health", "type": "steps", "value": 6000 }]
+    }
+  },
+  {
+    "id": "XD-AR-06",
+    "lang": "ar",
+    "message": "صرفت ٢٠ دولار على الغداء",
+    "expected": {
+      "intent": "log_finance",
+      "domain": "finance",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": [{ "domain": "finance", "type": "expense", "amount": 20 }]
+    }
+  },
+  {
+    "id": "XD-EN-09",
+    "lang": "en",
+    "message": "I ran 5 km then spent $12 on a smoothie",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "health", "type": "exercise", "value": 30 },
+        { "domain": "finance", "type": "expense", "amount": 12 }
+      ],
+      "forbid_entities": [{ "domain": "health", "type": "steps" }]
+    }
+  },
+  {
+    "id": "XD-EN-10",
+    "lang": "en",
+    "message": "slept a little last night and spent 70 dollars on takeout",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "health", "type": "sleep", "value": 5 },
+        { "domain": "finance", "type": "expense", "amount": 70 }
+      ]
+    }
+  },
+  {
+    "id": "XD-AR-07",
+    "lang": "ar",
+    "message": "نمت قليل الليلة وصرفت ٧٠ دولار على طلبات",
+    "expected": {
+      "intent": "log_both",
+      "domain": "both",
+      "is_cross_domain": true,
+      "needs_clarification": false,
+      "entities": [
+        { "domain": "health", "type": "sleep", "value": 5 },
+        { "domain": "finance", "type": "expense", "amount": 70 }
+      ]
+    }
+  },
+  {
+    "id": "XD-NEG-01",
+    "lang": "en",
+    "message": "I spent $15 on lunch.",
+    "expected": {
+      "intent": "log_finance",
+      "domain": "finance",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": [{ "domain": "finance", "type": "expense", "amount": 15 }],
+      "forbid_entities": [{ "domain": "health", "type": "nutrition" }]
+    }
+  },
+  {
+    "id": "XD-NEG-02",
+    "lang": "en",
+    "message": "I walked 8000 steps today.",
+    "expected": {
+      "intent": "log_health",
+      "domain": "health",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": [{ "domain": "health", "type": "steps", "value": 8000 }],
+      "forbid_is_cross_domain": true
+    }
+  }
 ]

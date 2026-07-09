@@ -73,7 +73,11 @@ const describeLoggedFacts = (entities = []) => {
     if (e.type === 'water') return `${e.value} L water`;
     if (e.type === 'exercise') return `${e.value} min ${e.activity || 'exercise'}`;
     if (e.type === 'heart_rate') return `heart rate ${e.value} bpm`;
-    if (e.type === 'nutrition') return e.value ? `${e.value} kcal` : 'a meal';
+    if (e.type === 'nutrition') {
+      // unit "meal" is qualitative presence (food expense XD), not kcal.
+      if (e.unit === 'meal' || e.value_text) return e.value_text || 'a meal';
+      return e.value ? `${e.value} kcal` : 'a meal';
+    }
     return e.activity || e.type;
   });
   return parts.join(', ');
@@ -307,4 +311,8 @@ module.exports = {
   _buildSystemPrompt: buildSystemPrompt,
   _buildMessages: buildMessages,
   _describeLoggedFacts: describeLoggedFacts,
+  _stripReasoning: stripReasoning,
+  _isRetryableError: isRetryableError,
+  _buildLanguageDirective: buildLanguageDirective,
+  _modelCandidates: modelCandidates,
 };

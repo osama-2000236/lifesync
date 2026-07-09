@@ -1,62 +1,146 @@
 [
   {
     "id": "ME-001",
+    "lang": "en",
     "message": "I walked 8000 steps today.",
-    "expected": { "intent": "log_health", "domain": "health", "needs_clarification": false, "entities": [{ "domain": "health", "type": "steps", "value": 8000 }] }
+    "expected": {
+      "intent": "log_health",
+      "domain": "health",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": [{ "domain": "health", "type": "steps", "value": 8000 }]
+    }
   },
   {
     "id": "ME-002",
+    "lang": "en",
     "message": "I slept 7 hours last night.",
-    "expected": { "intent": "log_health", "domain": "health", "needs_clarification": false, "entities": [{ "domain": "health", "type": "sleep", "value": 7 }] }
+    "expected": {
+      "intent": "log_health",
+      "domain": "health",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": [{ "domain": "health", "type": "sleep", "value": 7 }]
+    }
   },
   {
     "id": "ME-003",
+    "lang": "en",
     "message": "I spent $15 on lunch.",
-    "expected": { "intent": "log_finance", "domain": "finance", "needs_clarification": false, "entities": [{ "domain": "finance", "type": "expense", "amount": 15 }] }
+    "expected": {
+      "intent": "log_finance",
+      "domain": "finance",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": [{ "domain": "finance", "type": "expense", "amount": 15 }]
+    }
   },
   {
     "id": "ME-004",
+    "lang": "en",
     "message": "I earned $500 from freelance work.",
-    "expected": { "intent": "log_finance", "domain": "finance", "needs_clarification": false, "entities": [{ "domain": "finance", "type": "income", "amount": 500 }] }
-  },
-  {
-    "id": "ME-005",
-    "message": "I slept 7 hours and spent $15 on breakfast.",
-    "expected": { "intent": "log_both", "domain": "both", "needs_clarification": false, "entities": [{ "domain": "health", "type": "sleep", "value": 7 }, { "domain": "finance", "type": "expense", "amount": 15 }] }
+    "expected": {
+      "intent": "log_finance",
+      "domain": "finance",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": [{ "domain": "finance", "type": "income", "amount": 500 }]
+    }
   },
   {
     "id": "ME-006",
+    "lang": "en",
     "message": "I spent 10.",
-    "expected": { "intent": "unclear", "domain": "finance", "needs_clarification": true, "entities": [] }
+    "expected": {
+      "intent": "unclear",
+      "domain": "finance",
+      "is_cross_domain": false,
+      "needs_clarification": true,
+      "entities": []
+    }
   },
   {
     "id": "ME-007",
+    "lang": "en",
     "message": "50 for the gym.",
-    "expected": { "intent": "unclear", "domain": "both", "needs_clarification": true, "entities": [] }
+    "expected": {
+      "intent": "unclear",
+      "domain": "both",
+      "is_cross_domain": false,
+      "needs_clarification": true,
+      "entities": []
+    }
   },
   {
     "id": "ME-008",
+    "lang": "en",
     "message": "I went running.",
-    "expected": { "intent": "unclear", "domain": "health", "needs_clarification": true, "entities": [] }
+    "expected": {
+      "intent": "unclear",
+      "domain": "health",
+      "is_cross_domain": false,
+      "needs_clarification": true,
+      "entities": []
+    }
   },
   {
     "id": "ME-009",
+    "lang": "en",
     "message": "Hello, how are you?",
-    "expected": { "intent": "query_general", "domain": "general", "needs_clarification": false, "entities": [] }
+    "expected": {
+      "intent": "query_general",
+      "domain": "general",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": []
+    }
   },
   {
     "id": "ME-010",
+    "lang": "en",
     "message": "How much did I spend this week?",
-    "expected": { "intent": "query_finance", "domain": "finance", "needs_clarification": false, "entities": [] }
+    "expected": {
+      "intent": "query_finance",
+      "domain": "finance",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": []
+    }
   },
   {
     "id": "ME-011",
+    "lang": "en",
     "message": "I drank 500 ml of water.",
-    "expected": { "intent": "log_health", "domain": "health", "needs_clarification": false, "entities": [{ "domain": "health", "type": "water", "value": 0.5 }] }
+    "expected": {
+      "intent": "log_health",
+      "domain": "health",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": [{ "domain": "health", "type": "water", "value": 0.5 }]
+    }
   },
   {
     "id": "ME-012",
+    "lang": "en",
     "message": "My heart rate was 72 bpm.",
-    "expected": { "intent": "log_health", "domain": "health", "needs_clarification": false, "entities": [{ "domain": "health", "type": "heart_rate", "value": 72 }] }
+    "expected": {
+      "intent": "log_health",
+      "domain": "health",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": [{ "domain": "health", "type": "heart_rate", "value": 72 }]
+    }
+  },
+  {
+    "id": "ME-013",
+    "lang": "en",
+    "message": "I walked 5k today.",
+    "expected": {
+      "intent": "log_health",
+      "domain": "health",
+      "is_cross_domain": false,
+      "needs_clarification": false,
+      "entities": [{ "domain": "health", "type": "steps", "value": 5000 }]
+    }
   }
 ]

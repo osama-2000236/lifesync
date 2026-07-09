@@ -151,7 +151,7 @@ export default function AdminPage() {
             ) : (
               filteredUsers.map((u) => (
                 <div key={u.id} className="flex items-center gap-3 px-5 py-3 border-b border-navy-50 last:border-0 hover:bg-navy-50/50 transition-colors">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-navy-200 to-navy-400 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-ink-800 to-ink-700 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
                     {(u.username || '?')[0].toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">

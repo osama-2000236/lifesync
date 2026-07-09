@@ -178,7 +178,7 @@ describe('detectBudgetPatterns', () => {
     ];
 
     const result = detectBudgetPatterns(financeAgg, []);
-    const highConcSuggestion = result.suggestions.find((s) => s.text.includes('accounts for'));
+    const highConcSuggestion = result.suggestions.find((s) => s.text.includes('% of your spending'));
     expect(highConcSuggestion).toBeDefined();
   });
 
@@ -190,13 +190,13 @@ describe('detectBudgetPatterns', () => {
 
     const result = detectBudgetPatterns(financeAgg, []);
     expect(result.savings_rate).toBeLessThan(10);
-    const lowSavingsSuggestion = result.suggestions.find((s) => s.text.includes('savings rate'));
+    const lowSavingsSuggestion = result.suggestions.find((s) => s.text.includes("You're saving about"));
     expect(lowSavingsSuggestion).toBeDefined();
   });
 
   test('does not nag about savings rate when there is no income data at all', () => {
     const result = detectBudgetPatterns([], []);
-    const lowSavingsSuggestion = result.suggestions.find((s) => s.text.includes('savings rate'));
+    const lowSavingsSuggestion = result.suggestions.find((s) => s.text.includes("You're saving about"));
     expect(lowSavingsSuggestion).toBeUndefined();
   });
 });
