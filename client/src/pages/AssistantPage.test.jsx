@@ -254,6 +254,14 @@ describe('AssistantPage — converse + dictate', () => {
     expect(screen.getByTestId('mic-error-help')).toHaveTextContent('assistant.micUnsupportedBody');
   });
 
+  it('maps stt-unavailable (Arabic without cloud STT) away from the generic mic line', async () => {
+    voiceStub.error = 'stt-unavailable';
+    await renderPage();
+    expect(screen.getByText('assistant.sttUnavailable')).toBeInTheDocument();
+    expect(screen.getByTestId('mic-error-help')).toHaveTextContent('assistant.sttUnavailableBody');
+    expect(screen.queryByText('assistant.micError')).not.toBeInTheDocument();
+  });
+
   it('maps every voice phase to a label', async () => {
     voiceStub.state = 'thinking';
     const { unmount } = await renderPage();

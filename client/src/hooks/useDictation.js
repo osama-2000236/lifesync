@@ -116,6 +116,20 @@ export function useDictation({ locale = 'en', onText } = {}) {
   const startCloud = useCallback(async () => {
     if (!canRecord()) { setError('unsupported'); return; }
     setError(null);
+    // Probe whether cloud STT is configured before recording — avoids a dead-end
+    // that used to surface as a fake "microphone" error after a 501.
+    try {
+      const cfg = await voiceAPI.getConfig();
+      if (!cfg?.data?.data?.stt?.cloud) {
+        setError('stt-unavailable');
+        setState('idle');
+        return;
+      }
+    } catch {
+      setError('stt-unavailable');
+      setState('idle');
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -126,8 +140,9 @@ export function useDictation({ locale = 'en', onText } = {}) {
       recorderRef.current = recorder;
       setState('listening');
       recorder.start();
-    } catch {
-      setError('mic_denied');
+    } catch (e) {
+      const name = e?.name || '';
+      setError(name === 'NotAllowedError' || name === 'PermissionDeniedError' ? 'mic_denied' : 'mic_denied');
       setState('idle');
     }
   }, [finishCloud]);

@@ -120,19 +120,27 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
   const speakingRef = useRef(false);
   const streamDoneRef = useRef(true);
   const bargeRecRef = useRef(null);
-  // Cloud TTS fallback (Arabic-on-Windows etc.): whether the server has a TTS
-  // provider configured (fetched once), and the currently-playing audio element.
+  // Cloud STT/TTS: STT is required for Arabic when the browser Web Speech engine
+  // can't do ar-* (common on desktop Chrome). Without it we must NOT pretend the
+  // mic is broken — show stt-unavailable instead of the generic mic error.
+  const cloudSttRef = useRef(false);
   const cloudTtsRef = useRef(false);
   const cloudAudioRef = useRef(null);
   const speakViaCloudRef = useRef(() => {});
+  // Rotate BCP-47 tags when the engine rejects the first Arabic tag.
+  const srLangIdxRef = useRef(0);
 
-  // Learn once whether server-side TTS is available, so we only reach for it
-  // when the device genuinely lacks a local voice. Absent/failed → stay browser.
+  // Learn once whether server-side STT/TTS is available.
   useEffect(() => {
     let alive = true;
     voiceAPI.getConfig()
-      .then((res) => { if (alive) cloudTtsRef.current = Boolean(res?.data?.data?.tts?.cloud); })
-      .catch(() => { /* stay on browser TTS */ });
+      .then((res) => {
+        if (!alive) return;
+        const cfg = res?.data?.data;
+        cloudSttRef.current = Boolean(cfg?.stt?.cloud);
+        cloudTtsRef.current = Boolean(cfg?.tts?.cloud);
+      })
+      .catch(() => { /* stay on browser engines */ });
     return () => { alive = false; };
   }, []);
 
@@ -156,21 +164,45 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
 
     let stream;
     try {
-      // Echo cancellation keeps the spoken reply from re-triggering the mic.
-      // Fall back to plain { audio: true } when advanced constraints fail
-      // (some Windows drivers reject over-constrained requests as generic errors).
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        });
-      } catch (constrainedErr) {
-        if (constrainedErr?.name === 'OverconstrainedError'
-          || constrainedErr?.name === 'ConstraintNotSatisfiedError') {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        } else {
-          throw constrainedErr;
+      // Try several constraint shapes — Windows drivers often reject the first.
+      const attempts = [
+        { audio: true },
+        { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } },
+        { audio: { deviceId: 'default' } },
+      ];
+      let lastErr = null;
+      for (const c of attempts) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(c);
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
         }
       }
+      // After a successful permission grant, labels appear — try each input.
+      if (!stream) {
+        try {
+          const unlock = await navigator.mediaDevices.getUserMedia({ audio: true });
+          unlock.getTracks().forEach((t) => t.stop());
+        } catch (e) {
+          throw lastErr || e;
+        }
+        const inputs = (await navigator.mediaDevices.enumerateDevices())
+          .filter((d) => d.kind === 'audioinput' && d.deviceId);
+        for (const d of inputs) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: { deviceId: { exact: d.deviceId } },
+            });
+            lastErr = null;
+            break;
+          } catch (err) {
+            lastErr = err;
+          }
+        }
+      }
+      if (!stream) throw lastErr || new Error('No usable microphone');
     } catch (e) {
       setError(classifyMicError(e));
       return false;
@@ -280,15 +312,25 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
         } else if (activeRef.current) {
           startCloudTurnRef.current();
         }
-      } catch {
-        setError('stt-failed');
-        if (activeRef.current) startCloudTurnRef.current();
+      } catch (err) {
+        // 501 = cloud STT not configured — not a microphone problem.
+        const status = err?.response?.status;
+        setError(status === 501 ? 'stt-unavailable' : 'stt-failed');
+        activeRef.current = false;
+        setActive(false);
+        setPhase('idle');
       }
     };
 
     cloudRecorderRef.current = recorder;
     setPhase('listening');
-    try { recorder.start(250); } catch { setError('mic-failed'); return; }
+    try {
+      recorder.start(250);
+    } catch {
+      // MediaRecorder failed (codec), not getUserMedia — still not "mic access".
+      setError(cloudSttRef.current ? 'stt-failed' : 'stt-unavailable');
+      return;
+    }
 
     // Level-meter VAD: turn ends after SILENCE_MS of quiet following speech.
     vadTimerRef.current = setInterval(() => {
@@ -313,13 +355,21 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
   // ─── Recognition ───
   const clearSilence = () => { if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; };
 
+  /** Candidate BCP-47 tags for the current turn language (Arabic needs fallbacks). */
+  const srLangCandidates = (lang) => {
+    if (lang === 'ar') return ['ar-SA', 'ar-EG', 'ar-AE', 'ar', 'ar-XA'];
+    return [speechLangTag(lang), 'en-US', 'en'];
+  };
+
   const startNativeListening = useCallback(() => {
     if (!SR || !activeRef.current) return;
     try { recRef.current?.abort(); } catch { /* ignore */ }
     finalRef.current = '';
     setTranscript('');
+    const candidates = srLangCandidates(sessionLangRef.current);
+    const langTag = candidates[Math.min(srLangIdxRef.current, candidates.length - 1)];
     const rec = new SR();
-    rec.lang = speechLangTag(sessionLangRef.current);
+    rec.lang = langTag;
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = (e) => {
@@ -347,14 +397,33 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     };
     rec.onerror = (e) => {
       if (e?.error === 'not-allowed') { setError('mic-denied'); return; }
-      // Engine can't handle this language/network — switch to the cloud loop
-      // instead of restarting a recognizer that will never produce results.
-      if (NATIVE_FATAL.includes(e?.error) && canRecord() && activeRef.current) {
-        engineRef.current = 'cloud';
+      if (e?.error === 'audio-capture') {
+        setError('mic-failed');
+        return;
+      }
+      // Engine can't handle this language/network.
+      if (NATIVE_FATAL.includes(e?.error) && activeRef.current) {
         clearSilence();
         try { rec.abort(); } catch { /* ignore */ }
         recRef.current = null;
-        startCloudTurnRef.current();
+        // Try next Arabic/English lang tag before giving up.
+        if (srLangIdxRef.current < candidates.length - 1) {
+          srLangIdxRef.current += 1;
+          startListeningRef.current?.();
+          return;
+        }
+        // Only fall back to cloud when the server actually has STT configured.
+        // Otherwise the UI used to show a fake "mic access" error (stt-failed → micError).
+        if (cloudSttRef.current && canRecord()) {
+          engineRef.current = 'cloud';
+          srLangIdxRef.current = 0;
+          startCloudTurnRef.current();
+          return;
+        }
+        setError('stt-unavailable');
+        activeRef.current = false;
+        setActive(false);
+        setPhase('idle');
       }
       // 'no-speech'/'aborted' are benign in a continuous loop.
     };
@@ -526,8 +595,17 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     if (!supported) { setError('unsupported'); return; }
     if (activeRef.current) return; // guard against double-start (StrictMode / re-open)
     setError(null);
-    // No native Web Speech → go straight to cloud record→Whisper (don't fail as "mic").
-    if (!SR && canRecord()) engineRef.current = 'cloud';
+    srLangIdxRef.current = 0;
+    // No native Web Speech → cloud record→Whisper only if configured.
+    if (!SR) {
+      if (cloudSttRef.current && canRecord()) engineRef.current = 'cloud';
+      else {
+        setError('stt-unavailable');
+        return;
+      }
+    } else {
+      engineRef.current = 'native';
+    }
     activeRef.current = true;
     setActive(true);
     const micOk = await startMeter();
@@ -547,6 +625,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
   useEffect(() => {
     engineRef.current = 'native';
     sessionLangRef.current = locale === 'ar' ? 'ar' : 'en';
+    srLangIdxRef.current = 0;
   }, [locale]);
 
   const stop = useCallback(() => {

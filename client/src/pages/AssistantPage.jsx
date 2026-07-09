@@ -268,6 +268,9 @@ export default function AssistantPage() {
     'mic-insecure': t('assistant.micInsecure'),
     unsupported: t('assistant.micUnsupported'),
     'mic-failed': t('assistant.micError'),
+    // Not a mic problem — browser can't STT this language and cloud STT is off.
+    'stt-unavailable': t('assistant.sttUnavailable'),
+    'stt-failed': t('assistant.sttFailed'),
   })[voice.error] || (voice.error ? t('assistant.micError') : '');
   const micHelpKey = ({
     'mic-denied': 'assistant.micDeniedBody',
@@ -276,6 +279,8 @@ export default function AssistantPage() {
     'mic-none': 'assistant.micNoneBody',
     'mic-failed': 'assistant.micErrorBody',
     unsupported: 'assistant.micUnsupportedBody',
+    'stt-unavailable': 'assistant.sttUnavailableBody',
+    'stt-failed': 'assistant.sttFailedBody',
   })[voice.error];
   const phaseLabel = voice.error ? micErrorTitle
     : ({ listening: t('va.listening'), thinking: t('va.thinking'), speaking: t('va.speaking'), idle: t('assistant.tapConverse') }[voice.state] || '');

@@ -46,7 +46,15 @@ export default function DictationComposer({ locale, busy, onSubmit, t }) {
       )}
       {dictation.error && (
         <p className="px-2 text-xs text-coral-500" data-testid="dictation-error">
-          {dictation.error === 'unsupported' ? t('assistant.micUnsupported') : t('assistant.micError')}
+          {({
+            unsupported: t('assistant.micUnsupported'),
+            mic_denied: t('assistant.micDeniedTitle'),
+            'not-allowed': t('assistant.micDeniedTitle'),
+            'stt-unavailable': t('assistant.sttUnavailable'),
+            'language-not-supported': t('assistant.sttUnavailable'),
+            transcribe_failed: t('assistant.sttFailed'),
+            no_transcript: t('assistant.sttFailed'),
+          })[dictation.error] || t('assistant.micError')}
         </p>
       )}
       <div className="flex items-center justify-between mt-2">

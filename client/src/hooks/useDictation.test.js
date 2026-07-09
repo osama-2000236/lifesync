@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
 // voiceAPI is mocked; each fresh import (after resetModules) gets this factory.
-vi.mock('../services/api', () => ({ voiceAPI: { transcribe: vi.fn() } }));
+// getConfig defaults to cloud STT on so cloud-fallback tests still exercise record→Whisper.
+vi.mock('../services/api', () => ({
+  voiceAPI: {
+    transcribe: vi.fn(),
+    getConfig: vi.fn(async () => ({ data: { data: { stt: { cloud: true }, tts: { cloud: false } } } })),
+  },
+}));
 
 class FakeSR {
   constructor() { FakeSR.last = this; }

@@ -94,13 +94,16 @@ describe('DictationComposer', () => {
     expect(dict.stop).toHaveBeenCalled();
   });
 
-  it('shows unsupported vs generic mic error', () => {
+  it('shows unsupported vs denied vs stt-unavailable distinctly', () => {
     dict.error = 'unsupported';
     const { rerender } = render(<DictationComposer locale="en" onSubmit={() => {}} t={t} />);
     expect(screen.getByTestId('dictation-error')).toHaveTextContent('assistant.micUnsupported');
     dict = { ...dict, error: 'mic_denied' };
     rerender(<DictationComposer locale="en" onSubmit={() => {}} t={t} />);
-    expect(screen.getByTestId('dictation-error')).toHaveTextContent('assistant.micError');
+    expect(screen.getByTestId('dictation-error')).toHaveTextContent('assistant.micDeniedTitle');
+    dict = { ...dict, error: 'stt-unavailable' };
+    rerender(<DictationComposer locale="en" onSubmit={() => {}} t={t} />);
+    expect(screen.getByTestId('dictation-error')).toHaveTextContent('assistant.sttUnavailable');
   });
 
   it('disables mic when unsupported', () => {
