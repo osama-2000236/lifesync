@@ -17,7 +17,7 @@ const {
   formatCoverageLine,
   isSameUtcDay,
 } = require('./sameDayCoverage');
-const { formatHorizonLine, weekMonthSkip } = require('./longHorizon');
+const { weekMonthSkip } = require('./longHorizon');
 
 // OpenRouter :free pools are shared and transiently unhealthy — they signal
 // "busy" as 429 AND as 503/502, request timeouts, dropped sockets, or an empty
@@ -162,17 +162,21 @@ const buildDataGaps = (context = {}, now = new Date(), today = null) => {
     financeGaps.push('budget or savings target');
   }
 
-  // Second-mind digs: trend follow-ups instead of raw re-collection when data is rich.
+  // Second-mind digs: trend follow-ups instead of raw re-collection when data is
+  // rich. Cite the REAL numbers so the model asks "spend +67% WoW (200 vs 120) —
+  // what drove it" instead of a generic "log more".
   const trendGaps = [];
   const w = context.horizon?.week;
   if (w?.expense_trend === 'up' && w.expense_delta_pct > 15 && cov.finance.has('expense')) {
-    trendGaps.push('what drove higher spending this week vs last (second mind)');
+    trendGaps.push(`spend up ${w.expense_delta_pct}% WoW (${w.expense_total} vs ${w.expense_prev}) — what drove it (second mind)`);
   }
   if (w?.sleep_trend === 'down' && w.sleep_avg != null && w.sleep_avg < 7) {
-    trendGaps.push('sleep dipped this week — what changed at night (second mind)');
+    trendGaps.push(`sleep avg ${w.sleep_avg}h, down ${Math.abs(w.sleep_delta_pct ?? 0)}% WoW — what changed at night (second mind)`);
   }
 
-  const out = [];
+  // Trend digs FIRST: they only exist on strong deltas and are the second-mind
+  // differentiator — raw re-collection must not push them past the cap below.
+  const out = [...trendGaps];
   // Interleave the FULL lists (health can hold 4: sleep/mood/steps/water) —
   // the slice(0, 7) below is the only cap, so no gap is silently unreachable.
   const rounds = Math.max(healthGaps.length, financeGaps.length);
@@ -180,7 +184,6 @@ const buildDataGaps = (context = {}, now = new Date(), today = null) => {
     if (healthGaps[i]) out.push(healthGaps[i]);
     if (financeGaps[i]) out.push(financeGaps[i]);
   }
-  trendGaps.forEach((g) => out.push(g));
   if (!(context.memory?.count > 0) && !context.memory?.summary) out.push('name or daily routine');
   if (!context.active_goals?.length) out.push('a simple health or money goal');
   return [...new Set(out)].slice(0, 7);
@@ -211,11 +214,13 @@ const buildSystemPrompt = (context = {}, loggedEntities = [], locale = null, mod
   });
   const gaps = buildDataGaps({ ...context, this_turn_entities: loggedEntities }, new Date(), today);
   const loggedTodayLine = formatCoverageLine(today);
-  const horizonLine = formatHorizonLine(context.horizon, String(resolvedLocale || '').startsWith('ar'));
-  const gapHint = gaps.length
-    ? `DATA GAPS (only metrics NOT logged today — dig here): ${gaps.join('; ')}.`
-    : 'DATA GAPS: all core metrics already logged today — dig deeper on patterns or cross-domain links using numbers you already have; do not re-ask today\'s values.';
   const { free } = genParamsForModel(modelSlug);
+  // Free models get one dig — 7 gap options is noise. Trends are already first.
+  const shownGaps = free ? gaps.slice(0, 4) : gaps;
+  const gapHint = shownGaps.length
+    ? `DATA GAPS (only metrics NOT logged today — dig here): ${shownGaps.join('; ')}.`
+    : 'DATA GAPS: all core metrics already logged today — dig deeper on patterns or cross-domain links using numbers you already have; do not re-ask today\'s values.';
+  const digBudget = free ? 'ONE dig question' : '1–2 dig questions';
 
   return [
     'You are LifeSync — a warm, curious personal daily assistant for health, money, mood, and everyday planning. You speak with the user (voice or chat) as someone who already knows their dashboard.',
@@ -235,14 +240,16 @@ const buildSystemPrompt = (context = {}, loggedEntities = [], locale = null, mod
     // Direct data access contract (Track A logger + this context = dashboard truth).
     'DASHBOARD ACCESS: You have direct access to the user\'s real LifeSync data below (health logs, finance logs, goals, memory, linked health↔money pairs, chat history). Cite exact numbers from that data. Never invent logs, amounts, or stats.',
     'LOGGING: When the user states health OR money facts, the app AUTOMATICALLY logs them to the dashboard. Health: sleep hours, mood 1-10, steps, water, exercise. Money: expense/income amounts + purpose (spent 20 on coffee, earned 500 salary). Invite BOTH domains. After something is logged this turn, acknowledge it. Never claim you logged something the app did not log.',
-    'CURIOUS DIGGER: Equal curiosity for health AND finance. Ask 1–2 dig questions ONLY from DATA GAPS. Never re-ask LOGGED_TODAY metrics (if mood is already 3/10 today, do not ask mood again). Cite today\'s values if relevant instead of re-collecting them. Warm, not an interrogation.',
+    `CURIOUS DIGGER: Equal curiosity for health AND finance. Ask ${digBudget} ONLY from DATA GAPS. Never re-ask LOGGED_TODAY metrics (if mood is already 3/10 today, do not ask mood again). Cite today's values if relevant instead of re-collecting them. Warm, not an interrogation.`,
     'FINANCE HARNESS: Treat money with the same depth as health. Cite spend totals, income, net, avg expense, and top spend categories from data when present. Dig for amount + purpose only when expense is not LOGGED_TODAY.',
     'NO RE-ASK RULE: If a metric appears in LOGGED_TODAY, you already have it for this calendar day — reference it, do not ask the user for it again. Prefer week/month TREND questions over re-collecting the same number.',
     'SECOND MIND: Act like a companion who has tracked this user for months/years. Use LONG-HORIZON trends (week vs prior week, month spend, streaks). Notice shifts (sleep down + spend up). Celebrate log streaks. Cross-domain logging should feel automatic — invite one concrete log that completes a pattern, not a form.',
     memory ? `What you remember about the user (${memCount || 'some'} facts): ${memory}.` : '',
     winHint,
     countHint,
-    horizonLine || '',
+    // No standalone LONG-HORIZON line: the data picture below already ends with
+    // the same trends (buildContextSummary appends formatHorizonLine) — saying
+    // the numbers twice was pure token bloat for free models.
     summary ? `The user's LifeSync data (dashboard truth — use exact numbers, never invent): ${summary}` : '',
     loggedTodayLine
       ? `LOGGED_TODAY (do NOT re-ask): ${loggedTodayLine}.`
@@ -253,8 +260,8 @@ const buildSystemPrompt = (context = {}, loggedEntities = [], locale = null, mod
     'Never invent numbers or facts. Do not diagnose medical conditions or promise financial outcomes.',
     // Max XD harness: prefer stored LinkedDomain pairs; else soft co-presence.
     nLinks > 0
-      ? `CROSS-DOMAIN HARNESS (MAX): ${nLinks} stored health↔money link(s) are in the data picture (LINKED lines). Prefer those real links. (1) Cite one linked pair with numbers, (2) one small action, (3) 1–2 curious dig questions. Never invent a link that is not in the data.`
-      : 'CROSS-DOMAIN HARNESS: Health and money are one life. When both domains appear in data or this turn, (1) name the link with numbers from the data, (2) one small action, (3) 1–2 dig questions that fill gaps or invite a loggable follow-up. Never invent a link without data.',
+      ? `CROSS-DOMAIN HARNESS (MAX): ${nLinks} stored health↔money link(s) are in the data picture (LINKED lines). Prefer those real links. (1) Cite one linked pair with numbers, (2) one small action, (3) ${digBudget}. Never invent a link that is not in the data.`
+      : `CROSS-DOMAIN HARNESS: Health and money are one life. When both domains appear in data or this turn, (1) name the link with numbers from the data, (2) one small action, (3) ${digBudget} filling gaps or inviting a loggable follow-up. Never invent a link without data.`,
     // Restate at the end — last instruction wins for many small models.
     buildLanguageDirective(resolvedLocale),
   ].filter(Boolean).join('\n');

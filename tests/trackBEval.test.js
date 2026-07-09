@@ -85,6 +85,18 @@ describe('Track B floors — system prompt contracts', () => {
     // Water is the 4th health gap — the interleave must not silently drop it.
     expect(empty.some((g) => /water/i.test(g))).toBe(true);
     expect(empty.length).toBeLessThanOrEqual(7);
+  });
+
+  test('free models get a trimmed gap list and a single-dig budget; paid keeps 1–2', () => {
+    const { _buildSystemPrompt: sp } = require('../server/services/ai/conversationService');
+    const sysFree = sp({}, [], 'en', 'google/gemma-4-31b-it:free');
+    expect(sysFree).toMatch(/Ask ONE dig question ONLY from DATA GAPS/);
+    const gapLine = sysFree.split('\n').find((l) => l.startsWith('DATA GAPS'));
+    expect(gapLine.split(';').length).toBeLessThanOrEqual(4);
+    const sysPaid = sp({}, [], 'en', 'openai/gpt-5.4-mini');
+    expect(sysPaid).toMatch(/Ask 1–2 dig questions ONLY from DATA GAPS/);
+    expect(sysPaid.split('\n').find((l) => l.startsWith('DATA GAPS')).split(';').length)
+      .toBeGreaterThan(4);
     const sys = sp({ health: {}, finance: {} }, [], 'en', 'm');
     expect(sys).toMatch(/DATA GAPS/i);
     expect(sys).toMatch(/expense|income|budget/i);

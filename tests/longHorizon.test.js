@@ -78,6 +78,9 @@ describe('longHorizon', () => {
     expect(gaps.join(' ')).not.toMatch(/income/i);
     // spend up + expense today → second-mind spend dig possible
     expect(gaps.some((g) => /second mind|higher spending|sleep dipped/i.test(g))).toBe(true);
+    // Trend digs outrank raw re-collection and cite the real numbers.
+    expect(gaps[0]).toMatch(/second mind/i);
+    expect(gaps.join(' ')).toMatch(/\d+(\.\d+)?% WoW/);
   });
 
   test('system prompt includes SECOND MIND + LONG-HORIZON when horizon present', () => {
@@ -90,5 +93,8 @@ describe('longHorizon', () => {
     const sys = _buildSystemPrompt({ horizon, profile: { name: 'Sam', member_since: '2024-06-01' } }, [], 'en', 'm');
     expect(sys).toMatch(/SECOND MIND/);
     expect(sys).toMatch(/LONG-HORIZON|d together|streak|spend/i);
+    // Trends appear ONCE, inside the data picture — no duplicate standalone line.
+    expect(sys).not.toMatch(/^LONG-HORIZON:/m);
+    expect(sys).toMatch(/trends: /);
   });
 });
