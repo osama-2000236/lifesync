@@ -104,6 +104,7 @@ export const en = {
   'chat.dictate.error': 'I couldn\'t hear you. Check the mic and try again.',
   'chat.receipts.onDashboard': 'saved to your dashboard',
   'chat.model.free': 'Free',
+  'chat.model.paid': 'Paid',
   'chat.model.local': 'Local',
   'chat.depth.standard': 'Standard',
   'chat.depth.deep': 'Deep',

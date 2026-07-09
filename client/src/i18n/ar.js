@@ -104,6 +104,7 @@ export const ar = {
   'chat.dictate.error': 'لم أسمعك. تحقّق من الميكروفون وحاول مرة أخرى.',
   'chat.receipts.onDashboard': 'حُفظ على لوحتك',
   'chat.model.free': 'مجاني',
+  'chat.model.paid': 'مدفوع',
   'chat.model.local': 'محلي',
   'chat.depth.standard': 'عادي',
   'chat.depth.deep': 'أوسع',

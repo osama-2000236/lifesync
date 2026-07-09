@@ -15,6 +15,7 @@ import { ChevronDown, Check, Cpu, Sparkles } from 'lucide-react';
 
 const TAG_STYLES = {
   free: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
+  paid: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
   local: 'bg-navy-50 text-navy-600 border-navy-200 dark:text-navy-500',
 };
 
@@ -96,7 +97,12 @@ export default function ModelPicker({ models, value, onChange, disabled, t, vari
   }, [open]);
 
   const current = models.find((m) => m.id === value) || models[0];
-  const tagOf = (m) => (m?.pricing === 'free' || m?.tag === 'free' ? 'free' : 'local');
+  // Prefer server `pricing` (free|paid|local); fall back to static tag.
+  const tagOf = (m) => {
+    if (m?.pricing === 'paid') return 'paid';
+    if (m?.pricing === 'free' || m?.tag === 'free') return 'free';
+    return 'local';
+  };
 
   const triggerClass = onDark
     ? 'inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15 transition-colors disabled:opacity-50'
@@ -138,11 +144,14 @@ export default function ModelPicker({ models, value, onChange, disabled, t, vari
             >
               <span className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-navy-900">{m.label}</span>
-                <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${TAG_STYLES[tag]}`}>
-                  {tag === 'free' ? t('chat.model.free') : t('chat.model.local')}
+                <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${TAG_STYLES[tag] || TAG_STYLES.local}`}>
+                  {tag === 'free' ? t('chat.model.free') : tag === 'paid' ? t('chat.model.paid') : t('chat.model.local')}
                 </span>
                 {selected && <Check className="w-4 h-4 text-emerald-500 ms-auto" />}
               </span>
+              {m.model && (
+                <span className="mt-0.5 block text-[10px] font-mono text-navy-400 truncate" title={m.model}>{m.model}</span>
+              )}
               {(m.description || m.desc) && (
                 <span className="mt-0.5 block text-xs leading-5 text-navy-400">{m.description || m.desc}</span>
               )}

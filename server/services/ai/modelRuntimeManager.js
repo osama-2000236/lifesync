@@ -550,20 +550,42 @@ const activeModelId = (provider, activeStatus = {}) => {
   return direct ? direct.id : null;
 };
 
-const getModelCatalog = () => MODEL_CATALOG.map((m) => ({
-  id: m.id,
-  label: m.label,
-  kind: m.kind,
-  is_default: m.is_default,
-  pricing: m.pricing || 'local',
-  uploadable: Boolean(m.uploadable),
-  description: m.description,
-  provider: m.id === 'custom_local' ? customModelState.runtime : m.target.provider,
-  model: m.id === 'custom_local' ? (customModelState.name || customModelState.file_name || null) : m.target.model,
-  configured: m.id === 'custom_local' ? Boolean(customModelState.name || customModelState.endpoint) : true,
-  eta_ms: m.eta_ms,
-  capabilities: capabilitiesFor(m.id === 'custom_local' ? customModelState.runtime : m.target.provider),
-}));
+// OpenRouter free-tier slugs end with ":free". Env overrides may point a
+// catalog id at a paid slug — pricing must follow the resolved slug, not the
+// static marketing label (e.g. openai_chat → gpt-5.4-mini when OPENROUTER_GPT_MODEL is set).
+const isFreeSlug = (slug) => {
+  const s = String(slug || '');
+  return !s || s.includes(':free') || s.endsWith('/free');
+};
+
+const getModelCatalog = () => MODEL_CATALOG.map((m) => {
+  const provider = m.id === 'custom_local' ? customModelState.runtime : m.target.provider;
+  const model = m.id === 'custom_local'
+    ? (customModelState.name || customModelState.file_name || null)
+    : m.target.model;
+  let pricing = m.pricing || 'local';
+  if (m.kind === 'generative' && provider === 'openrouter') {
+    pricing = isFreeSlug(model) ? 'free' : 'paid';
+  }
+  // Voice = text chat over the same SSE path — every generative entry is voice-capable
+  // when the upstream accepts chat/completions (not a speech codec). BERT is not.
+  const voice_ok = m.kind === 'generative';
+  return {
+    id: m.id,
+    label: m.label,
+    kind: m.kind,
+    is_default: m.is_default,
+    pricing,
+    uploadable: Boolean(m.uploadable),
+    description: m.description,
+    provider,
+    model,
+    configured: m.id === 'custom_local' ? Boolean(customModelState.name || customModelState.endpoint) : true,
+    eta_ms: m.eta_ms,
+    capabilities: capabilitiesFor(provider),
+    voice_ok,
+  };
+});
 
 const getRuntimeSnapshot = async () => {
   const activeProvider = _getProvider('chat');
