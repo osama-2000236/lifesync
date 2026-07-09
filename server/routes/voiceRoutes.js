@@ -3,13 +3,13 @@
 // Voice surface for the assistant.
 // ============================================
 // Default voice path is browser-native (Web Speech API for STT, speechSynthesis
-// for TTS) — zero server keys, works offline-ish, and the assistant reply still
-// flows through the normal /api/chat/stream model path (BERT or any OpenRouter
-// model). These endpoints prepare the server side:
+// for TTS). Cloud fallbacks:
+//   1) Explicit VOICE_STT_* / VOICE_TTS_* endpoints + keys
+//   2) Auto: OPENROUTER_API_KEY → OpenRouter /audio/transcriptions + /audio/speech
+//      (so Arabic works on desktop Chrome with the same key as chat)
 //   GET  /api/voice/config      — secret-free capability + language snapshot
-//   POST /api/voice/transcribe  — optional cloud STT proxy (off until configured)
-// Wire a cloud STT provider (e.g. Groq/OpenAI Whisper) when you want
-// transcription quality beyond the browser engine — see the stub below.
+//   POST /api/voice/transcribe  — cloud STT proxy (key never reaches the browser)
+//   POST /api/voice/speak       — cloud TTS proxy for languages without a local voice
 const express = require('express');
 const axios = require('axios');
 const multer = require('multer');
@@ -30,25 +30,71 @@ const SUPPORTED_LANGUAGES = [
   { code: 'ar', stt: 'ar-SA', tts: 'ar-SA', label: 'Arabic' },
 ];
 
-// True once a server-side STT provider + key is configured.
-const cloudSttConfigured = () =>
-  Boolean(process.env.VOICE_STT_API_KEY && process.env.VOICE_STT_ENDPOINT);
+const openRouterBase = () =>
+  (process.env.OPENROUTER_API_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
 
-const sttModel = () => process.env.VOICE_STT_MODEL || 'whisper-large-v3';
+const openRouterExtraHeaders = () => ({
+  'HTTP-Referer': process.env.OPENROUTER_SITE_URL || 'https://lifesync.app',
+  'X-Title': process.env.OPENROUTER_APP_NAME || 'LifeSync',
+});
 
-// True once a server-side TTS provider + key is configured. The browser's
-// speechSynthesis is the default voice; this cloud path exists ONLY as a
-// fallback for languages the device has no local voice for — most notably
-// Arabic on Windows/Chrome, which ships no ar-* voice, so an Arabic reply is
-// otherwise silent or read (garbled) by an English voice.
-const cloudTtsConfigured = () =>
-  Boolean(process.env.VOICE_TTS_API_KEY && process.env.VOICE_TTS_ENDPOINT);
+/**
+ * Resolve STT provider: explicit VOICE_STT_* wins; else OPENROUTER_API_KEY.
+ * Returns null when nothing is configured.
+ */
+const resolveStt = () => {
+  if (process.env.VOICE_STT_DISABLED === '1') return null;
+  if (process.env.VOICE_STT_API_KEY && process.env.VOICE_STT_ENDPOINT) {
+    return {
+      endpoint: process.env.VOICE_STT_ENDPOINT,
+      apiKey: process.env.VOICE_STT_API_KEY,
+      model: process.env.VOICE_STT_MODEL || 'whisper-large-v3',
+      headers: {},
+    };
+  }
+  if (process.env.OPENROUTER_API_KEY) {
+    return {
+      endpoint: `${openRouterBase()}/audio/transcriptions`,
+      apiKey: process.env.OPENROUTER_API_KEY,
+      model: process.env.VOICE_STT_MODEL
+        || process.env.OPENROUTER_STT_MODEL
+        || 'openai/whisper-large-v3',
+      headers: openRouterExtraHeaders(),
+    };
+  }
+  return null;
+};
 
-const ttsModel = () => process.env.VOICE_TTS_MODEL || 'tts-1';
-// OpenAI-style TTS voices are language-agnostic (the model speaks the input
-// language). One configurable default is enough; make it per-lang only if a
-// provider needs distinct voice ids per language.
-// ponytail: single env voice; add a lang→voice map only if a provider needs it.
+/**
+ * Resolve TTS provider: explicit VOICE_TTS_* wins; else OPENROUTER_API_KEY.
+ */
+const resolveTts = () => {
+  if (process.env.VOICE_TTS_DISABLED === '1') return null;
+  if (process.env.VOICE_TTS_API_KEY && process.env.VOICE_TTS_ENDPOINT) {
+    return {
+      endpoint: process.env.VOICE_TTS_ENDPOINT,
+      apiKey: process.env.VOICE_TTS_API_KEY,
+      model: process.env.VOICE_TTS_MODEL || 'tts-1',
+      headers: {},
+    };
+  }
+  if (process.env.OPENROUTER_API_KEY) {
+    return {
+      endpoint: `${openRouterBase()}/audio/speech`,
+      apiKey: process.env.OPENROUTER_API_KEY,
+      // Prefer a model that speaks Arabic well; override with VOICE_TTS_MODEL.
+      model: process.env.VOICE_TTS_MODEL
+        || process.env.OPENROUTER_TTS_MODEL
+        || 'openai/gpt-4o-mini-tts',
+      headers: openRouterExtraHeaders(),
+    };
+  }
+  return null;
+};
+
+const cloudSttConfigured = () => Boolean(resolveStt());
+const cloudTtsConfigured = () => Boolean(resolveTts());
+
 const ttsVoice = () => process.env.VOICE_TTS_VOICE || 'alloy';
 // Output container. 'wav' is the safe cross-provider default (OpenAI + Groq
 // both accept it) and is REQUIRED by Groq's Orpheus models, which reject the
@@ -72,12 +118,14 @@ const contentTypeFromFormat = (fmt) => {
 // No `language` field: it isn't part of the /audio/speech contract (Groq 400s
 // on it) — the model speaks the input text's language natively.
 const synthesizeSpeech = async (text) => {
+  const cfg = resolveTts();
+  if (!cfg) throw new Error('TTS not configured');
   const format = ttsFormat();
   const { data, headers } = await axios.post(
-    process.env.VOICE_TTS_ENDPOINT,
-    { model: ttsModel(), input: String(text), voice: ttsVoice(), response_format: format },
+    cfg.endpoint,
+    { model: cfg.model, input: String(text), voice: ttsVoice(), response_format: format },
     {
-      headers: { Authorization: `Bearer ${process.env.VOICE_TTS_API_KEY}` },
+      headers: { Authorization: `Bearer ${cfg.apiKey}`, ...cfg.headers },
       responseType: 'arraybuffer',
       timeout: 30_000,
     },
@@ -91,12 +139,15 @@ const synthesizeSpeech = async (text) => {
 // Forward an audio buffer to an OpenAI-compatible /audio/transcriptions endpoint.
 // Kept separate from the route handler so it can be unit-tested with a mocked axios.
 const transcribeAudio = async (buffer, filename, language) => {
+  const cfg = resolveStt();
+  if (!cfg) throw new Error('STT not configured');
   const form = new FormData();
+  // Node 18+ FormData/Blob — OpenRouter accepts multipart webm from browsers.
   form.append('file', new Blob([buffer]), filename || 'audio.webm');
-  form.append('model', sttModel());
+  form.append('model', cfg.model);
   if (language) form.append('language', language);
-  const { data } = await axios.post(process.env.VOICE_STT_ENDPOINT, form, {
-    headers: { Authorization: `Bearer ${process.env.VOICE_STT_API_KEY}` },
+  const { data } = await axios.post(cfg.endpoint, form, {
+    headers: { Authorization: `Bearer ${cfg.apiKey}`, ...cfg.headers },
     timeout: 30_000,
     maxBodyLength: Infinity,
   });
@@ -105,21 +156,31 @@ const transcribeAudio = async (buffer, filename, language) => {
 
 // Public, secret-free snapshot so the client knows what to enable.
 router.get('/config', (req, res) => success(res, {
-  stt: { browser: true, cloud: cloudSttConfigured(), default: 'browser' },
-  tts: { browser: true, cloud: cloudTtsConfigured(), default: 'browser' },
+  stt: {
+    browser: true,
+    cloud: cloudSttConfigured(),
+    default: 'browser',
+    // Hint for ops UIs (never the key).
+    via: resolveStt()?.endpoint?.includes('openrouter') ? 'openrouter' : (cloudSttConfigured() ? 'custom' : null),
+  },
+  tts: {
+    browser: true,
+    cloud: cloudTtsConfigured(),
+    default: 'browser',
+    via: resolveTts()?.endpoint?.includes('openrouter') ? 'openrouter' : (cloudTtsConfigured() ? 'custom' : null),
+  },
   languages: SUPPORTED_LANGUAGES,
   rtl_languages: ['ar'],
 }, 'Voice config'));
 
 // Server-side fallback transcription. The browser (Web Speech API) is the
-// default path; the client only calls this when native STT is unavailable or
-// low-confidence. Disabled (501) until VOICE_STT_* env vars are set, so the key
-// never reaches the browser. Multipart field: `file` (audio blob), `language`.
+// default path; the client only calls this when native STT is unavailable.
+// Enabled via VOICE_STT_* or OPENROUTER_API_KEY (auto Whisper). Multipart: `file`.
 router.post('/transcribe', authenticate, upload.single('file'), async (req, res) => {
   if (!cloudSttConfigured()) {
     return error(
       res,
-      'Cloud transcription is not configured. The browser microphone (Web Speech API) is used by default. Set VOICE_STT_ENDPOINT + VOICE_STT_API_KEY to enable server-side STT.',
+      'Cloud transcription is not configured. Set VOICE_STT_ENDPOINT + VOICE_STT_API_KEY, or OPENROUTER_API_KEY for automatic Whisper via OpenRouter.',
       501,
       'VOICE_STT_NOT_CONFIGURED'
     );
@@ -137,24 +198,19 @@ router.post('/transcribe', authenticate, upload.single('file'), async (req, res)
   }
 });
 
-// Server-side TTS fallback. The client uses the browser's speechSynthesis by
-// default and only calls this when the device has NO local voice for the reply
-// language (Arabic on Windows/Chrome). Returns audio bytes the client plays
-// directly. Disabled (501) until VOICE_TTS_* env vars are set, so the key never
-// reaches the browser. JSON body: `text` (required), `language` (optional hint).
+// Server-side TTS fallback for languages the device has no local voice for
+// (Arabic on Windows/Chrome). Enabled via VOICE_TTS_* or OPENROUTER_API_KEY.
 router.post('/speak', authenticate, async (req, res) => {
   if (!cloudTtsConfigured()) {
     return error(
       res,
-      'Cloud text-to-speech is not configured. The browser voice (speechSynthesis) is used by default. Set VOICE_TTS_ENDPOINT + VOICE_TTS_API_KEY to enable server-side TTS for languages the device has no local voice for (e.g. Arabic on Windows).',
+      'Cloud text-to-speech is not configured. Set VOICE_TTS_ENDPOINT + VOICE_TTS_API_KEY, or OPENROUTER_API_KEY for automatic TTS via OpenRouter.',
       501,
       'VOICE_TTS_NOT_CONFIGURED',
     );
   }
   const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
   if (!text) return error(res, 'No text provided.', 400, 'VOICE_TTS_NO_TEXT');
-  // Cap input so a runaway reply can't request a huge synthesis (provider limit
-  // is ~4096 chars; the client already chunks, this is defense in depth).
   if (text.length > 4096) return error(res, 'Text too long for synthesis.', 413, 'VOICE_TTS_TOO_LONG');
   try {
     const { buffer, contentType } = await synthesizeSpeech(text);
@@ -174,3 +230,5 @@ module.exports.synthesizeSpeech = synthesizeSpeech;
 module.exports.cloudTtsConfigured = cloudTtsConfigured;
 module.exports.contentTypeFromFormat = contentTypeFromFormat;
 module.exports.ttsFormat = ttsFormat;
+module.exports.resolveStt = resolveStt;
+module.exports.resolveTts = resolveTts;

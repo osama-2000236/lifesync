@@ -20,6 +20,8 @@ app.use('/api/voice', voiceRoutes);
 
 const ORIGINAL_ENV = { ...process.env };
 const configure = () => {
+  delete process.env.VOICE_STT_DISABLED;
+  delete process.env.OPENROUTER_API_KEY; // prefer explicit STT for these tests
   process.env.VOICE_STT_ENDPOINT = 'https://stt.example/v1/audio/transcriptions';
   process.env.VOICE_STT_API_KEY = 'test-key';
 };
@@ -27,6 +29,10 @@ const unconfigure = () => {
   delete process.env.VOICE_STT_ENDPOINT;
   delete process.env.VOICE_STT_API_KEY;
   delete process.env.VOICE_STT_MODEL;
+  delete process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_STT_MODEL;
+  process.env.VOICE_STT_DISABLED = '1';
+  process.env.VOICE_TTS_DISABLED = '1';
 };
 
 beforeEach(() => { jest.clearAllMocks(); unconfigure(); });
@@ -45,6 +51,16 @@ describe('GET /config', () => {
     configure();
     const res = await request(app).get('/api/voice/config');
     expect(res.body.data.stt.cloud).toBe(true);
+  });
+
+  test('reports cloud STT on when only OPENROUTER_API_KEY is set (auto Whisper)', async () => {
+    delete process.env.VOICE_STT_DISABLED;
+    delete process.env.VOICE_STT_ENDPOINT;
+    delete process.env.VOICE_STT_API_KEY;
+    process.env.OPENROUTER_API_KEY = 'sk-or-test';
+    const res = await request(app).get('/api/voice/config');
+    expect(res.body.data.stt.cloud).toBe(true);
+    expect(res.body.data.stt.via).toBe('openrouter');
   });
 });
 
@@ -92,16 +108,20 @@ describe('POST /transcribe', () => {
 });
 
 describe('POST /speak (cloud TTS fallback)', () => {
-  const configureTts = () => {
-    process.env.VOICE_TTS_ENDPOINT = 'https://tts.example/v1/audio/speech';
-    process.env.VOICE_TTS_API_KEY = 'test-tts-key';
-  };
   const unconfigureTts = () => {
     delete process.env.VOICE_TTS_ENDPOINT;
     delete process.env.VOICE_TTS_API_KEY;
     delete process.env.VOICE_TTS_MODEL;
     delete process.env.VOICE_TTS_VOICE;
     delete process.env.VOICE_TTS_FORMAT;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.VOICE_TTS_DISABLED = '1';
+  };
+  const configureTts = () => {
+    delete process.env.VOICE_TTS_DISABLED;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.VOICE_TTS_ENDPOINT = 'https://tts.example/v1/audio/speech';
+    process.env.VOICE_TTS_API_KEY = 'test-tts-key';
   };
   beforeEach(unconfigureTts);
 
