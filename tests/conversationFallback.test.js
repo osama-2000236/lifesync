@@ -65,7 +65,10 @@ describe('generateAssistantReply same-slug only', () => {
     const out = await generateAssistantReply({
       provider: 'openrouter', model: GEMMA, message: 'hi',
     });
-    expect(out).toEqual({ text: 'hi from gemma', provider: 'openrouter', model: GEMMA });
+    expect(out).toEqual({
+      text: 'hi from gemma', provider: 'openrouter', model: GEMMA,
+      attempts: 1, latency_ms: expect.any(Number),
+    });
     expect(generateChat).toHaveBeenCalledTimes(1);
     expect(generateChat.mock.calls[0][0].model).toBe(GEMMA);
   });
@@ -79,6 +82,7 @@ describe('generateAssistantReply same-slug only', () => {
     });
     expect(out.text).toBe('cleared');
     expect(out.model).toBe(GEMMA);
+    expect(out.attempts).toBe(2); // free-pool retry is visible in diagnostics
     expect(generateChat.mock.calls.every((c) => c[0].model === GEMMA)).toBe(true);
   });
 
@@ -87,7 +91,7 @@ describe('generateAssistantReply same-slug only', () => {
     const out = await generateAssistantReply({
       provider: 'openrouter', model: GEMMA, message: 'hi',
     });
-    expect(out).toEqual({ error: 'invalid api key' });
+    expect(out).toEqual({ error: 'invalid api key', attempts: 1, latency_ms: expect.any(Number) });
     expect(generateChat).toHaveBeenCalledTimes(1);
   });
 
@@ -131,6 +135,8 @@ describe('generateAssistantReplyStream free voice path', () => {
       text: 'nonstream free ok',
       provider: 'openrouter',
       model: GEMMA,
+      attempts: 1,
+      latency_ms: expect.any(Number),
     });
     expect(deltas.join('')).toBe('nonstream free ok');
     expect(generateChat).toHaveBeenCalledTimes(1);

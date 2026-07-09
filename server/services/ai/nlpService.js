@@ -839,6 +839,10 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
         responder: 'generative',
         // Classifier is separate — keep for ops, never as the face of the reply.
         classifier_model: actions.model_runtime?.model || null,
+        // Ops diagnostics: Track B wall time + upstream call count (free-pool
+        // retries show as attempts > 1). No keys, no provider bodies.
+        latency_ms: reply.latency_ms ?? null,
+        attempts: reply.attempts ?? null,
       },
     };
   }
@@ -867,6 +871,8 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
       chat_provider: provider,
       chat_error: rawErr,
       classifier_model: actions.model_runtime?.model || null,
+      latency_ms: reply?.latency_ms ?? null,
+      attempts: reply?.attempts ?? null,
     },
   };
 };

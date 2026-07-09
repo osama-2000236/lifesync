@@ -57,6 +57,19 @@ describe('conversationService', () => {
     const reply = await generateAssistantReply({ provider: 'anthropic', context: ctx(), loggedEntities: [], message: 'hi' });
     expect(reply.error).toMatch(/API key/);
   });
+
+  test('reports latency + attempt diagnostics on success and failure', async () => {
+    generateChat.mockResolvedValue({ provider: 'openai', model: 'gpt', text: 'Hey!' });
+    const ok = await generateAssistantReply({ provider: 'openai', model: 'gpt', context: ctx(), loggedEntities: [], message: 'hi' });
+    expect(ok.attempts).toBe(1);
+    expect(typeof ok.latency_ms).toBe('number');
+    expect(ok.latency_ms).toBeGreaterThanOrEqual(0);
+
+    generateChat.mockRejectedValue(new Error('API key is not configured.'));
+    const bad = await generateAssistantReply({ provider: 'openai', model: 'gpt', context: ctx(), loggedEntities: [], message: 'hi' });
+    expect(bad.attempts).toBe(1); // non-retryable → single upstream call
+    expect(typeof bad.latency_ms).toBe('number');
+  });
 });
 
 describe('parseMessage two-track routing', () => {
@@ -80,6 +93,9 @@ describe('parseMessage two-track routing', () => {
     });
     // Classifier tag must not leak as the face model.
     expect(result.model_runtime.model).not.toMatch(/bert/i);
+    // Diagnostics ride along on chat responses (no secrets).
+    expect(result.model_runtime.attempts).toBe(1);
+    expect(typeof result.model_runtime.latency_ms).toBe('number');
   });
 
   test('missing API key does NOT use BERT template — honest model_error', async () => {

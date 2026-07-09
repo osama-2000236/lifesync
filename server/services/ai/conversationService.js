@@ -173,7 +173,10 @@ const buildDataGaps = (context = {}, now = new Date(), today = null) => {
   }
 
   const out = [];
-  for (let i = 0; i < 3; i += 1) {
+  // Interleave the FULL lists (health can hold 4: sleep/mood/steps/water) —
+  // the slice(0, 7) below is the only cap, so no gap is silently unreachable.
+  const rounds = Math.max(healthGaps.length, financeGaps.length);
+  for (let i = 0; i < rounds; i += 1) {
     if (healthGaps[i]) out.push(healthGaps[i]);
     if (financeGaps[i]) out.push(financeGaps[i]);
   }
@@ -301,11 +304,16 @@ const generateAssistantReply = async ({ provider, model, context = {}, loggedEnt
   const candidates = provider === 'openrouter' ? modelCandidates(model) : [model];
   const passes = provider === 'openrouter' ? freePoolPasses() : 1;
   let lastError = null;
+  // Ops diagnostics: upstream call count + wall time (free-pool retries visible).
+  const startedAt = Date.now();
+  let attempts = 0;
+  const diag = () => ({ attempts, latency_ms: Date.now() - startedAt });
   for (let pass = 0; pass < passes; pass++) {
     for (const candidate of candidates) {
       try {
         const system = buildSystemPrompt(context, loggedEntities, locale, candidate, ambiguity);
         const { temperature, maxTokens } = genParamsForModel(candidate);
+        attempts += 1;
         const result = await generateChat({
           system,
           messages,
@@ -316,17 +324,17 @@ const generateAssistantReply = async ({ provider, model, context = {}, loggedEnt
         });
         const text = stripReasoning(result?.text).trim();
         // Report the slug we requested (picker honesty), not a provider alias.
-        if (text) return { text, provider: result.provider, model: candidate };
+        if (text) return { text, provider: result.provider, model: candidate, ...diag() };
         lastError = new Error(`empty response from ${candidate}`);
       } catch (error) {
         lastError = error;
-        if (!isRetryableError(error)) return { error: lastError.message };
+        if (!isRetryableError(error)) return { error: lastError.message, ...diag() };
       }
     }
     // Whole pass failed on transient errors — retry same slug after a short wait.
     if (pass < passes - 1) await sleep(freePoolRetryMs());
   }
-  return { error: lastError?.message || 'generation failed' };
+  return { error: lastError?.message || 'generation failed', ...diag() };
 };
 
 // Streaming variant of stripReasoning: swallows a leading <think>...</think>
@@ -422,6 +430,10 @@ const generateAssistantReplyStream = async ({
   const candidates = provider === 'openrouter' ? modelCandidates(model) : [model];
   const passes = provider === 'openrouter' ? freePoolPasses() : 1;
   let lastError = null;
+  // Ops diagnostics: upstream call count + wall time (free-pool retries visible).
+  const startedAt = Date.now();
+  let attempts = 0;
+  const diag = () => ({ attempts, latency_ms: Date.now() - startedAt });
   for (let pass = 0; pass < passes; pass++) {
     let hardStop = false;
     for (const candidate of candidates) {
@@ -434,10 +446,11 @@ const generateAssistantReplyStream = async ({
       // Still the same user-picked free slug — never a different model.
       if (!signal?.aborted && isFreeSlug(candidate)) {
         try {
+          attempts += 1;
           const recovered = await tryNonStreamFallback({
             provider, candidate, system, messages, onDelta, signal,
           });
-          if (recovered) return recovered;
+          if (recovered) return { ...recovered, ...diag() };
           lastError = new Error(`empty non-stream response from ${candidate}`);
         } catch (nsErr) {
           lastError = nsErr;
@@ -452,6 +465,7 @@ const generateAssistantReplyStream = async ({
         let text = '';
         const filter = makeReasoningFilter((chunk) => { text += chunk; streamed = true; onDelta?.(chunk); });
         const { temperature, maxTokens } = genParamsForModel(candidate);
+        attempts += 1;
         const result = await generateChatStream({
           system,
           messages,
@@ -463,7 +477,7 @@ const generateAssistantReplyStream = async ({
           onDelta: filter,
         });
         const finalText = text.trim() || stripReasoning(result?.text).trim();
-        if (finalText) return { text: finalText, provider: result.provider, model: candidate };
+        if (finalText) return { text: finalText, provider: result.provider, model: candidate, ...diag() };
         lastError = new Error(`empty response from ${candidate}`);
       } catch (error) {
         lastError = error;
@@ -474,7 +488,7 @@ const generateAssistantReplyStream = async ({
     if (hardStop || signal?.aborted) break;
     if (pass < passes - 1) await sleep(freePoolRetryMs());
   }
-  return { error: lastError?.message || 'generation failed' };
+  return { error: lastError?.message || 'generation failed', ...diag() };
 };
 
 module.exports = {

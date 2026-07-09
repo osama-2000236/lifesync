@@ -82,6 +82,9 @@ describe('Track B floors — system prompt contracts', () => {
     const empty = _buildDataGaps({});
     expect(empty.some((g) => /sleep|mood|steps|water/i.test(g))).toBe(true);
     expect(empty.some((g) => /expense|income|budget|spend/i.test(g))).toBe(true);
+    // Water is the 4th health gap — the interleave must not silently drop it.
+    expect(empty.some((g) => /water/i.test(g))).toBe(true);
+    expect(empty.length).toBeLessThanOrEqual(7);
     const sys = sp({ health: {}, finance: {} }, [], 'en', 'm');
     expect(sys).toMatch(/DATA GAPS/i);
     expect(sys).toMatch(/expense|income|budget/i);
