@@ -10,6 +10,10 @@ jest.mock('../server/services/ai/crossDomainInterviewService', () => ({
   isCrossDomain: jest.fn(),
   totalSteps: jest.fn(),
   nextQuestion: jest.fn(),
+  gatherTodayCoverage: jest.fn(async () => ({ health: new Set(), finance: new Set() })),
+  firstOpenStep: jest.fn(() => 0),
+  stepCoveredToday: jest.fn(() => false),
+  totalSteps: jest.fn(() => 2),
   recordDismissal: jest.fn(),
   logAnswerEntities: jest.fn(),
   finalizeInterview: jest.fn(),
@@ -79,12 +83,25 @@ describe('startInterview', () => {
     svc.isValidTopic.mockReturnValue(true);
     svc.isCrossDomain.mockReturnValue(true);
     svc.totalSteps.mockReturnValue(2);
+    svc.gatherTodayCoverage.mockResolvedValue({ health: new Set(), finance: new Set() });
+    svc.firstOpenStep.mockReturnValue(0);
     svc.nextQuestion.mockReturnValue({ id: 'sleep_hours', step: 0 });
     const res = makeRes();
     await ctrl.startInterview({ user: { id: 7 }, body: { topic: 'sleep_spending', consent: true, lang: 'ar' } }, res, jest.fn());
     expect(svc.nextQuestion).toHaveBeenCalledWith('sleep_spending', 0, 'ar');
     expect(ctrl._activeInterviews.get(7)).toMatchObject({ topic: 'sleep_spending', step: 0 });
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  test('consent=true skips interview when all steps already logged today', async () => {
+    svc.isValidTopic.mockReturnValue(true);
+    svc.firstOpenStep.mockReturnValue(null);
+    const res = makeRes();
+    await ctrl.startInterview({ user: { id: 3 }, body: { topic: 'mood_nutrition', consent: true } }, res, jest.fn());
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ skipped: true, done: true }),
+    }));
+    expect(ctrl._activeInterviews.has(3)).toBe(false);
   });
 
   test('forwards errors to next', async () => {

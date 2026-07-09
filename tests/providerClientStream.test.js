@@ -131,4 +131,48 @@ describe('generateChatStream', () => {
     expect(seen).toEqual(['Hi there']);
     expect(result.text).toBe('Hi there');
   });
+
+  test('429 surfaces typed short error — no raw provider body / no API key leak', async () => {
+    process.env.OPENROUTER_API_KEY = 'sk-secret-should-not-leak';
+    const err = new Error('Request failed with status code 429');
+    err.response = {
+      status: 429,
+      data: { error: { message: 'sk-secret-should-not-leak raw dump of provider JSON' } },
+    };
+    axios.post.mockRejectedValue(err);
+
+    await expect(generateChatStream({
+      messages: [{ role: 'user', content: 'hi' }],
+      providerOverride: 'openrouter',
+    })).rejects.toMatchObject({
+      message: expect.stringMatching(/openrouter request failed \(429\)/i),
+      status: 429,
+      retryable: true,
+    });
+
+    try {
+      await generateChatStream({
+        messages: [{ role: 'user', content: 'hi' }],
+        providerOverride: 'openrouter',
+      });
+    } catch (e) {
+      expect(e.message).not.toMatch(/sk-secret/);
+      expect(e.message).not.toMatch(/raw dump/);
+    }
+  });
+
+  test('mid-stream disconnect rejects without hanging', async () => {
+    process.env.OPENROUTER_API_KEY = 'or-test-key';
+    const stream = new EventEmitter();
+    process.nextTick(() => {
+      stream.emit('data', Buffer.from(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Hi' } }] })}\n`));
+      stream.emit('error', new Error('socket hang up'));
+    });
+    axios.post.mockResolvedValue({ data: stream });
+
+    await expect(generateChatStream({
+      messages: [{ role: 'user', content: 'hi' }],
+      providerOverride: 'openrouter',
+    })).rejects.toThrow(/socket hang up/i);
+  });
 });

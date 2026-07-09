@@ -20,7 +20,8 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./server/migrations:/docker-entrypoint-initdb.d
+      # Do NOT mount server/migrations here — they are Sequelize JS, not SQL.
+      # Schema comes from `npm run migrate` (or server sync) against this DB.
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-lifesync_root_2025}"]
       interval: 10s
@@ -69,7 +70,14 @@ services:
       APP_URL: ${APP_URL:-http://localhost}
     ports:
       - "5001:5000"
-    command: sh -c "node server/seeders/seed.js && node server/app.js"
+    # Migrate then seed then serve — sequelize migrations are JS, not docker init SQL.
+    command: sh -c "npx sequelize-cli db:migrate --env development && node server/seeders/seed.js && node server/app.js"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:5000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     networks:
       - lifesync-net
 
@@ -82,7 +90,8 @@ services:
         VITE_API_URL: /api
     restart: unless-stopped
     depends_on:
-      - server
+      server:
+        condition: service_healthy
     ports:
       - "80:80"
     networks:

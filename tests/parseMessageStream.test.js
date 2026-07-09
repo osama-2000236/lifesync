@@ -17,7 +17,11 @@ jest.mock('../server/services/ai/providerClient', () => ({
 
 const { classifyText, generateChat, generateChatStream } = require('../server/services/ai/providerClient');
 const { parseMessage } = require('../server/services/ai/nlpService');
-const { generateAssistantReplyStream } = require('../server/services/ai/conversationService');
+const {
+  generateAssistantReplyStream,
+  _makeReasoningFilter: makeReasoningFilter,
+  _MAX_THINK_BUFFER: MAX_THINK_BUFFER,
+} = require('../server/services/ai/conversationService');
 
 const ctx = (conversation = []) => ({
   conversation,
@@ -28,10 +32,37 @@ const ctx = (conversation = []) => ({
   source_counts: {},
 });
 
+// Paid slug so stream path runs (free slugs try non-stream first).
+const PAID = 'openai/gpt-5.4-mini';
+
 beforeEach(() => {
   classifyText.mockResolvedValue({ label: 'general_chat', confidence: 0.9, provider: 'cpu', model: 'bert', latency_ms: 10 });
   generateChat.mockReset();
   generateChatStream.mockReset();
+});
+
+describe('makeReasoningFilter (unit)', () => {
+  test('swallows a <think>...</think> block split across chunk boundaries', () => {
+    const seen = [];
+    const filter = makeReasoningFilter((d) => seen.push(d));
+    ['<thi', 'nk>reasoning about ', 'stuff</thin', 'k>Hello', ' world!'].forEach((c) => filter(c));
+    expect(seen.join('')).toBe('Hello world!');
+  });
+
+  test('passes plain text straight through', () => {
+    const seen = [];
+    const filter = makeReasoningFilter((d) => seen.push(d));
+    filter('No reasoning ');
+    filter('here.');
+    expect(seen).toEqual(['No reasoning ', 'here.']);
+  });
+
+  test('flushes when think block never closes past MAX_THINK_BUFFER', () => {
+    const seen = [];
+    const filter = makeReasoningFilter((d) => seen.push(d));
+    filter(`<think>${'x'.repeat(MAX_THINK_BUFFER + 1)}`);
+    expect(seen.join('').length).toBeGreaterThan(0);
+  });
 });
 
 describe('generateAssistantReplyStream — reasoning filter', () => {
@@ -42,12 +73,12 @@ describe('generateAssistantReplyStream — reasoning filter', () => {
       onDelta('stuff</thin');
       onDelta('k>Hello');
       onDelta(' world!');
-      return { provider: 'openrouter', model: 'x', text: '<think>reasoning about stuff</think>Hello world!' };
+      return { provider: 'openrouter', model: PAID, text: '<think>reasoning about stuff</think>Hello world!' };
     });
 
     const seen = [];
     const reply = await generateAssistantReplyStream({
-      provider: 'openrouter', context: ctx(), loggedEntities: [], message: 'hi',
+      provider: 'openrouter', model: PAID, context: ctx(), loggedEntities: [], message: 'hi',
       onDelta: (d) => seen.push(d),
     });
 
@@ -59,12 +90,12 @@ describe('generateAssistantReplyStream — reasoning filter', () => {
     generateChatStream.mockImplementation(async ({ onDelta }) => {
       onDelta('No reasoning ');
       onDelta('here.');
-      return { provider: 'openrouter', model: 'x', text: 'No reasoning here.' };
+      return { provider: 'openrouter', model: PAID, text: 'No reasoning here.' };
     });
 
     const seen = [];
     const reply = await generateAssistantReplyStream({
-      provider: 'openrouter', context: ctx(), loggedEntities: [], message: 'hi',
+      provider: 'openrouter', model: PAID, context: ctx(), loggedEntities: [], message: 'hi',
       onDelta: (d) => seen.push(d),
     });
 
@@ -76,18 +107,27 @@ describe('generateAssistantReplyStream — reasoning filter', () => {
     const unclosed = `<think>${'x'.repeat(4001)}`;
     generateChatStream.mockImplementation(async ({ onDelta }) => {
       onDelta(unclosed);
-      return { provider: 'openrouter', model: 'x', text: unclosed };
+      return { provider: 'openrouter', model: PAID, text: unclosed };
     });
 
     const seen = [];
     const reply = await generateAssistantReplyStream({
-      provider: 'openrouter', context: ctx(), loggedEntities: [], message: 'hi',
+      provider: 'openrouter', model: PAID, context: ctx(), loggedEntities: [], message: 'hi',
       onDelta: (d) => seen.push(d),
     });
 
     // Never silently swallowed forever — something reaches the caller.
     expect(seen.join('').length).toBeGreaterThan(0);
     expect(reply.text.length).toBeGreaterThan(0);
+  });
+
+  test('missing model returns error (no silent empty stream)', async () => {
+    const reply = await generateAssistantReplyStream({
+      provider: 'openrouter', context: ctx(), loggedEntities: [], message: 'hi',
+      onDelta: () => {},
+    });
+    expect(reply.error).toBeTruthy();
+    expect(generateChatStream).not.toHaveBeenCalled();
   });
 });
 

@@ -17,6 +17,12 @@ const { validationResult } = require('express-validator');
  *     controller.register
  *   );
  */
+// Never echo secrets back in validation error payloads.
+const REDACT_FIELDS = new Set([
+  'password', 'currentPassword', 'newPassword', 'hashed_password',
+  'code', 'otp', 'credential', 'refreshToken', 'token', 'accessToken',
+]);
+
 const validate = (req, res, next) => {
   const errors = validationResult(req);
 
@@ -25,7 +31,7 @@ const validate = (req, res, next) => {
     const formattedErrors = errors.array().map((err) => ({
       field: err.path,
       message: err.msg,
-      value: err.value,
+      value: REDACT_FIELDS.has(err.path) ? '[redacted]' : err.value,
     }));
 
     return res.status(400).json({

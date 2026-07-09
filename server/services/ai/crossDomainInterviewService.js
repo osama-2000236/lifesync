@@ -22,6 +22,11 @@ const FinancialLog = require('../../models/FinancialLog');
 const LinkedDomain = require('../../models/LinkedDomain');
 const UserMemory = require('../../models/UserMemory');
 const { runInsightEngine } = require('./insightEngine');
+const {
+  startOfUtcDay,
+  emptyCoverage,
+  isSameUtcDay,
+} = require('./sameDayCoverage');
 
 // ────────────────────────────────────────────
 // CONSTANTS
@@ -221,18 +226,38 @@ const mapAnswerToEntities = (topic, step, answer) => {
   return out;
 };
 
+/** True if this interview step would re-ask a metric already logged today. */
+const stepCoveredToday = (topic, step, coverage = emptyCoverage()) => {
+  if (!isValidTopic(topic)) return false;
+  const ent = QUESTION_BANK[topic].questions[step]?.entity;
+  if (!ent?.type) return false;
+  const set = ent.domain === 'health' ? coverage.health : coverage.finance;
+  return set.has(ent.type);
+};
+
+/** First step index not yet logged today, or null if topic is fully covered today. */
+const firstOpenStep = (topic, coverage = emptyCoverage()) => {
+  if (!isValidTopic(topic)) return null;
+  const n = QUESTION_BANK[topic].questions.length;
+  for (let i = 0; i < n; i += 1) {
+    if (!stepCoveredToday(topic, i, coverage)) return i;
+  }
+  return null;
+};
+
 /**
  * Choose the most relevant topic from engine output + data-gap counts, honoring
- * dismissed topics. Pure — inputs are pre-fetched by pickTopic.
+ * dismissed topics and same-day coverage (never re-ask mood if mood logged today).
  *
  * @param {Object} engine   result of runInsightEngine (may be null)
  * @param {Object} counts   { sleep, mood, water, exercise, nutrition, expense, income }
  * @param {string[]} dismissed  topics the user recently dismissed
+ * @param {{ health: Set, finance: Set }} todayCoverage  metrics logged today (UTC)
  * @returns {string|null}
  */
-const selectTopic = (engine, counts = {}, dismissed = []) => {
+const selectTopic = (engine, counts = {}, dismissed = [], todayCoverage = emptyCoverage()) => {
   const blocked = new Set(dismissed);
-  const available = (t) => isValidTopic(t) && !blocked.has(t);
+  const available = (t) => isValidTopic(t) && !blocked.has(t) && firstOpenStep(t, todayCoverage) != null;
 
   // 1) A "concerning" cross-domain pattern wins — probe it to give advice.
   const patterns = (engine && Array.isArray(engine.patterns)) ? engine.patterns : [];
@@ -329,14 +354,42 @@ const gatherCounts = async (userId) => {
   };
 };
 
+/** Metrics logged since UTC midnight — same contract as chat digger. */
+const gatherTodayCoverage = async (userId) => {
+  const since = startOfUtcDay();
+  const cov = emptyCoverage();
+  if (!userId) return cov;
+  try {
+    const [health, finance] = await Promise.all([
+      HealthLog.findAll({
+        where: { user_id: userId, logged_at: { [Op.gte]: since } },
+        attributes: ['type'],
+        raw: true,
+      }),
+      FinancialLog.findAll({
+        where: { user_id: userId, logged_at: { [Op.gte]: since } },
+        attributes: ['type'],
+        raw: true,
+      }),
+    ]);
+    health.forEach((r) => { if (r.type) cov.health.add(r.type); });
+    finance.forEach((r) => { if (r.type) cov.finance.add(r.type); });
+  } catch {
+    // table probe failure must not break suggestions
+  }
+  return cov;
+};
+
 /**
  * Decide whether to proactively ask the user something.
- * @returns {{ topic, prompt, consent_required, questions_count, cross_domain }|{ topic:null }}
+ * Skips topics whose remaining questions are all already logged today.
+ * @returns {{ topic, prompt, consent_required, questions_count, cross_domain, first_step }|{ topic:null }}
  */
 const pickTopic = async (userId, lang = 'en') => {
-  const [counts, dismissed] = await Promise.all([
+  const [counts, dismissed, todayCoverage] = await Promise.all([
     gatherCounts(userId),
     getDismissedTopics(userId),
+    gatherTodayCoverage(userId),
   ]);
 
   let engine = null;
@@ -346,8 +399,11 @@ const pickTopic = async (userId, lang = 'en') => {
     engine = null; // engine failure must not block a data-gap suggestion
   }
 
-  const topic = selectTopic(engine, counts, dismissed);
+  const topic = selectTopic(engine, counts, dismissed, todayCoverage);
   if (!topic) return { topic: null };
+
+  const first_step = firstOpenStep(topic, todayCoverage);
+  if (first_step == null) return { topic: null };
 
   return {
     topic,
@@ -355,6 +411,7 @@ const pickTopic = async (userId, lang = 'en') => {
     consent_required: true,
     questions_count: totalSteps(topic),
     cross_domain: isCrossDomain(topic),
+    first_step,
   };
 };
 
@@ -484,8 +541,11 @@ module.exports = {
   nextQuestion,
   mapAnswerToEntities,
   selectTopic,
+  stepCoveredToday,
+  firstOpenStep,
   // db-backed
   gatherCounts,
+  gatherTodayCoverage,
   getDismissedTopics,
   recordDismissal,
   pickTopic,

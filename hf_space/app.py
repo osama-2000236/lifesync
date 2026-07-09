@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import json
 import re
+import threading
 from pathlib import Path
 from importlib import metadata as importlib_metadata
 
@@ -44,7 +45,11 @@ os.environ.setdefault("HF_HUB_DISABLE_XET", os.getenv("HF_HUB_DISABLE_XET", "1")
 
 
 MODEL_ID = os.getenv("CUSTOM_HF_MODEL") or os.getenv("HF_MODEL") or "google/gemma-4-E2B-it"
+# Pin when set (e.g. HF commit SHA) so cold starts don't silently pull a new revision.
+MODEL_REVISION = (os.getenv("HF_MODEL_REVISION") or os.getenv("CUSTOM_HF_MODEL_REVISION") or "").strip() or None
 HF_TOKEN = os.getenv("HF_TOKEN") or None
+# Offline/local: refuse hub download (supply a cached snapshot or local path).
+LOCAL_FILES_ONLY = os.getenv("HF_SPACE_LOCAL_FILES_ONLY", "").strip().lower() in {"1", "true", "yes", "on"}
 SERVER_PORT = int(os.getenv("HF_SPACE_PORT", "7860"))
 HAS_CUDA = torch.cuda.is_available()
 DEVICE_MAP = os.getenv("HF_SPACE_DEVICE_MAP") or ("auto" if HAS_CUDA else "cpu")
@@ -54,6 +59,11 @@ USE_STATIC_CACHE = os.getenv("HF_SPACE_CACHE_IMPLEMENTATION")
 if USE_STATIC_CACHE is None:
     USE_STATIC_CACHE = "none" if DEVICE_MAP == "cpu" else "static"
 MAX_GENERATION_SECONDS = float(os.getenv("HF_SPACE_MAX_GENERATION_SECONDS", "45" if DEVICE_MAP == "cpu" else "120"))
+# Hard caps — huge prompts / max_tokens OOM the process on small hosts.
+MAX_INPUT_CHARS = int(os.getenv("HF_SPACE_MAX_INPUT_CHARS", "8000"))
+MAX_NEW_TOKENS_CAP = int(os.getenv("HF_SPACE_MAX_NEW_TOKENS", "1024"))
+# Serialize GPU/CPU generate — concurrent requests thrash VRAM and can OOM.
+_GENERATE_LOCK = threading.Lock()
 ENABLE_LIFESYNC_FAST_PATH = os.getenv("HF_SPACE_LIFESYNC_FAST_PATH", "1").strip().lower() in {
     "1",
     "true",
@@ -102,19 +112,29 @@ def build_quantization_config():
     return TorchAoConfig(quant_type=quant_config)
 
 
+def _pretrained_kwargs(base: dict | None = None) -> dict:
+    kwargs = dict(base or {})
+    if MODEL_REVISION:
+        kwargs["revision"] = MODEL_REVISION
+    if LOCAL_FILES_ONLY:
+        kwargs["local_files_only"] = True
+    return kwargs
+
+
 def load_model(model_id: str, base_kwargs: dict, quantization_config):
+    load_kwargs = _pretrained_kwargs(base_kwargs)
     if quantization_config is not None:
         try:
             print("Attempting TorchAO int4 CPU quantization...")
             return AutoModelForCausalLM.from_pretrained(
                 model_id,
-                **base_kwargs,
+                **load_kwargs,
                 quantization_config=quantization_config,
             )
         except Exception as exc:
             print(f"TorchAO int4 load failed, retrying without quantization: {exc}")
 
-    return AutoModelForCausalLM.from_pretrained(model_id, **base_kwargs)
+    return AutoModelForCausalLM.from_pretrained(model_id, **load_kwargs)
 
 
 def build_messages(system_msg: str, user_msg: str) -> list[dict]:
@@ -377,14 +397,18 @@ def try_lifesync_fast_path(system_msg: str, user_msg: str) -> str | None:
     return json_response(parsed) if parsed is not None else None
 
 
-print(f"Loading processor for {MODEL_ID}...")
-processor = AutoProcessor.from_pretrained(MODEL_ID, token=HF_TOKEN)
+print(f"Loading processor for {MODEL_ID} (revision={MODEL_REVISION or 'default'})...")
+processor = AutoProcessor.from_pretrained(
+    MODEL_ID,
+    token=HF_TOKEN,
+    **_pretrained_kwargs(),
+)
 
 quantization_config = build_quantization_config()
 print(
     "Loading model for "
     f"{MODEL_ID} (device_map={DEVICE_MAP}, quantization={QUANTIZATION_MODE}, "
-    f"attn={ATTN_IMPLEMENTATION})..."
+    f"attn={ATTN_IMPLEMENTATION}, revision={MODEL_REVISION or 'default'})..."
 )
 
 model_kwargs = {
@@ -400,49 +424,69 @@ MODEL_DEVICE = next(model.parameters()).device
 print(f"Model loaded and ready on {MODEL_DEVICE}.")
 
 
+def _clamp_prompt(value: str | None) -> str:
+    return str(value or "")[:MAX_INPUT_CHARS]
+
+
 def infer(system_msg: str, user_msg: str, temperature: float, max_tokens: float) -> str:
-    fast_response = try_lifesync_fast_path(system_msg, user_msg)
-    if fast_response is not None:
-        return fast_response
+    try:
+        system_msg = _clamp_prompt(system_msg)
+        user_msg = _clamp_prompt(user_msg)
 
-    messages = build_messages(system_msg, user_msg)
-    inputs = processor.apply_chat_template(
-        messages,
-        tokenize=True,
-        return_dict=True,
-        return_tensors="pt",
-        add_generation_prompt=True,
-    )
-    inputs = inputs.to(MODEL_DEVICE)
+        fast_response = try_lifesync_fast_path(system_msg, user_msg)
+        if fast_response is not None:
+            return fast_response
 
-    max_new_tokens = int(max_tokens) if max_tokens else 512
-    temperature = float(temperature) if temperature is not None else 0.1
-    do_sample = temperature > 0
-
-    generation_kwargs = {
-        "max_new_tokens": max_new_tokens,
-        "do_sample": do_sample,
-    }
-    if MAX_GENERATION_SECONDS > 0:
-        generation_kwargs["max_time"] = MAX_GENERATION_SECONDS
-    if do_sample:
-        generation_kwargs.update(
-            {
-                "temperature": temperature,
-                "top_p": 0.95,
-                "top_k": 64,
-            }
+        messages = build_messages(system_msg, user_msg)
+        inputs = processor.apply_chat_template(
+            messages,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+            add_generation_prompt=True,
         )
+        inputs = inputs.to(MODEL_DEVICE)
 
-    if USE_STATIC_CACHE and USE_STATIC_CACHE.lower() != "none":
-        generation_kwargs["cache_implementation"] = USE_STATIC_CACHE
+        try:
+            requested = int(max_tokens) if max_tokens else 512
+        except (TypeError, ValueError):
+            requested = 512
+        max_new_tokens = max(1, min(requested, MAX_NEW_TOKENS_CAP))
+        try:
+            temperature = float(temperature) if temperature is not None else 0.1
+        except (TypeError, ValueError):
+            temperature = 0.1
+        do_sample = temperature > 0
 
-    with torch.inference_mode():
-        output = model.generate(**inputs, **generation_kwargs)
+        generation_kwargs = {
+            "max_new_tokens": max_new_tokens,
+            "do_sample": do_sample,
+        }
+        if MAX_GENERATION_SECONDS > 0:
+            generation_kwargs["max_time"] = MAX_GENERATION_SECONDS
+        if do_sample:
+            generation_kwargs.update(
+                {
+                    "temperature": temperature,
+                    "top_p": 0.95,
+                    "top_k": 64,
+                }
+            )
 
-    prompt_length = inputs["input_ids"].shape[1]
-    generated_tokens = output[0][prompt_length:]
-    return processor.decode(generated_tokens, skip_special_tokens=True).strip()
+        if USE_STATIC_CACHE and USE_STATIC_CACHE.lower() != "none":
+            generation_kwargs["cache_implementation"] = USE_STATIC_CACHE
+
+        with _GENERATE_LOCK:
+            with torch.inference_mode():
+                output = model.generate(**inputs, **generation_kwargs)
+
+        prompt_length = inputs["input_ids"].shape[1]
+        generated_tokens = output[0][prompt_length:]
+        return processor.decode(generated_tokens, skip_special_tokens=True).strip()
+    except Exception as exc:
+        # Gradio may surface exceptions to the client — return a short code only.
+        print(f"infer error: {type(exc).__name__}: {exc}")
+        return json.dumps({"error": "generation_failed"}, ensure_ascii=False)
 
 
 demo = gr.Interface(

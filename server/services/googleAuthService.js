@@ -74,6 +74,12 @@ const verifyGoogleCredential = async (credential) => {
     throw new Error('Google did not return a valid identity.');
   }
 
+  // Defense in depth: library verifies signature/aud/exp; pin issuer explicitly.
+  const iss = String(payload.iss || '');
+  if (iss !== 'accounts.google.com' && iss !== 'https://accounts.google.com') {
+    throw new Error('Invalid Google credential.');
+  }
+
   if (!payload.email_verified) {
     throw new Error('Google account email is not verified.');
   }

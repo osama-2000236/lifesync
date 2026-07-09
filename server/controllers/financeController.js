@@ -10,6 +10,7 @@ const FinancialLog = require('../models/FinancialLog');
 const Category = require('../models/Category');
 const LinkedDomain = require('../models/LinkedDomain');
 const { success, created, paginated, error } = require('../utils/responseHelper');
+const { sanitizeListQuery } = require('../utils/listQuery');
 
 // ============================================
 // VALIDATION RULES
@@ -84,16 +85,15 @@ const getFinanceLogs = async (req, res, next) => {
       min_amount,
       max_amount,
       search,
-      page = 1,
-      limit = 20,
-      sort_by = 'logged_at',
-      sort_order = 'DESC',
     } = req.query;
+    const { page, limit, sort_by, sort_order, offset } = sanitizeListQuery(req.query, {
+      allowedSort: ['logged_at', 'created_at', 'id', 'amount', 'type'],
+    });
 
     const where = { user_id: req.user.id };
 
-    if (type) where.type = type;
-    if (category_id) where.category_id = category_id;
+    if (type === 'income' || type === 'expense') where.type = type;
+    if (category_id) where.category_id = parseInt(category_id, 10);
 
     if (start_date || end_date) {
       where.logged_at = {};
@@ -108,26 +108,24 @@ const getFinanceLogs = async (req, res, next) => {
     }
 
     if (search) {
-      where.description = { [Op.like]: `%${search}%` };
+      where.description = { [Op.like]: `%${String(search).slice(0, 200)}%` };
     }
-
-    const offset = (parseInt(page) - 1) * parseInt(limit);
 
     const { count, rows } = await FinancialLog.findAndCountAll({
       where,
       include: [
         { model: Category, as: 'category', attributes: ['id', 'name', 'icon', 'color'] },
       ],
-      order: [[sort_by, sort_order.toUpperCase()]],
-      limit: parseInt(limit),
+      order: [[sort_by, sort_order]],
+      limit,
       offset,
     });
 
     return paginated(res, rows, {
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page,
+      limit,
       total: count,
-      totalPages: Math.ceil(count / parseInt(limit)),
+      totalPages: Math.ceil(count / limit),
     });
   } catch (err) {
     next(err);
@@ -181,6 +179,17 @@ const updateFinanceLog = async (req, res, next) => {
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
+    if (updates.amount !== undefined) {
+      const amt = parseFloat(updates.amount);
+      if (!Number.isFinite(amt) || amt < 0.01) {
+        return error(res, 'Amount must be a positive number (≥ 0.01).', 400);
+      }
+      updates.amount = amt;
+    }
+    if (updates.type !== undefined && !['income', 'expense'].includes(updates.type)) {
+      return error(res, 'Type must be either income or expense.', 400);
+    }
+    delete updates.user_id;
 
     await entry.update(updates);
 

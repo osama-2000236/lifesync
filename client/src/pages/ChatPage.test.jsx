@@ -20,10 +20,14 @@ vi.mock('../services/api', () => ({
   },
   aiAPI: { getModels: vi.fn() },
   authAPI: { updateProfile: vi.fn(() => Promise.resolve({ data: { data: {} } })) },
+  voiceAPI: {
+    speak: vi.fn(() => Promise.resolve({ data: new Blob(['x'], { type: 'audio/mpeg' }) })),
+    getConfig: vi.fn(() => Promise.resolve({ data: { data: { tts: { cloud: true } } } })),
+  },
 }));
 
 import ChatPage from './ChatPage';
-import { chatAPI, aiAPI } from '../services/api';
+import { chatAPI, aiAPI, voiceAPI } from '../services/api';
 
 const wrap = (payload) => ({ data: { data: payload } });
 
@@ -51,7 +55,9 @@ beforeEach(() => {
 
   aiAPI.getModels.mockResolvedValue(wrap({ models: [
     { id: 'bert_local', label: 'LifeSync BERT', pricing: 'local' },
-    { id: 'gemma4_local', label: 'Gemma 4 31B', pricing: 'free' },
+    { id: 'openai_chat', label: 'GPT-5.4 Mini', pricing: 'paid', model: 'openai/gpt-5.4-mini' },
+    { id: 'openrouter_chat', label: 'Llama 3.3 70B', pricing: 'paid', model: 'meta-llama/llama-3.3-70b-instruct' },
+    { id: 'gemma4_local', label: 'Gemma 4 free', pricing: 'free', model: 'google/gemma-4-31b-it:free' },
     { id: 'custom_local', label: 'Custom', pricing: 'local' },
   ] }));
   chatAPI.getSessions.mockResolvedValue(wrap({ sessions: [
@@ -110,7 +116,7 @@ describe('ChatPage — shell', () => {
 
   it('defaults to the free chat model and persists a new choice', async () => {
     await renderPage();
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('Gemma 4 31B');
+    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('GPT-5.4 Mini');
     fireEvent.click(screen.getByTestId('model-picker-button'));
     fireEvent.click(screen.getByTestId('model-option-bert_local'));
     expect(localStorage.getItem('lifesync.chat.model')).toBe('bert_local');
@@ -122,32 +128,33 @@ describe('ChatPage — shell', () => {
     expect(screen.getByTestId('model-picker-button')).toHaveTextContent('LifeSync BERT');
   });
 
-  it('cycles context depth standard → deep → max → standard', async () => {
+  it('cycles context depth max → standard → deep → max', async () => {
     await renderPage();
     const toggle = screen.getByTestId('depth-toggle');
+    // Default is max harness (widest user data)
+    expect(toggle).toHaveTextContent('chat.depth.max');
+    fireEvent.click(toggle);
     expect(toggle).toHaveTextContent('chat.depth.standard');
     fireEvent.click(toggle);
     expect(toggle).toHaveTextContent('chat.depth.deep');
     fireEvent.click(toggle);
     expect(toggle).toHaveTextContent('chat.depth.max');
-    fireEvent.click(toggle);
-    expect(toggle).toHaveTextContent('chat.depth.standard');
   });
 });
 
 describe('ChatPage — sending & streaming', () => {
-  it('sends with the picked model, locale, and standard depth omitted', async () => {
+  it('sends with the picked model, locale, and max depth by default', async () => {
     await renderPage();
     await send('hello model');
     expect(chatAPI.sendMessageStream.mock.calls[0][0]).toBe('hello model');
-    expect(streamOptions).toMatchObject({ model: 'gemma4_local', lang: 'en' });
-    expect(streamOptions.context_window).toBeUndefined();
+    expect(streamOptions).toMatchObject({ model: 'openai_chat', lang: 'en', context_window: 'max' });
     expect(screen.getByTestId('user-message')).toHaveTextContent('hello model');
   });
 
   it('passes deep context depth when selected', async () => {
     await renderPage();
-    fireEvent.click(screen.getByTestId('depth-toggle'));
+    fireEvent.click(screen.getByTestId('depth-toggle')); // max → standard
+    fireEvent.click(screen.getByTestId('depth-toggle')); // standard → deep
     await send();
     expect(streamOptions.context_window).toBe('deep');
   });
@@ -291,7 +298,7 @@ describe('ChatPage — sending & streaming', () => {
     expect(screen.queryByTestId('clarification-options')).not.toBeInTheDocument();
   });
 
-  it('labels BERT and busy-fallback replies honestly', async () => {
+  it('labels BERT and failed generative replies honestly (no silent substitute)', async () => {
     await renderPage();
     await send();
     act(() => {
@@ -305,13 +312,20 @@ describe('ChatPage — sending & streaming', () => {
 
     await send('again');
     act(() => {
-      streamCallbacks.onComplete({
-        response: 'Quick note.',
-        entities_logged: { health: [], finance: [], linked: [] },
-        model_runtime: { responder: 'deterministic_fallback', chat_provider: 'openrouter' },
+      streamCallbacks.onError({
+        message: 'No reply from «google/gemma-4-31b-it:free»',
+        retryable: true,
+        model_runtime: {
+          responder: 'model_error',
+          model: 'google/gemma-4-31b-it:free',
+          provider: 'openrouter',
+        },
       });
     });
-    expect(screen.getByText('chat.attribution.fallback')).toBeInTheDocument();
+    expect(screen.getByText(/No reply from/)).toBeInTheDocument();
+    const attrs = screen.getAllByTestId('model-attribution');
+    expect(attrs[attrs.length - 1]).toHaveTextContent('google/gemma-4-31b-it:free');
+    expect(attrs[attrs.length - 1]).toHaveTextContent('chat.attribution.failed');
   });
 
   it('renders errors with a retry that resends the original text', async () => {
@@ -360,17 +374,51 @@ describe('ChatPage — sending & streaming', () => {
   it('speaks replies only when the speak toggle is on', async () => {
     const speak = vi.fn();
     const cancel = vi.fn();
-    // getVoices returning null exercises the defensive `|| []` fallback
-    window.speechSynthesis = { speak, cancel, getVoices: () => null };
+    // EN local voice → browser path
+    window.speechSynthesis = {
+      speak,
+      cancel,
+      getVoices: () => [{ lang: 'en-US', name: 'Sam' }],
+    };
     window.SpeechSynthesisUtterance = function SpeechSynthesisUtterance(text) { this.text = text; };
 
     await renderPage();
     fireEvent.click(screen.getByTestId('speak-toggle'));
     await send();
-    act(() => {
+    await act(async () => {
       streamCallbacks.onComplete({ response: 'read me', entities_logged: { health: [], finance: [], linked: [] } });
+      await Promise.resolve();
     });
     expect(speak).toHaveBeenCalled();
+  });
+
+  it('uses cloud TTS for Arabic when no local ar voice (same rule as voice studio)', async () => {
+    // No ar-* voice → must hit /voice/speak (code path), not model choice
+    window.speechSynthesis = {
+      speak: vi.fn(),
+      cancel: vi.fn(),
+      getVoices: () => [{ lang: 'en-US', name: 'Sam' }],
+    };
+    window.SpeechSynthesisUtterance = function SpeechSynthesisUtterance(text) { this.text = text; };
+    // Minimal Audio stub for cloud playback
+    window.Audio = function Audio() {
+      this.play = () => Promise.resolve();
+      this.pause = () => {};
+      setTimeout(() => this.onended?.(), 0);
+    };
+
+    await renderPage();
+    fireEvent.click(screen.getByTestId('speak-toggle'));
+    await send();
+    await act(async () => {
+      streamCallbacks.onComplete({
+        response: 'مرحبا كيف حالك',
+        entities_logged: { health: [], finance: [], linked: [] },
+      });
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(voiceAPI.speak).toHaveBeenCalled();
+    expect(voiceAPI.speak.mock.calls[0][0]).toMatch(/مرحبا/);
   });
 });
 
@@ -509,7 +557,7 @@ describe('ChatPage — edges', () => {
     chatAPI.getHistory.mockRejectedValue(new Error('gone'));
     await renderPage();
     // static catalog kept (empty list ignored)
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('Gemma 4 31B');
+    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('GPT-5.4 Mini');
     expect(screen.getByText('chat.noChats')).toBeInTheDocument();
   });
 
@@ -519,17 +567,20 @@ describe('ChatPage — edges', () => {
     expect(screen.getByTestId('chat-welcome')).toBeInTheDocument();
   });
 
-  it('falls back to the raw model id in the footer for unknown stored models', async () => {
+  it('snaps unknown stored models to the default after catalog load', async () => {
     localStorage.setItem('lifesync.chat.model', 'mystery_model');
     await renderPage();
-    expect(screen.getByText(/mystery_model/)).toBeInTheDocument();
+    // Catalog load replaces unknown ids with DEFAULT_CHAT_MODEL_ID (GPT-5.4 Mini)
+    await waitFor(() => {
+      expect(screen.getByTestId('model-picker-button')).toHaveTextContent('GPT-5.4 Mini');
+    });
   });
 
   it('defaults gracefully when localStorage is blocked', async () => {
     const getSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
     const setSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
     await renderPage();
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('Gemma 4 31B');
+    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('GPT-5.4 Mini');
     fireEvent.click(screen.getByTestId('model-picker-button'));
     fireEvent.click(screen.getByTestId('model-option-bert_local')); // setItem throws → caught
     expect(screen.getByTestId('model-picker-button')).toHaveTextContent('LifeSync BERT');
@@ -609,7 +660,7 @@ describe('ChatPage — edges', () => {
     aiAPI.getModels.mockResolvedValue(wrap({}));
     chatAPI.getHistory.mockResolvedValue(wrap({}));
     await renderPage();
-    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('Gemma 4 31B');
+    expect(screen.getByTestId('model-picker-button')).toHaveTextContent('GPT-5.4 Mini');
     fireEvent.click(screen.getByTestId('session-old-1'));
     await waitFor(() => expect(chatAPI.getHistory).toHaveBeenCalled());
     expect(screen.getByTestId('chat-welcome')).toBeInTheDocument();
@@ -652,3 +703,4 @@ describe('ChatPage — edges', () => {
     expect(screen.queryByTestId('model-attribution')).not.toBeInTheDocument();
   });
 });
+

@@ -14,8 +14,19 @@ require('dotenv').config();
 // production — and even then it warns. In production a missing ENCRYPTION_KEY
 // is a hard failure: better to crash on boot than to encrypt data at rest with
 // the JWT signing secret.
+const assertKeyStrength = (key, label) => {
+  if (!key || typeof key !== 'string' || key.length < 32) {
+    throw new Error(
+      `${label} must be at least 32 characters. Refusing weak field-encryption key.`,
+    );
+  }
+  return key;
+};
+
 const resolveEncryptionKey = () => {
-  if (process.env.ENCRYPTION_KEY) return process.env.ENCRYPTION_KEY;
+  if (process.env.ENCRYPTION_KEY) {
+    return assertKeyStrength(process.env.ENCRYPTION_KEY, 'ENCRYPTION_KEY');
+  }
 
   if (process.env.NODE_ENV === 'production') {
     throw new Error(
@@ -30,7 +41,7 @@ const resolveEncryptionKey = () => {
       '⚠️  ENCRYPTION_KEY is not set; falling back to JWT_SECRET for field ' +
       'encryption. This is for local/dev only — set a dedicated ENCRYPTION_KEY.'
     );
-    return process.env.JWT_SECRET;
+    return assertKeyStrength(process.env.JWT_SECRET, 'JWT_SECRET (encryption fallback)');
   }
 
   throw new Error('Neither ENCRYPTION_KEY nor JWT_SECRET is set; cannot encrypt fields.');
@@ -52,13 +63,16 @@ const encrypt = (value) => {
 /**
  * Decrypt a stored value
  * @param {string} ciphertext - The encrypted value
- * @returns {string} Decrypted plaintext
+ * @returns {string|null} Decrypted plaintext, or null on failure / non-ciphertext
  */
 const decrypt = (ciphertext) => {
-  if (!ciphertext) return null;
+  if (ciphertext === null || ciphertext === undefined || ciphertext === '') return null;
+  // Legacy plaintext rows (never encrypted) must not be forced through AES.
+  if (!isEncrypted(ciphertext)) return String(ciphertext);
   try {
     const bytes = CryptoJS.AES.decrypt(ciphertext, ENCRYPTION_KEY);
     const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+    // Wrong key / tampered ciphertext → empty Utf8; never return garbage.
     if (!decrypted) return null;
     return decrypted;
   } catch (error) {
@@ -125,4 +139,6 @@ module.exports = {
   encryptFields,
   decryptFields,
   isEncrypted,
+  _resolveEncryptionKey: resolveEncryptionKey,
+  _assertKeyStrength: assertKeyStrength,
 };

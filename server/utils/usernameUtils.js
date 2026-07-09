@@ -33,17 +33,18 @@ const generateUniqueUsername = async (UserModel, profile) => {
 
   for (let suffix = 0; suffix < 20; suffix += 1) {
     const candidate = suffix === 0
-      ? base
+      ? base.slice(0, USERNAME_MAX_LENGTH)
       : `${base.slice(0, USERNAME_MAX_LENGTH - `${suffix}`.length - 1)}_${suffix}`;
 
     // eslint-disable-next-line no-await-in-loop
     const existingUser = await UserModel.findOne({ where: { username: candidate } });
     if (!existingUser) {
-      return candidate;
+      return candidate.slice(0, USERNAME_MAX_LENGTH);
     }
   }
 
-  return `${base.slice(0, 41)}_${crypto.randomInt(100000, 999999)}`;
+  const fallback = `${base.slice(0, 41)}_${crypto.randomInt(100000, 999999)}`;
+  return fallback.slice(0, USERNAME_MAX_LENGTH);
 };
 
 module.exports = {

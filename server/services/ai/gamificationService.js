@@ -8,14 +8,16 @@
 // reward cross-domain, consistent logging. Graduation-grade interactivity that
 // stays reliable and testable.
 
+// UTC day keys — must match sameDayCoverage / longHorizon or streaks flip at
+// local midnight while digs still use UTC (off-by-one for non-UTC users).
 const dayKey = (value) => {
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return null;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return d.toISOString().slice(0, 10);
 };
 const addDays = (value, n) => {
   const d = new Date(value);
-  d.setDate(d.getDate() + n);
+  d.setUTCDate(d.getUTCDate() + n);
   return d;
 };
 

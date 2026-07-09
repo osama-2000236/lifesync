@@ -13,6 +13,9 @@ jest.mock('../server/services/ai/crossDomainInterviewService', () => ({
   isCrossDomain: jest.fn().mockReturnValue(true),
   totalSteps: jest.fn().mockReturnValue(2),
   nextQuestion: jest.fn().mockReturnValue({ id: 'q', step: 0 }),
+  // Same-day skip path used by startInterview — empty coverage, step 0 open.
+  gatherTodayCoverage: jest.fn().mockResolvedValue({ health: new Set(), finance: new Set() }),
+  firstOpenStep: jest.fn().mockReturnValue(0),
   recordDismissal: jest.fn().mockResolvedValue({}),
   logAnswerEntities: jest.fn().mockResolvedValue({ domain: 'health', id: 1 }),
   finalizeInterview: jest.fn().mockResolvedValue({ links: [], advice: {} }),

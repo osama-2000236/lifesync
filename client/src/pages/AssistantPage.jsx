@@ -13,17 +13,18 @@
 // ============================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Sparkles, Mic, MessageSquareText, Square, RefreshCw, MessageCircle } from 'lucide-react';
+import { Sparkles, Mic, MessageSquareText, Square, RefreshCw, MessageCircle, RotateCcw } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { useVoiceAssistant } from '../hooks/useVoiceAssistant';
 import { stripMarkdownForSpeech, detectLang } from '../utils/speech';
 import { chatAPI, assistantAPI, aiAPI, authAPI } from '../services/api';
-import { MODEL_OPTIONS, DEFAULT_CHAT_MODEL_ID } from '../config/models';
+import { MODEL_OPTIONS, DEFAULT_CHAT_MODEL_ID, DEFAULT_CONTEXT_WINDOW } from '../config/models';
 import {
-  generativeModelsOnly,
+  voiceModelsOnly,
   loadChatModelId,
   resolveVoiceModelId,
   saveChatModelId,
+  canChangeModel,
 } from '../utils/chatModel';
 import VoiceOrb from '../components/assistant/VoiceOrb';
 import ConsentCard from '../components/assistant/ConsentCard';
@@ -39,8 +40,17 @@ const notifyDataChanged = () => window.dispatchEvent(new CustomEvent('lifesync:d
 
 const attributionLabel = (msg, models) => {
   const rt = msg?.modelRuntime;
-  if (rt?.model && rt.model !== 'model') return rt.model;
-  if (rt?.provider) return rt.provider;
+  // Never show the BERT classifier slug as the chat model — Track A always
+  // tags bert_best_model_10pct even when the user picked Gemma/GPT/Llama.
+  const bertSlug = /bert_best_model|bert_local/i;
+  if (rt?.responder === 'model_error') {
+    const wanted = (rt.model && !bertSlug.test(rt.model))
+      ? rt.model
+      : (models.find((x) => x.id === msg?.modelId)?.label || msg?.modelId);
+    return wanted ? `${wanted} (failed)` : 'model failed';
+  }
+  if (rt?.model && rt.model !== 'model' && !bertSlug.test(rt.model)) return rt.model;
+  if (rt?.provider && rt.provider !== 'bert_local') return rt.provider;
   const m = models.find((x) => x.id === msg?.modelId);
   return m?.label || msg?.modelId || null;
 };
@@ -49,12 +59,13 @@ export default function AssistantPage() {
   const { t, locale, isRTL } = useSettings();
   const [mode, setMode] = useState('converse'); // converse | dictate
   const [messages, setMessages] = useState([]); // {role, text, streaming?, modelId?, modelRuntime?}
-  const [sessionId] = useState(() => `assistant-${Date.now()}`);
+  const [sessionId, setSessionId] = useState(() => `assistant-${Date.now()}`);
 
-  // Track B model — shared with Chat via localStorage; never bert_local for voice.
-  const [models, setModels] = useState(() => generativeModelsOnly(MODEL_OPTIONS));
+  // Voice trio only: GPT paid, Llama paid, Gemma free.
+  const [models, setModels] = useState(() => voiceModelsOnly(MODEL_OPTIONS));
   const [modelId, setModelId] = useState(() => resolveVoiceModelId(loadChatModelId()));
   const [switching, setSwitching] = useState(false);
+  const [modelLockHint, setModelLockHint] = useState(null);
 
   // Interview flow state.
   const [flow, setFlow] = useState('idle'); // idle | consent | interview | advice | dismissed
@@ -74,27 +85,15 @@ export default function AssistantPage() {
     return m?.label || modelId;
   }, [models, modelId]);
 
-  const chooseModel = useCallback((id) => {
-    const next = resolveVoiceModelId(id);
-    setModelId(next);
-    saveChatModelId(next);
-    // Persist so chat + voice share preferred_model; memory/history stay server-side.
-    authAPI.updateProfile({ preferred_model: next }).catch(() => {});
-    setSwitching(true);
-    // Brief status so the user sees the switch took effect before the next turn.
-    setTimeout(() => setSwitching(false), 1200);
-  }, []);
-
-  // Live server catalog (same source as Chat) — conversational models only.
+  // Live server catalog — voice trio only.
   useEffect(() => {
     let alive = true;
     aiAPI.getModels()
       .then(({ data }) => {
-        const list = generativeModelsOnly(data?.data?.models || []);
+        const list = voiceModelsOnly(data?.data?.models || []);
         if (alive && list.length) {
           setModels(list);
-          // If stored id vanished from catalog, snap to free default.
-          setModelId((cur) => (list.some((m) => m.id === cur) ? cur : DEFAULT_CHAT_MODEL_ID));
+          setModelId((cur) => (list.some((m) => m.id === cur) ? cur : resolveVoiceModelId(DEFAULT_CHAT_MODEL_ID)));
         }
       })
       .catch(() => { /* static MODEL_OPTIONS already seeded */ });
@@ -170,14 +169,26 @@ export default function AssistantPage() {
         }
       },
       onError: (err) => {
+        const msg = err.message || t('va.err.streamFailed');
         setMessages((prev) => [...prev.slice(-5), {
           role: 'assistant',
-          text: err.message || t('va.err.streamFailed'),
+          text: msg,
           modelId: currentModel,
+          modelRuntime: err.model_runtime || {
+            responder: 'model_error',
+            model: models.find((m) => m.id === currentModel)?.model || currentModel,
+          },
+          isError: true,
         }]);
+        // Voice loop must leave "thinking" — speak the error and resume listen.
+        if (speak) {
+          voiceRef.current?.enqueueSpeech?.(msg);
+          voiceRef.current?.finishSpeechStream?.();
+        }
       },
-    }, { model: currentModel, lang: replyLang });
-  }, [sessionId, locale, t]);
+    // Same max harness as chat (DEFAULT_CONTEXT_WINDOW) — one shared contract.
+    }, { model: currentModel, lang: replyLang, context_window: DEFAULT_CONTEXT_WINDOW });
+  }, [sessionId, locale, t, models]);
 
   // ─── Converse: hands-free loop ───
   const handleUtterance = useCallback((text, lang) => streamReply(text, { speak: true, lang }), [streamReply]);
@@ -190,6 +201,40 @@ export default function AssistantPage() {
 
   const talking = voice.state !== 'idle';
   const toggleConverse = () => { if (talking) voice.stop(); else voice.start(); };
+
+  /** New voice turn = new session_id + empty thread → model picker unlocks. */
+  const startFreshConversation = useCallback(() => {
+    if (abortRef.current) { abortRef.current(); abortRef.current = null; }
+    try { voiceRef.current?.stop?.(); } catch { /* best-effort */ }
+    setMessages([]);
+    setSessionId(`assistant-${Date.now()}`);
+    setModelLockHint(null);
+    setSwitching(false);
+  }, []);
+
+  const modelLocked = !canChangeModel({
+    messageCount: messages.length,
+    busy: talking || busy || switching,
+  });
+
+  const chooseModel = useCallback((id) => {
+    const next = resolveVoiceModelId(id);
+    if (next === modelIdRef.current) return;
+    // Mid-conversation switch feels inconsistent — deny with a friendly hint.
+    if (!canChangeModel({ messageCount: messages.length, busy: talking || busy })) {
+      setModelLockHint(
+        (talking || busy) ? t('model.lockedBusy') : t('model.lockedMidConvo'),
+      );
+      setTimeout(() => setModelLockHint(null), 5000);
+      return;
+    }
+    setModelLockHint(null);
+    setModelId(next);
+    saveChatModelId(next);
+    authAPI.updateProfile({ preferred_model: next }).catch(() => {});
+    setSwitching(true);
+    setTimeout(() => setSwitching(false), 1200);
+  }, [messages.length, talking, busy, t]);
 
   useEffect(() => () => {
     voiceRef.current?.stop?.();
@@ -315,10 +360,21 @@ export default function AssistantPage() {
                   models={models}
                   value={modelId}
                   onChange={chooseModel}
-                  disabled={talking || busy}
+                  disabled={modelLocked}
                   t={t}
                   variant="onDark"
                 />
+                {messages.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={startFreshConversation}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-white/15 hover:text-white transition-colors"
+                    data-testid="voice-new-chat"
+                    title={t('chat.newChat')}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> {t('chat.newChat')}
+                  </button>
+                )}
                 <div className="flex items-center gap-1 p-1 rounded-full bg-white/10">
                   <button
                     onClick={() => setMode('converse')}
@@ -344,7 +400,15 @@ export default function AssistantPage() {
                 ? t('model.switchingBefore')
                 : t('assistant.poweredBy', { model: modelLabel })}
               <span className="ms-2 text-white/35">· {t('assistant.modelNote')}</span>
+              {modelLocked && !modelLockHint && (
+                <span className="ms-2 text-white/40" data-testid="model-locked-badge">· {t('model.lockedMidConvo').split('.')[0]}</span>
+              )}
             </p>
+            {modelLockHint && (
+              <p className="relative mt-2 text-xs text-amber-200/90 max-w-xl" role="status" data-testid="model-lock-hint">
+                {modelLockHint}
+              </p>
+            )}
 
             {mode === 'converse' ? (
               <div className="relative flex-1 flex flex-col items-center justify-center gap-6 py-4">

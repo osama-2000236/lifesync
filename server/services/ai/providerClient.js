@@ -462,6 +462,30 @@ const sanitizeTurns = (messages = []) => {
   return turns;
 };
 
+/** Map axios/network failures to short, non-leaky errors (no body, no API key). */
+const toProviderError = (err, providerLabel) => {
+  if (err && err.isProviderError) return err;
+  const status = err?.response?.status;
+  const code = err?.code;
+  const rawMsg = String(err?.message || '');
+  let message;
+  if (status) message = `${providerLabel} request failed (${status})`;
+  else if (code === 'ECONNABORTED' || /timeout/i.test(rawMsg)) message = `${providerLabel} request timed out`;
+  else if (code) message = `${providerLabel} request failed: ${code}`;
+  else message = `${providerLabel} request failed`;
+  const out = new Error(message);
+  out.isProviderError = true;
+  out.status = status || null;
+  out.code = code || null;
+  out.retryable = Boolean(
+    status === 429 || status === 408 || status === 500 || status === 502 || status === 503
+    || status === 522 || status === 524
+    || code === 'ECONNABORTED' || code === 'ECONNRESET' || code === 'ETIMEDOUT'
+    || /timeout|rate.?limit|overloaded/i.test(rawMsg)
+  );
+  return out;
+};
+
 const generateChat = async ({ system, messages, temperature = 0.4, maxTokens = 600, providerOverride, model } = {}) => {
   const provider = providerOverride ? normalizeProvider(providerOverride) : getProvider('chat');
   if (provider === 'bert_local') throw new Error('bert_local is a classifier, not a conversational generator.');
@@ -510,19 +534,23 @@ const generateChat = async ({ system, messages, temperature = 0.4, maxTokens = 6
       throw new Error(`${provider} API key is not configured.`);
     }
     const msgs = system ? [{ role: 'system', content: system }, ...turns] : turns;
-    const response = await axios.post(settings.endpoint, {
-      model: settings.model,
-      messages: msgs,
-      temperature,
-      max_tokens: maxTokens,
-      stream: false,
-    }, {
-      timeout: provider === 'lmstudio'
-        ? (parseInt(process.env.LM_STUDIO_REQUEST_TIMEOUT_MS, 10) || 180000)
-        : 60000,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}`, ...(settings.extraHeaders || {}) },
-    });
-    return { provider, model: settings.model, text: extractOpenAIText(response.data, provider) };
+    try {
+      const response = await axios.post(settings.endpoint, {
+        model: settings.model,
+        messages: msgs,
+        temperature,
+        max_tokens: maxTokens,
+        stream: false,
+      }, {
+        timeout: provider === 'lmstudio'
+          ? (parseInt(process.env.LM_STUDIO_REQUEST_TIMEOUT_MS, 10) || 180000)
+          : 60000,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}`, ...(settings.extraHeaders || {}) },
+      });
+      return { provider, model: settings.model, text: extractOpenAIText(response.data, provider) };
+    } catch (err) {
+      throw toProviderError(err, provider);
+    }
   }
 
   if (provider === 'custom_hf') {
@@ -565,20 +593,32 @@ const generateChatStream = async ({
   if (!turns.length) turns.push({ role: 'user', content: 'Hello' });
   const msgs = system ? [{ role: 'system', content: system }, ...turns] : turns;
 
-  const response = await axios.post(settings.endpoint, {
-    model: settings.model,
-    messages: msgs,
-    temperature,
-    max_tokens: maxTokens,
-    stream: true,
-  }, {
-    timeout: provider === 'lmstudio'
-      ? (parseInt(process.env.LM_STUDIO_REQUEST_TIMEOUT_MS, 10) || 180000)
-      : 60000,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}`, ...(settings.extraHeaders || {}) },
-    responseType: 'stream',
-    signal,
-  });
+  // Free OpenRouter pools flap hard on streams — short timeouts so voice can
+  // hop / non-stream fallback quickly instead of hanging ~45–60s per attempt.
+  const freeStream = provider === 'openrouter' && String(settings.model || '').includes(':free');
+  const streamTimeoutMs = provider === 'lmstudio'
+    ? (parseInt(process.env.LM_STUDIO_REQUEST_TIMEOUT_MS, 10) || 180000)
+    : freeStream
+      ? (parseInt(process.env.CHAT_STREAM_FREE_TIMEOUT_MS, 10) || 20_000)
+      : 60000;
+
+  let response;
+  try {
+    response = await axios.post(settings.endpoint, {
+      model: settings.model,
+      messages: msgs,
+      temperature,
+      max_tokens: maxTokens,
+      stream: true,
+    }, {
+      timeout: streamTimeoutMs,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}`, ...(settings.extraHeaders || {}) },
+      responseType: 'stream',
+      signal,
+    });
+  } catch (err) {
+    throw toProviderError(err, provider);
+  }
 
   let full = '';
   let buf = '';
@@ -588,7 +628,9 @@ const generateChatStream = async ({
     // silent (seen live with OpenRouter free models) would otherwise hang the
     // whole turn until the client's 180s timeout. No token for STALL_MS →
     // kill the socket and surface a retryable error.
-    const STALL_MS = parseInt(process.env.CHAT_STREAM_STALL_MS, 10) || 45_000;
+    const STALL_MS = freeStream
+      ? (parseInt(process.env.CHAT_STREAM_FREE_STALL_MS, 10) || 12_000)
+      : (parseInt(process.env.CHAT_STREAM_STALL_MS, 10) || 45_000);
     let stallTimer = null;
     const armStallTimer = () => {
       clearTimeout(stallTimer);
@@ -1064,6 +1106,7 @@ module.exports = {
   classifyText,
   getAIProviderStatus,
   normalizeEntities,
+  _toProviderError: toProviderError,
   _resolveAIProvider: resolveAIProvider,
   _getProvider: getProvider,
   _getProviderSettings: getProviderSettings,

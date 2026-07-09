@@ -72,15 +72,45 @@ describe('parseMessage two-track routing', () => {
     const result = await parseMessage('I walked 8000 steps', null, ctx(), { provider: 'openai', model: 'gpt' });
     expect(result.entities[0]).toMatchObject({ type: 'steps', value: 8000 }); // Track A intact
     expect(result.response).toBe('Nice, 8k steps logged — great pace!'); // Track B reply
-    expect(result.model_runtime).toMatchObject({ provider: 'openai', conversational: true, responder: 'generative' });
+    expect(result.model_runtime).toMatchObject({
+      provider: 'openai',
+      model: 'gpt',
+      conversational: true,
+      responder: 'generative',
+    });
+    // Classifier tag must not leak as the face model.
+    expect(result.model_runtime.model).not.toMatch(/bert/i);
   });
 
-  test('missing API key falls back to the deterministic reply gracefully', async () => {
+  test('missing API key does NOT use BERT template — honest model_error', async () => {
     generateChat.mockRejectedValue(new Error('Anthropic API key is not configured.'));
     const result = await parseMessage('I walked 8000 steps', null, ctx(), { provider: 'anthropic', model: 'claude-opus-4-8' });
+    // Facts may still be extracted, but the reply is not a fake model answer.
     expect(result.entities[0]).toMatchObject({ type: 'steps', value: 8000 });
-    expect(result.response).toMatch(/logged/i); // deterministic reply
-    expect(result.model_runtime).toMatchObject({ responder: 'deterministic_fallback', chat_provider: 'anthropic' });
+    expect(result.response).toBeNull();
+    expect(result.generative_failed).toBe(true);
+    expect(result.model_runtime).toMatchObject({
+      responder: 'model_error',
+      model: 'claude-opus-4-8',
+    });
+    expect(result.generative_error_user).toMatch(/claude-opus-4-8|unavailable|API/i);
+    expect(String(result.model_runtime.model)).not.toMatch(/bert/i);
+  });
+
+  test('Gemma free failure attributes Gemma and never returns a template reply', async () => {
+    generateChat.mockRejectedValue(new Error('429 rate-limited'));
+    const result = await parseMessage('hello', null, ctx(), {
+      provider: 'openrouter',
+      model: 'google/gemma-4-31b-it:free',
+    });
+    expect(result.generative_failed).toBe(true);
+    expect(result.response).toBeNull();
+    expect(result.model_runtime.responder).toBe('model_error');
+    expect(result.model_runtime.model).toBe('google/gemma-4-31b-it:free');
+    expect(result.generative_error_user).toMatch(/gemma-4-31b-it:free/i);
+    expect(String(result.model_runtime.model)).not.toMatch(/bert_best/i);
+    // Must not look like a successful BERT chat reply.
+    expect(String(result.response || '')).not.toMatch(/logged|Glad|Hello/i);
   });
 
   test('an ambiguous turn still converses on a generative model (no canned chips, nothing logged)', async () => {
@@ -96,12 +126,14 @@ describe('parseMessage two-track routing', () => {
     expect(result.model_runtime).toMatchObject({ responder: 'generative' });
   });
 
-  test('an ambiguous turn falls back to the clarification chips when the model fails', async () => {
+  test('an ambiguous turn does NOT fake chips when the generative model fails', async () => {
     generateChat.mockRejectedValue(new Error('down'));
     const result = await parseMessage('I spent 10', null, ctx(), { provider: 'openai', model: 'gpt' });
-    expect(result.needs_clarification).toBe(true);
-    expect(result.clarification_question).toBeTruthy();
-    expect(result.model_runtime).toMatchObject({ responder: 'deterministic_fallback' });
+    expect(result.generative_failed).toBe(true);
+    expect(result.needs_clarification).toBe(false);
+    expect(result.clarification_options).toEqual([]);
+    expect(result.response).toBeNull();
+    expect(result.model_runtime).toMatchObject({ responder: 'model_error', model: 'gpt' });
   });
 
   test('bert_local keeps the canned clarification flow', async () => {

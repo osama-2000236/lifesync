@@ -36,7 +36,9 @@ const HealthLog = sequelize.define('health_logs', {
     comment: 'Numeric value (e.g., 8000 steps, 3 mood rating, 2.5L water)',
   },
   value_text: {
-    type: DataTypes.STRING(255),
+    // TEXT: field is AES-encrypted at rest (hooks) — ciphertext is ~1.4× longer
+    // than plaintext and overflows STRING(255) for any non-trivial note (MySQL).
+    type: DataTypes.TEXT,
     allowNull: true,
     comment: 'Optional text value for descriptive entries (e.g., "grilled chicken salad")',
   },

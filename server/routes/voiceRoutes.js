@@ -20,9 +20,20 @@ const router = express.Router();
 
 // In-memory upload: audio clips are small and forwarded straight to the STT
 // provider, so we never write them to disk. Cap at 25MB (provider limit).
+// fileFilter rejects non-audio so random binaries never hit the STT upstream.
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const mime = String(file.mimetype || '').toLowerCase();
+    const name = String(file.originalname || '').toLowerCase();
+    const okMime = mime.startsWith('audio/') || mime === 'application/octet-stream' || mime === 'video/webm';
+    const okExt = /\.(webm|wav|mp3|m4a|ogg|flac|mp4|mpeg|mpga)$/i.test(name);
+    if (okMime || okExt) return cb(null, true);
+    const err = new Error('Only audio files are accepted for transcription.');
+    err.code = 'VOICE_STT_BAD_TYPE';
+    return cb(err);
+  },
 });
 
 const SUPPORTED_LANGUAGES = [
@@ -67,6 +78,8 @@ const resolveStt = () => {
 
 /**
  * Resolve TTS provider: explicit VOICE_TTS_* wins; else OPENROUTER_API_KEY.
+ * Default OpenRouter model is microsoft/mai-voice-2 (mp3 + neural AR/EN voices).
+ * openai/gpt-4o-mini-tts is not on the speech catalog for many keys → 400.
  */
 const resolveTts = () => {
   if (process.env.VOICE_TTS_DISABLED === '1') return null;
@@ -82,10 +95,9 @@ const resolveTts = () => {
     return {
       endpoint: `${openRouterBase()}/audio/speech`,
       apiKey: process.env.OPENROUTER_API_KEY,
-      // Prefer a model that speaks Arabic well; override with VOICE_TTS_MODEL.
       model: process.env.VOICE_TTS_MODEL
         || process.env.OPENROUTER_TTS_MODEL
-        || 'openai/gpt-4o-mini-tts',
+        || 'microsoft/mai-voice-2',
       headers: openRouterExtraHeaders(),
     };
   }
@@ -95,11 +107,29 @@ const resolveTts = () => {
 const cloudSttConfigured = () => Boolean(resolveStt());
 const cloudTtsConfigured = () => Boolean(resolveTts());
 
-const ttsVoice = () => process.env.VOICE_TTS_VOICE || 'alloy';
-// Output container. 'wav' is the safe cross-provider default (OpenAI + Groq
-// both accept it) and is REQUIRED by Groq's Orpheus models, which reject the
-// OpenAI-default mp3. Override per provider if you want smaller mp3 payloads.
-const ttsFormat = () => process.env.VOICE_TTS_FORMAT || 'wav';
+// Voice id is provider-specific. Lang is used only for Microsoft Neural voices.
+const ttsVoice = (language) => {
+  if (process.env.VOICE_TTS_VOICE) return process.env.VOICE_TTS_VOICE;
+  const model = String(resolveTts()?.model || '');
+  const ar = String(language || '').toLowerCase().startsWith('ar');
+  if (/mai-voice|microsoft\//i.test(model)) {
+    return ar ? 'ar-SA-ZariyahNeural' : 'en-US-AvaNeural';
+  }
+  if (/kokoro/i.test(model)) return 'af_heart';
+  return 'alloy';
+};
+
+// Format by provider: OpenRouter speech = mp3|pcm only; Groq Orpheus needs wav.
+const ttsFormat = () => {
+  if (process.env.VOICE_TTS_FORMAT) return process.env.VOICE_TTS_FORMAT;
+  const cfg = resolveTts();
+  const model = String(cfg?.model || '');
+  const endpoint = String(cfg?.endpoint || '');
+  if (/orpheus/i.test(model) || /groq\.com/i.test(endpoint)) return 'wav';
+  if (/gemini/i.test(model) && /tts/i.test(model)) return 'pcm';
+  if (/openrouter\.ai/i.test(endpoint)) return 'mp3';
+  return 'wav';
+};
 
 // Map response_format → MIME when the upstream omits Content-Type.
 const contentTypeFromFormat = (fmt) => {
@@ -115,25 +145,44 @@ const contentTypeFromFormat = (fmt) => {
 // Forward text to an OpenAI-compatible /audio/speech endpoint and return the
 // raw audio bytes + content-type. Separate from the route so it can be
 // unit-tested with a mocked axios (same pattern as transcribeAudio).
-// No `language` field: it isn't part of the /audio/speech contract (Groq 400s
-// on it) — the model speaks the input text's language natively.
-const synthesizeSpeech = async (text) => {
+// No `language` in the JSON body (Groq 400s on it) — language only picks voice.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const synthesizeSpeech = async (text, language) => {
   const cfg = resolveTts();
   if (!cfg) throw new Error('TTS not configured');
   const format = ttsFormat();
-  const { data, headers } = await axios.post(
-    cfg.endpoint,
-    { model: cfg.model, input: String(text), voice: ttsVoice(), response_format: format },
-    {
-      headers: { Authorization: `Bearer ${cfg.apiKey}`, ...cfg.headers },
-      responseType: 'arraybuffer',
-      timeout: 30_000,
-    },
-  );
-  return {
-    buffer: Buffer.from(data),
-    contentType: headers?.['content-type'] || contentTypeFromFormat(format),
+  const body = {
+    model: cfg.model,
+    input: String(text),
+    voice: ttsVoice(language),
+    response_format: format,
   };
+  const opts = {
+    headers: { Authorization: `Bearer ${cfg.apiKey}`, ...cfg.headers },
+    responseType: 'arraybuffer',
+    timeout: 30_000,
+  };
+  // One retry on 429/5xx — free/paid speech pools flap; 4xx stays hard fail.
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const { data, headers } = await axios.post(cfg.endpoint, body, opts);
+      const buffer = Buffer.from(data);
+      if (!buffer.length) throw new Error('empty TTS audio');
+      return {
+        buffer,
+        contentType: headers?.['content-type'] || contentTypeFromFormat(format),
+      };
+    } catch (err) {
+      lastErr = err;
+      const status = err?.response?.status;
+      const retryable = !status || status === 429 || status >= 500;
+      if (!retryable || attempt === 1) throw err;
+      await sleep(400);
+    }
+  }
+  throw lastErr;
 };
 
 // Forward an audio buffer to an OpenAI-compatible /audio/transcriptions endpoint.
@@ -176,7 +225,16 @@ router.get('/config', (req, res) => success(res, {
 // Server-side fallback transcription. The browser (Web Speech API) is the
 // default path; the client only calls this when native STT is unavailable.
 // Enabled via VOICE_STT_* or OPENROUTER_API_KEY (auto Whisper). Multipart: `file`.
-router.post('/transcribe', authenticate, upload.single('file'), async (req, res) => {
+router.post('/transcribe', authenticate, (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      const code = err.code === 'LIMIT_FILE_SIZE' ? 'VOICE_STT_TOO_LARGE' : (err.code || 'VOICE_STT_BAD_UPLOAD');
+      const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+      return error(res, err.message || 'Invalid audio upload.', status, code);
+    }
+    return next();
+  });
+}, async (req, res) => {
   if (!cloudSttConfigured()) {
     return error(
       res,
@@ -213,12 +271,15 @@ router.post('/speak', authenticate, async (req, res) => {
   if (!text) return error(res, 'No text provided.', 400, 'VOICE_TTS_NO_TEXT');
   if (text.length > 4096) return error(res, 'Text too long for synthesis.', 413, 'VOICE_TTS_TOO_LONG');
   try {
-    const { buffer, contentType } = await synthesizeSpeech(text);
+    const { buffer, contentType } = await synthesizeSpeech(text, req.body?.language);
     res.set('Content-Type', contentType);
     res.set('Cache-Control', 'no-store');
     return res.send(buffer);
   } catch (err) {
-    console.error('[voice/speak] upstream error', err?.response?.status || err?.message);
+    const detail = err?.response?.data
+      ? Buffer.from(err.response.data).toString('utf8').slice(0, 200)
+      : '';
+    console.error('[voice/speak] upstream error', err?.response?.status || err?.message, detail);
     return error(res, 'Speech synthesis failed. Falling back to the browser voice.', 502, 'VOICE_TTS_UPSTREAM_ERROR');
   }
 });
@@ -230,5 +291,6 @@ module.exports.synthesizeSpeech = synthesizeSpeech;
 module.exports.cloudTtsConfigured = cloudTtsConfigured;
 module.exports.contentTypeFromFormat = contentTypeFromFormat;
 module.exports.ttsFormat = ttsFormat;
+module.exports.ttsVoice = ttsVoice;
 module.exports.resolveStt = resolveStt;
 module.exports.resolveTts = resolveTts;

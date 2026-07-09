@@ -116,11 +116,39 @@ const verifyOTP = (email, code) => {
     };
   }
 
-  // Verify code
-  record.attempts += 1;
+  // Already verified for this email — single-use of the *attempt budget*, but
+  // re-check success is idempotent until consumeOTP (registration step 2).
+  if (record.verified) {
+    return {
+      success: true,
+      message: 'Email verified successfully. You may now complete registration.',
+    };
+  }
 
-  if (record.code !== code) {
+  // Verify code (timing-safe — avoid early-exit strcmp on wrong digits)
+  record.attempts += 1;
+  const expected = String(record.code || '');
+  const provided = String(code || '').trim();
+  let match = false;
+  if (expected.length === provided.length && expected.length > 0) {
+    try {
+      match = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
+    } catch {
+      match = false;
+    }
+  }
+
+  if (!match) {
     const remaining = MAX_ATTEMPTS - record.attempts;
+    if (record.attempts >= MAX_ATTEMPTS) {
+      otpStore.delete(normalizedEmail);
+      return {
+        success: false,
+        message: 'Too many failed attempts. Please request a new code.',
+        code: 'OTP_MAX_ATTEMPTS',
+      };
+    }
+    otpStore.set(normalizedEmail, record);
     return {
       success: false,
       message: `Invalid code. ${remaining} attempt(s) remaining.`,
@@ -128,8 +156,10 @@ const verifyOTP = (email, code) => {
     };
   }
 
-  // Mark as verified (don't delete yet — needed for step 2)
+  // Mark as verified (don't delete yet — needed for step 2). Code is not
+  // re-checked after this; completeRegistration uses isEmailVerified + consume.
   record.verified = true;
+  record.code = null; // prevent offline re-use of the raw code after verify
   otpStore.set(normalizedEmail, record);
 
   return {
@@ -231,15 +261,12 @@ const sendOTPEmail = async (email, code) => {
     console.log(`\n📧 LifeSync OTP for ${email}: ${code}\n`);
   }
 
-  // Demo bypass (env-gated, hard override). When OTP_DEMO_MODE is enabled, log the
-  // code to the SERVER logs (e.g. Railway logs — private) and report success so
-  // registration works without a deliverable email provider. This wins even when a
-  // key is present, because a key can be in a non-deliverable state (e.g. Resend's
-  // onboarding@resend.dev test sender only delivers to the account owner). The code
-  // is NEVER returned to the client. Turn OFF and set a verified RESEND_FROM domain
-  // for real production sign-ups.
+  // Demo bypass (env-gated). NEVER active when NODE_ENV=production — a mis-set
+  // OTP_DEMO_MODE=true on a live host would log codes and skip real delivery.
   const otpDemoMode = ['1', 'true', 'yes', 'on'].includes(String(process.env.OTP_DEMO_MODE || '').toLowerCase());
-  if (otpDemoMode) {
+  if (otpDemoMode && process.env.NODE_ENV === 'production') {
+    console.error('[otp] OTP_DEMO_MODE is set but ignored in production. Configure a real mail provider.');
+  } else if (otpDemoMode) {
     console.log(`\n📧 [OTP_DEMO_MODE] LifeSync verification code for ${email}: ${code}\n`);
     return { success: true, demo: true, message: 'Verification code issued (demo mode — check server logs).' };
   }

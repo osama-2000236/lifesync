@@ -6,7 +6,9 @@
 // overlay; this hook owns the microphone, recognition, audio metering, and TTS.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { voiceAPI } from '../services/api';
-import { chunkForSpeech, pickVoice, detectLang, speechLangTag, hasVoiceForLang } from '../utils/speech';
+import {
+  chunkForSpeech, pickVoice, detectLang, speechLangTag, hasVoiceForLang, stripMarkdownForSpeech,
+} from '../utils/speech';
 import { attachBlobUrl, stopAndRevokeAudio } from '../utils/cloudAudio';
 
 const SR = typeof window !== 'undefined'
@@ -313,9 +315,11 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
           const lang = sttHint === 'ar'
             ? (detected === 'en' && /[A-Za-z]{4,}/.test(text) && !/[\u0600-\u06FF]/.test(text) ? 'en' : 'ar')
             : detected;
-          sessionLangRef.current = lang;
+          // Real-time AR↔EN: reset BCP-47 tag rotation when language flips.
+          if (lang && lang !== sessionLangRef.current) srLangIdxRef.current = 0;
+          sessionLangRef.current = lang || sessionLangRef.current;
           setTranscript(text);
-          onUtteranceRef.current?.(text, lang);
+          onUtteranceRef.current?.(text, sessionLangRef.current);
         } else if (activeRef.current) {
           startCloudTurnRef.current();
         }
@@ -394,11 +398,11 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
         if (utterance && activeRef.current) {
           try { rec.stop(); } catch { /* ignore */ }
           setPhase('thinking');
-          // Re-detect the language from what was actually said so the next turn's
-          // recognizer + the spoken reply follow a mid-session language switch.
+          // Re-detect language from what was said — mid-session AR↔EN switch.
           const lang = detectLang(utterance, sessionLangRef.current);
-          sessionLangRef.current = lang;
-          onUtteranceRef.current?.(utterance, lang);
+          if (lang && lang !== sessionLangRef.current) srLangIdxRef.current = 0;
+          sessionLangRef.current = lang || sessionLangRef.current;
+          onUtteranceRef.current?.(utterance, sessionLangRef.current);
         }
       }, SILENCE_MS);
     };
@@ -572,7 +576,8 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
 
   // Enqueue one finished sentence/chunk for speech (called as the reply streams in).
   const enqueueSpeech = useCallback((text) => {
-    const t = String(text || '').trim();
+    // Strip markdown once here so chat deltas don't get read as "asterisk asterisk".
+    const t = stripMarkdownForSpeech(text);
     if (!t || !activeRef.current) return;
     // Chunk under Chrome's ~200-char utterance cutoff; shorter utterances also
     // make barge-in cuts feel snappier.

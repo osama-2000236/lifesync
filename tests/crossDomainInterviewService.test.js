@@ -129,6 +129,22 @@ describe('pure helpers', () => {
     expect(svc.selectTopic(null, counts, [])).toBe('mood_nutrition');
   });
 
+  test('selectTopic — skips mood_nutrition when mood+water+nutrition already logged today', () => {
+    const today = {
+      health: new Set(['mood', 'water', 'nutrition']),
+      finance: new Set(),
+    };
+    const counts = { mood: 1, water: 1, nutrition: 1, sleep: 0, expense: 0, exercise: 0, income: 0 };
+    expect(svc.selectTopic(null, counts, [], today)).toBe('sleep_spending');
+  });
+
+  test('firstOpenStep skips steps already covered today', () => {
+    const today = { health: new Set(['mood']), finance: new Set() };
+    expect(svc.firstOpenStep('mood_nutrition', today)).toBe(1); // water, not mood
+    expect(svc.stepCoveredToday('mood_nutrition', 0, today)).toBe(true);
+    expect(svc.stepCoveredToday('mood_nutrition', 1, today)).toBe(false);
+  });
+
   test('selectTopic — rich data returns null', () => {
     const counts = { sleep: 9, expense: 9, mood: 9, water: 9, nutrition: 9, exercise: 9, income: 9 };
     expect(svc.selectTopic({ patterns: [] }, counts, [])).toBeNull();

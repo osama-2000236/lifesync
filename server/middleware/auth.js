@@ -4,8 +4,8 @@
 // Verifies access tokens and attaches user to request
 // ============================================
 
-const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { verifyAccessToken } = require('../utils/tokenUtils');
 
 /**
  * Middleware: Verify JWT token from Authorization header
@@ -22,12 +22,20 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    const token = authHeader.split(' ')[1];
+    // Authorization: Bearer only (no cookie auth — avoids CSRF on state-changing APIs).
+    const token = authHeader.slice(7).trim();
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Access denied. No token provided.',
+      });
+    }
 
-    // Verify token
+    // Verify token — HS256 only (tokenUtils pins algorithms; never alg:none / swap).
+    // Fail closed: any verify throw → 401, never next() with a partial user.
     let decoded;
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      decoded = verifyAccessToken(token);
     } catch (err) {
       if (err.name === 'TokenExpiredError') {
         return res.status(401).json({
@@ -42,7 +50,7 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    // Fetch user from database
+    // Load user from DB (role/is_active from DB — never trust JWT claims alone).
     const user = await User.findByPk(decoded.id, {
       attributes: { exclude: ['hashed_password'] },
     });

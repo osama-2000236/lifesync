@@ -28,6 +28,8 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const googleAuthEnabled = Boolean(getGoogleClientId());
 
+  // Tokens live in localStorage (SPA + multi-tab). Any XSS can read them —
+  // mitigate with CSP + no HTML injection; httpOnly cookies need same-site API.
   const clearSession = useCallback(() => {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');

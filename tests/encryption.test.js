@@ -121,4 +121,34 @@ describe('Encryption Utility', () => {
       expect(isEncrypted('short')).toBe(false);
     });
   });
+
+  describe('security edges', () => {
+    const { _assertKeyStrength, decrypt: dec, encrypt: enc } = require('../server/utils/encryption');
+
+    test('assertKeyStrength rejects keys shorter than 32 chars', () => {
+      expect(() => _assertKeyStrength('short', 'ENCRYPTION_KEY')).toThrow(/at least 32/);
+      expect(() => _assertKeyStrength('x'.repeat(32), 'ENCRYPTION_KEY')).not.toThrow();
+    });
+
+    test('decrypt of non-encrypted legacy plaintext returns the plaintext (no crash)', () => {
+      // HealthLog notes may predate encryption; isEncrypted false → passthrough.
+      expect(dec('legacy plain note about blood pressure')).toBe('legacy plain note about blood pressure');
+      expect(dec(42)).toBe('42');
+    });
+
+    test('decrypt of tampered ciphertext returns null (no garbage, no throw)', () => {
+      const good = enc('amount-99');
+      const tampered = `${good.slice(0, -4)}XXXX`;
+      expect(dec(tampered)).toBeNull();
+    });
+
+    test('decrypt with wrong key returns null', () => {
+      const CryptoJS = require('crypto-js');
+      const foreign = CryptoJS.AES.encrypt('secret-data', 'different-key-at-least-32-characters!!').toString();
+      // Looks encrypted (U2Fsd…) but wrong key → empty Utf8 → null
+      expect(isEncrypted(foreign)).toBe(true);
+      expect(dec(foreign)).toBeNull();
+    });
+  });
 });
+

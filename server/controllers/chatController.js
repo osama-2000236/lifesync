@@ -16,6 +16,7 @@ const { parseMessage } = require('../services/ai/nlpService');
 const { buildBertContext } = require('../services/ai/bertContextService');
 const { recordTurnMemories } = require('../services/ai/memoryService');
 const { resolveModel } = require('../services/ai/modelRuntimeManager');
+const { resolveSessionModel, assistantModelMeta } = require('../services/ai/sessionModelLock');
 const HealthLog = require('../models/HealthLog');
 const FinancialLog = require('../models/FinancialLog');
 const Category = require('../models/Category');
@@ -108,11 +109,17 @@ const chatValidation = [
 ];
 
 /** Per-request chat model → { provider, model } options for parseMessage.
- *  Falls back to the user's preferred_model so memory + history stay on the
- *  same thread when the client omits `model` after a switch. */
+ *  Body `model` wins. Prefer generative picks over bert_local preferred so a
+ *  profile still set to BERT never hijacks a voice/chat turn that sent Gemma. */
 const resolveChatOptions = (modelId, userPreferred = null) => {
-  const resolved = resolveModel(modelId || userPreferred || null);
-  return resolved ? { provider: resolved.provider, model: resolved.model } : {};
+  const requested = String(modelId || '').trim().toLowerCase();
+  const preferred = String(userPreferred || '').trim().toLowerCase();
+  // Prefer explicit request; only use preferred when request is empty.
+  // If preferred is bert_local and request is empty, still resolve bert (chat
+  // classifier path) — voice client always sends a voice-trio id.
+  const pick = requested || preferred || null;
+  const resolved = resolveModel(pick);
+  return resolved ? { provider: resolved.provider, model: resolved.model, catalog_id: resolved.id } : {};
 };
 
 // ============================================
@@ -260,6 +267,71 @@ const resolveAIErrorMessage = (aiError) =>
   aiError?.userMessage
   || 'Sorry, Local Gemma is temporarily unavailable. Your message was saved and you can try again shortly.';
 
+/** Generative pick failed: log Track A entities if any, persist error row, return payload. */
+const handleGenerativeFailure = async ({
+  nlpResult, message, userId, userChatLog, assistantChatLog, effectiveModelId, sessionModel, currentSessionId,
+}) => {
+  let healthEntries = [];
+  let financeEntries = [];
+  let linkedDomainEntries = [];
+  if (Array.isArray(nlpResult.entities) && nlpResult.entities.length > 0) {
+    const healthEntities = nlpResult.entities.filter((e) => e.domain === 'health');
+    const financeEntities = nlpResult.entities.filter((e) => e.domain === 'finance');
+    if (healthEntities.length > 0) healthEntries = await createHealthEntries(healthEntities, userId);
+    if (financeEntities.length > 0) financeEntries = await createFinanceEntries(financeEntities, userId);
+    if (nlpResult.is_cross_domain && healthEntries.length > 0 && financeEntries.length > 0) {
+      linkedDomainEntries = await createCrossDomainLinks(
+        healthEntries, financeEntries, nlpResult.original_message || message,
+      );
+    }
+  }
+
+  const errorMessage = nlpResult.generative_error_user
+    || nlpResult.generative_error
+    || 'The selected model did not reply.';
+  const rawErr = String(nlpResult.generative_error || '');
+  const retryable = /\b(429|502|503|timeout|rate.?limit|busy|overloaded)\b/i.test(rawErr);
+
+  await safeUpdate(userChatLog, {
+    intent: nlpResult.intent,
+    entities_json: nlpResult.entities || [],
+    processing_time_ms: nlpResult.processing_time_ms,
+    status: 'complete',
+  });
+  await safeUpdate(assistantChatLog, {
+    message: errorMessage,
+    intent: 'error',
+    entities_json: assistantModelMeta(effectiveModelId),
+    status: 'error',
+  });
+
+  return {
+    session_id: currentSessionId,
+    message: errorMessage,
+    response: errorMessage,
+    retryable,
+    code: 'MODEL_UNAVAILABLE',
+    intent: 'error',
+    domain: nlpResult.domain || 'general',
+    needs_clarification: false,
+    confidence: 0,
+    error: true,
+    model_runtime: {
+      ...(nlpResult.model_runtime || {}),
+      catalog_model: effectiveModelId || null,
+      model_switch_denied: Boolean(sessionModel.denied),
+    },
+    entities_logged: {
+      health: healthEntries.map((e) => ({ id: e.id, type: e.type, value: e.getDataValue('value') })),
+      finance: financeEntries.map((e) => ({ id: e.id, type: e.type, amount: e.getDataValue('amount') })),
+      linked: linkedDomainEntries.map((l) => ({
+        id: l.id, health_log_id: l.health_log_id, financial_log_id: l.financial_log_id,
+      })),
+    },
+    processing_time_ms: nlpResult.processing_time_ms,
+  };
+};
+
 // ============================================
 // STREAMING ENDPOINT — POST /api/chat/stream
 // ============================================
@@ -278,10 +350,19 @@ const processMessageStream = async (req, res) => {
   const { message, session_id } = req.body;
   const userId = req.user.id;
   const currentSessionId = session_id || randomUUID();
+  // Session model lock: mid-conversation model switch is denied server-side
+  // (client already shows a friendly hint; this keeps style consistent even
+  // if the request is forged). New session_id unlocks.
+  const sessionModel = await resolveSessionModel(
+    userId,
+    currentSessionId,
+    req.body?.model || req.user?.preferred_model || null,
+  );
+  const effectiveModelId = sessionModel.modelId || req.body?.model || req.user?.preferred_model || null;
   // lang = UI/client-detected hint (tiebreaker); server re-detects from text
   // and wins when scripts disagree — real-time AR↔EN switch.
   const aiOptions = {
-    ...resolveChatOptions(req.body?.model, req.user?.preferred_model),
+    ...resolveChatOptions(effectiveModelId, req.user?.preferred_model),
     lang: req.body?.lang || null,
     sessionId: currentSessionId,
   };
@@ -337,7 +418,17 @@ const processMessageStream = async (req, res) => {
       session_id: currentSessionId,
       user_message_id: userChatLog.id,
       assistant_message_id: assistantChatLog.id,
+      catalog_model: effectiveModelId || null,
+      model_switch_denied: Boolean(sessionModel.denied),
     });
+    if (sessionModel.denied) {
+      sseWrite(res, 'status', {
+        message: 'model_locked',
+        code: 'MODEL_SWITCH_DENIED',
+        locked_model: sessionModel.locked,
+        requested_model: sessionModel.requested,
+      });
+    }
 
     // ─── Step 2: Check for pending clarification ───
     const pending = pendingClarifications.get(userId);
@@ -413,6 +504,17 @@ const processMessageStream = async (req, res) => {
     // Memory lives in the DB, so it persists across model switches.
     recordTurnMemories(userId, message, nlpResult).catch(() => {});
 
+    // ─── Generative model failed — honest error, never BERT template as reply ───
+    if (nlpResult.generative_failed || nlpResult.model_runtime?.responder === 'model_error') {
+      const payload = await handleGenerativeFailure({
+        nlpResult, message, userId, userChatLog, assistantChatLog,
+        effectiveModelId, sessionModel, currentSessionId,
+      });
+      sseWrite(res, 'error', payload);
+      sseWrite(res, 'done', {});
+      return res.end();
+    }
+
     // ─── Step 3: Handle clarification needed ───
     if (nlpResult.needs_clarification) {
       pendingClarifications.set(userId, {
@@ -433,6 +535,7 @@ const processMessageStream = async (req, res) => {
       await safeUpdate(assistantChatLog, {
         message: nlpResult.clarification_question,
         intent: 'clarification',
+        entities_json: assistantModelMeta(effectiveModelId),
         status: 'complete',
       });
 
@@ -450,7 +553,11 @@ const processMessageStream = async (req, res) => {
         confidence: nlpResult.confidence,
         is_cross_domain: false,
         entities_logged: { health: [], finance: [], linked: [] },
-        model_runtime: nlpResult.model_runtime || null,
+        model_runtime: {
+          ...(nlpResult.model_runtime || {}),
+          catalog_model: effectiveModelId || null,
+          model_switch_denied: Boolean(sessionModel.denied),
+        },
         processing_time_ms: nlpResult.processing_time_ms,
       });
       sseWrite(res, 'done', {});
@@ -508,7 +615,7 @@ const processMessageStream = async (req, res) => {
     await safeUpdate(assistantChatLog, {
       message: nlpResult.response,
       intent: null,
-      entities_json: null,
+      entities_json: assistantModelMeta(effectiveModelId),
       status: 'complete',
     });
 
@@ -535,7 +642,11 @@ const processMessageStream = async (req, res) => {
           id: l.id, health_log_id: l.health_log_id, financial_log_id: l.financial_log_id,
         })),
       },
-      model_runtime: nlpResult.model_runtime || null,
+      model_runtime: {
+        ...(nlpResult.model_runtime || {}),
+        catalog_model: effectiveModelId || null,
+        model_switch_denied: Boolean(sessionModel.denied),
+      },
       processing_time_ms: nlpResult.processing_time_ms,
     });
     sseWrite(res, 'done', {});
@@ -578,8 +689,14 @@ const processMessage = async (req, res, next) => {
     const { message, session_id } = req.body;
     const userId = req.user.id;
     const currentSessionId = session_id || randomUUID();
+    const sessionModel = await resolveSessionModel(
+      userId,
+      currentSessionId,
+      req.body?.model || req.user?.preferred_model || null,
+    );
+    const effectiveModelId = sessionModel.modelId || req.body?.model || req.user?.preferred_model || null;
     const aiOptions = {
-      ...resolveChatOptions(req.body?.model, req.user?.preferred_model),
+      ...resolveChatOptions(effectiveModelId, req.user?.preferred_model),
       lang: req.body?.lang || null,
       sessionId: currentSessionId,
     };
@@ -654,6 +771,15 @@ const processMessage = async (req, res, next) => {
     // Remember durable facts stated this turn (non-blocking, DB-backed).
     recordTurnMemories(userId, message, nlpResult).catch(() => {});
 
+    // Generative model failed — honest error body (same policy as SSE stream).
+    if (nlpResult.generative_failed || nlpResult.model_runtime?.responder === 'model_error') {
+      const payload = await handleGenerativeFailure({
+        nlpResult, message, userId, userChatLog, assistantChatLog,
+        effectiveModelId, sessionModel, currentSessionId,
+      });
+      return success(res, payload);
+    }
+
     // ─── Handle clarification ───
     if (nlpResult.needs_clarification) {
       pendingClarifications.set(userId, {
@@ -673,6 +799,7 @@ const processMessage = async (req, res, next) => {
       await safeUpdate(assistantChatLog, {
         message: nlpResult.clarification_question,
         intent: 'clarification',
+        entities_json: assistantModelMeta(effectiveModelId),
         status: 'complete',
       });
 
@@ -688,7 +815,11 @@ const processMessage = async (req, res, next) => {
         clarification_options: nlpResult.clarification_options,
         confidence: nlpResult.confidence,
         entities_logged: { health: [], finance: [] },
-        model_runtime: nlpResult.model_runtime || null,
+        model_runtime: {
+          ...(nlpResult.model_runtime || {}),
+          catalog_model: effectiveModelId || null,
+          model_switch_denied: Boolean(sessionModel.denied),
+        },
         processing_time_ms: nlpResult.processing_time_ms,
       });
     }
@@ -725,7 +856,7 @@ const processMessage = async (req, res, next) => {
     await safeUpdate(assistantChatLog, {
       message: nlpResult.response,
       intent: null,
-      entities_json: null,
+      entities_json: assistantModelMeta(effectiveModelId),
       status: 'complete',
     });
 
@@ -750,7 +881,11 @@ const processMessage = async (req, res, next) => {
           id: l.id, health_log_id: l.health_log_id, financial_log_id: l.financial_log_id,
         })),
       },
-      model_runtime: nlpResult.model_runtime || null,
+      model_runtime: {
+        ...(nlpResult.model_runtime || {}),
+        catalog_model: effectiveModelId || null,
+        model_switch_denied: Boolean(sessionModel.denied),
+      },
       processing_time_ms: nlpResult.processing_time_ms,
     });
   } catch (err) {
@@ -763,24 +898,26 @@ const processMessage = async (req, res, next) => {
  */
 const getChatHistory = async (req, res, next) => {
   try {
-    const { session_id, page = 1, limit = 50 } = req.query;
+    const { session_id } = req.query;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
     const where = { user_id: req.user.id };
-    if (session_id) where.session_id = session_id;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    if (session_id) where.session_id = String(session_id).slice(0, 128);
+    const offset = (page - 1) * limit;
     const { count, rows } = await ChatLog.findAndCountAll({
       where,
       order: [['created_at', 'ASC']],
-      limit: parseInt(limit),
+      limit,
       offset,
     });
 
     return success(res, {
       messages: rows,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page,
+        limit,
         total: count,
-        totalPages: Math.ceil(count / parseInt(limit)),
+        totalPages: Math.ceil(count / limit),
       },
     });
   } catch (err) {

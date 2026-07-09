@@ -1,9 +1,7 @@
 # .github/workflows/ci.yml
-# ============================================
-# LifeSync CI Pipeline
-# Runs on: push to main/develop, all PRs
-# Steps: Install → Test (75 tests) → Build
-# ============================================
+# LifeSync CI: backend Jest, MySQL e2e, Python unit, client Vitest+build, Docker (main).
+# Not in CI (needs live services / secrets): Playwright UI e2e, test:qa:api,
+# test:eval:voice (BERT/ONNX runtime), production release-smoke.
 
 name: LifeSync CI
 
@@ -17,7 +15,6 @@ jobs:
   # ─── Backend Tests ───
   test-backend:
     runs-on: ubuntu-latest
-    
     strategy:
       matrix:
         node-version: [18, 20]
@@ -39,18 +36,64 @@ jobs:
         run: |
           cp .env.example .env
           echo "NODE_ENV=test" >> .env
+          echo "DB_DIALECT=sqlite" >> .env
+          echo "DB_STORAGE=:memory:" >> .env
           echo "JWT_SECRET=test_jwt_secret_for_ci_pipeline_32ch" >> .env
           echo "JWT_REFRESH_SECRET=test_refresh_secret_for_ci_pipe" >> .env
           echo "ENCRYPTION_KEY=test_encryption_key_for_ci_32ch!" >> .env
 
+      # forceExit is also set in jest.config.js — detectOpenHandles logs leaks
+      # without masking failures. Prefer fixing open handles over relying on exit.
       - name: Run Jest tests
-        run: npm test -- --forceExit --detectOpenHandles
+        run: npm test -- --detectOpenHandles
         env:
           NODE_ENV: test
+          DB_DIALECT: sqlite
+          JWT_SECRET: test_jwt_secret_for_ci_pipeline_32ch
+          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_pipe
+          ENCRYPTION_KEY: test_encryption_key_for_ci_32ch!
 
-      - name: Test results summary
-        if: always()
-        run: echo "✅ Backend test suite completed"
+  # ─── Eval suites (pure Jest — no live model / GPU required) ───
+  test-eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - name: Create test .env
+        run: |
+          cp .env.example .env
+          echo "NODE_ENV=test" >> .env
+          echo "JWT_SECRET=test_jwt_secret_for_ci_pipeline_32ch" >> .env
+          echo "JWT_REFRESH_SECRET=test_refresh_secret_for_ci_pipe" >> .env
+          echo "ENCRYPTION_KEY=test_encryption_key_for_ci_32ch!" >> .env
+      - name: Track B + insight evals
+        run: |
+          npm run test:eval:trackb
+          npm run test:eval:insight
+        env:
+          NODE_ENV: test
+          JWT_SECRET: test_jwt_secret_for_ci_pipeline_32ch
+          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_pipe
+          ENCRYPTION_KEY: test_encryption_key_for_ci_32ch!
+
+  # ─── Python model service unit tests (no weights) ───
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: model_runtime request validation
+        working-directory: model_runtime
+        run: python -m unittest test_request_validation.py -v
+      - name: hf_space infer limit helpers
+        working-directory: hf_space
+        run: python -m unittest test_infer_limits.py -v
 
   # ─── Backend MySQL E2E ───
   e2e-mysql:
@@ -88,6 +131,7 @@ jobs:
         run: |
           cp .env.example .env
           echo "NODE_ENV=test" >> .env
+          echo "DB_DIALECT=mysql" >> .env
           echo "DB_HOST=127.0.0.1" >> .env
           echo "DB_PORT=3306" >> .env
           echo "DB_NAME=lifesync_test" >> .env
@@ -109,6 +153,7 @@ jobs:
       - name: Run DB migrations
         run: npx sequelize-cli db:migrate --env development
         env:
+          DB_DIALECT: mysql
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
           DB_NAME: lifesync_test
@@ -120,6 +165,7 @@ jobs:
         env:
           NODE_ENV: test
           RUN_DB_E2E: true
+          DB_DIALECT: mysql
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
           DB_NAME: lifesync_test
@@ -132,7 +178,7 @@ jobs:
   # ─── Frontend Build ───
   build-frontend:
     runs-on: ubuntu-latest
-    needs: [test-backend, e2e-mysql]
+    needs: [test-backend, e2e-mysql, test-eval, test-python]
 
     steps:
       - name: Checkout code

@@ -137,8 +137,10 @@ describe('Arabic deterministic logging', () => {
       health: { sleep: { average: 7 } }, finance: {}, active_goals: [],
     });
     expect(r.intent).toBe('query_finance');
-    expect(r.response).toMatch(/سياقك الأخير/);
-    expect(r.response).not.toMatch(/Your recent context/);
+    // buildContextSummaryAr opener (not the English "Your LifeSync data picture")
+    expect(r.response).toMatch(/صورة بياناتك في LifeSync|سياقك الأخير/);
+    expect(r.response).toMatch(/[؀-ۿ]/);
+    expect(r.response).not.toMatch(/Your LifeSync data picture|Your recent context/);
   });
 
   test('Arabic dual forms carry their implicit quantity', () => {

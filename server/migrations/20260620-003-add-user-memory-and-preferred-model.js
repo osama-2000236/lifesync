@@ -98,7 +98,14 @@ module.exports = {
   },
 
   async down(queryInterface) {
-    await queryInterface.dropTable('user_memories');
-    await queryInterface.removeColumn('users', 'preferred_model');
+    const tables = await queryInterface.showAllTables();
+    const normalized = tables.map((t) => (typeof t === 'string' ? t : t.tableName));
+    if (normalized.includes('user_memories')) {
+      await queryInterface.dropTable('user_memories');
+    }
+    const table = await queryInterface.describeTable('users');
+    if (table.preferred_model) {
+      await queryInterface.removeColumn('users', 'preferred_model');
+    }
   },
 };

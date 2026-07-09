@@ -79,15 +79,27 @@ const startInterview = async (req, res, next) => {
       return success(res, { dismissed: true, topic }, 'Interview dismissed');
     }
 
+    // Skip steps already logged today (e.g. mood 3/10 → do not re-ask mood).
+    const today = await interview.gatherTodayCoverage(req.user.id);
+    const startStep = interview.firstOpenStep(topic, today);
+    if (startStep == null) {
+      return success(res, {
+        topic,
+        done: true,
+        skipped: true,
+        message: 'All questions for this topic already logged today.',
+      }, 'Interview not needed today');
+    }
+
     activeInterviews.set(req.user.id, {
       topic,
-      step: 0,
+      step: startStep,
       healthIds: [],
       financeIds: [],
       createdAt: Date.now(),
     });
 
-    const question = interview.nextQuestion(topic, 0, lang);
+    const question = interview.nextQuestion(topic, startStep, lang);
     return success(res, {
       topic,
       cross_domain: interview.isCrossDomain(topic),
@@ -123,9 +135,16 @@ const answerInterview = async (req, res, next) => {
     if (logged.domain === 'health') state.healthIds.push(logged.id);
     else state.financeIds.push(logged.id);
 
-    state.step += 1;
+    // Advance past steps already satisfied today (including what we just logged).
+    const today = await interview.gatherTodayCoverage(userId);
+    const total = interview.totalSteps(state.topic);
+    let nextStep = state.step + 1;
+    while (nextStep < total && interview.stepCoveredToday(state.topic, nextStep, today)) {
+      nextStep += 1;
+    }
+    state.step = nextStep;
 
-    const nextQ = interview.nextQuestion(state.topic, state.step, lang);
+    const nextQ = nextStep < total ? interview.nextQuestion(state.topic, nextStep, lang) : null;
     if (nextQ) {
       state.createdAt = Date.now(); // keep the session warm
       return success(res, { done: false, logged, question: nextQ }, 'Answer logged');

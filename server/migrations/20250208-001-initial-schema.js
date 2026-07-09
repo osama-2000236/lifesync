@@ -149,7 +149,8 @@ module.exports = {
         allowNull: false,
       },
       value_text: {
-        type: Sequelize.STRING(255),
+        // AES-encrypted at rest — must be TEXT (STRING(255) overflows ciphertext).
+        type: Sequelize.TEXT,
         allowNull: true,
       },
       unit: {

@@ -13,9 +13,13 @@ from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from request_validation import parse_classify_text, parse_content_length, safe_error_name
 
 
 class Runtime:
@@ -113,20 +117,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
             return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > 16_384:
-                raise ValueError("invalid_content_length")
-            body = json.loads(self.rfile.read(length))
-            text = body.get("text")
-            if not isinstance(text, str) or not text.strip():
-                raise ValueError("text_required")
-            if len(text) > 2000:
-                raise ValueError("text_too_long")
-            self.send_json(HTTPStatus.OK, self.runtime.classify(text.strip()))
+            length = parse_content_length(self.headers.get("Content-Length"))
+            text = parse_classify_text(self.rfile.read(length))
+            self.send_json(HTTPStatus.OK, self.runtime.classify(text))
         except (ValueError, json.JSONDecodeError) as error:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": safe_error_name(error)})
         except Exception as error:
-            print(f"Inference error: {error}")
+            # Never return traceback / filesystem paths to the client.
+            print(f"Inference error: {type(error).__name__}: {error}")
             self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": type(error).__name__})
 
     def log_message(self, fmt, *args):

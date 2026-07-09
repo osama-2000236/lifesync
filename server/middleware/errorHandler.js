@@ -68,6 +68,17 @@ const errorHandler = (err, req, res, _next) => {
     message = 'Authentication token has expired.';
   }
 
+  // Production: never surface raw internal Error.message for unexpected 500s
+  // (callers that set isOperational / AppError keep their safe client messages).
+  if (
+    statusCode >= 500
+    && process.env.NODE_ENV === 'production'
+    && !err.isOperational
+  ) {
+    message = 'Internal server error';
+    code = code || 'INTERNAL_ERROR';
+  }
+
   // Send response
   const response = {
     success: false,

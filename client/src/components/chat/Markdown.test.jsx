@@ -82,4 +82,21 @@ describe('Markdown', () => {
     const c = md('**');
     expect(c.textContent).toBe('');
   });
+
+  it('does not execute XSS payloads (no HTML injection / no img/script nodes)', () => {
+    const payload = '<img src=x onerror=alert(1)><script>document.title="pwned"</script>';
+    const c = md(payload);
+    expect(c.querySelector('img')).toBeNull();
+    expect(c.querySelector('script')).toBeNull();
+    // Text content is escaped as text nodes, not parsed as HTML.
+    expect(c.textContent).toContain('<img');
+    expect(c.textContent).toContain('<script>');
+    expect(document.title).not.toBe('pwned');
+  });
+
+  it('does not create anchor tags for javascript: URLs (no link rendering)', () => {
+    const c = md('[click me](javascript:alert(1))');
+    expect(c.querySelector('a')).toBeNull();
+    expect(c.textContent).toContain('javascript:alert(1)');
+  });
 });

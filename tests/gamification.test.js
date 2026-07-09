@@ -1,11 +1,11 @@
 // tests/gamification.test.js
 const { computeStreak, buildGamification, computeAchievements } = require('../server/services/ai/gamificationService');
 
-// Fixed anchor so streak math is deterministic.
-const TODAY = new Date('2026-06-30T12:00:00');
+// Fixed UTC anchor so streak math is deterministic in any local TZ.
+const TODAY = new Date('2026-06-30T12:00:00.000Z');
 const day = (offset) => {
   const d = new Date(TODAY);
-  d.setDate(d.getDate() + offset);
+  d.setUTCDate(d.getUTCDate() + offset);
   return d.toISOString();
 };
 
@@ -37,6 +37,22 @@ describe('computeStreak', () => {
     const s = computeStreak([day(0), day(0), day(0)], TODAY);
     expect(s.active_days).toBe(1);
     expect(s.current).toBe(1);
+  });
+
+  test('UTC day boundary: 23:59Z and 00:01Z are different days', () => {
+    const late = '2026-06-29T23:59:00.000Z';
+    const early = '2026-06-30T00:01:00.000Z';
+    const s = computeStreak([late, early], new Date('2026-06-30T12:00:00.000Z'));
+    expect(s.active_days).toBe(2);
+    expect(s.current).toBe(2);
+  });
+
+  test('month boundary: Jun 30 + Jul 1 streak holds', () => {
+    const s = computeStreak(
+      ['2026-06-30T10:00:00.000Z', '2026-07-01T10:00:00.000Z'],
+      new Date('2026-07-01T15:00:00.000Z'),
+    );
+    expect(s.current).toBe(2);
   });
 });
 

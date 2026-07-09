@@ -579,46 +579,173 @@ const goalLabel = (g, ar) => {
     : `${g.target_value} ${g.unit === 'hours' ? 'hours of sleep' : g.unit} ${g.period}`;
 };
 
-const buildContextSummary = (context = {}) => {
+const { formatHorizonLine } = require('./longHorizon');
+
+// Compact recent-entry lines for Track B grounding (bounded — performance).
+const fmtHealthRecent = (row) => {
+  if (!row) return null;
+  if (row.type === 'mood') return `mood ${row.value}/10`;
+  if (row.type === 'sleep') return `sleep ${row.value}h`;
+  if (row.type === 'steps') return `${row.value} steps`;
+  if (row.type === 'water') return `water ${row.value}L`;
+  if (row.type === 'exercise') return `exercise ${row.value || row.duration_minutes || ''}`.trim();
+  if (row.type === 'nutrition') return row.value_text || 'meal';
+  if (row.type === 'heart_rate') return `HR ${row.value}`;
+  return row.type ? `${row.type} ${row.value ?? ''}`.trim() : null;
+};
+const fmtFinanceRecent = (row) => {
+  if (!row) return null;
+  const amt = row.amount != null ? `${row.currency || 'USD'} ${row.amount}` : '';
+  const kind = row.type === 'income' ? 'income' : 'expense';
+  const why = row.description || row.category || null;
+  return `${kind} ${amt}${why ? ` (${why})` : ''}`.trim();
+};
+
+const _roundMoney = (value, digits = 2) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  const factor = 10 ** digits;
+  return Math.round(n * factor) / factor;
+};
+
+/** Finance lines at health density: net + counts + top categories. */
+const fmtFinanceSummary = (winDays, currency, summary, ar = false) => {
+  if (!summary) return null;
+  const top = (summary.top_categories || []).slice(0, 4)
+    .map((c) => `${c.name} ${c.total}`).join(', ');
+  if (ar) {
+    const cur = GOAL_CUR_AR[currency] || currency;
+    const bits = [
+      `خلال ${winDays} يوماً: إنفاق ${summary.expense} ${cur} (${summary.expense_count || 0} مصروف)`,
+      `دخل ${summary.income} ${cur} (${summary.income_count || 0})`,
+      `صافي ${summary.net ?? _roundMoney((summary.income || 0) - (summary.expense || 0))}`,
+    ];
+    if (summary.avg_expense) bits.push(`متوسط المصروف ${summary.avg_expense}`);
+    if (top) bits.push(`أكبر بنود: ${top}`);
+    return bits.join('؛ ');
+  }
+  const bits = [
+    `${winDays}-day ${currency}: spent ${summary.expense} (${summary.expense_count || 0} expenses)`,
+    `income ${summary.income} (${summary.income_count || 0})`,
+    `net ${summary.net ?? _roundMoney((summary.income || 0) - (summary.expense || 0))}`,
+  ];
+  if (summary.avg_expense) bits.push(`avg expense ${summary.avg_expense}`);
+  if (top) bits.push(`top spends: ${top}`);
+  return bits.join(', ');
+};
+
+/**
+ * Dense but short user-data picture for generative models (voice + chat).
+ * Aggregates + last few concrete rows so answers feel vivid, not generic.
+ * Locale 'ar' → Arabic phrasing (same facts).
+ */
+const buildContextSummary = (context = {}, locale = null) => {
+  const ar = String(locale || '').toLowerCase().startsWith('ar');
+  if (ar) return buildContextSummaryAr(context);
+
   const parts = [];
   const goals = Array.isArray(context.active_goals) ? context.active_goals : [];
   const health = context.health || {};
-  if (health.mood) parts.push(`mood averages ${health.mood.average}/10 from ${health.mood.count} log(s)`);
-  if (health.sleep) parts.push(`sleep averages ${health.sleep.average} hours`);
-  if (health.steps) parts.push(`steps average ${Math.round(health.steps.average)} per logged day`);
-  if (health.water) parts.push(`water averages ${health.water.average} liters`);
+  const winDays = context.window_days || context.context_window?.days || 90;
+  if (health.mood) parts.push(`mood avg ${health.mood.average}/10 (${health.mood.count} logs)`);
+  if (health.sleep) parts.push(`sleep avg ${health.sleep.average}h`);
+  if (health.steps) parts.push(`steps avg ${Math.round(health.steps.average)}`);
+  if (health.water) parts.push(`water avg ${health.water.average}L`);
+  if (health.exercise) parts.push(`exercise avg ${health.exercise.average} min`);
+  if (health.heart_rate) parts.push(`heart rate avg ${health.heart_rate.average} bpm`);
   const financeEntries = Object.entries(context.finance || {})
-    .sort((a, b) => b[1].transactions - a[1].transactions);
+    .sort((a, b) => (b[1].transactions || 0) - (a[1].transactions || 0));
   if (financeEntries.length) {
     const [currency, summary] = financeEntries[0];
-    parts.push(`${context.window_days || 30}-day ${currency} spending is ${summary.expense} and income is ${summary.income}`);
+    const line = fmtFinanceSummary(winDays, currency, summary, false);
+    if (line) parts.push(line);
   }
   if (goals.length) {
-    parts.push(`${goals.length} active goal${goals.length === 1 ? '' : 's'}, including ${goals.slice(0, 2).map((goal) => goal.metric).join(' and ')}`);
+    const hGoals = goals.filter((g) => g.domain === 'health' || !g.domain);
+    const fGoals = goals.filter((g) => g.domain === 'finance');
+    parts.push(`${goals.length} active goal(s): ${goals.slice(0, 3).map((g) => `${g.metric || g.domain}${g.target != null ? `→${g.target}` : ''}`).join(', ')}`);
+    if (fGoals.length) parts.push(`money goals: ${fGoals.slice(0, 2).map((g) => g.metric || 'budget').join(', ')}`);
+    else if (hGoals.length && !fGoals.length) parts.push('money goals: none yet');
   }
+  // Concrete latest rows — denser for max harness (5) else 3; health & finance same N.
+  const nRecent = context.context_window?.mode === 'max' ? 5 : 3;
+  const rh = (context.recent_health_entries || []).slice(0, nRecent).map(fmtHealthRecent).filter(Boolean);
+  const rf = (context.recent_finance_entries || []).slice(0, nRecent).map(fmtFinanceRecent).filter(Boolean);
+  if (rh.length) parts.push(`latest health: ${rh.join('; ')}`);
+  if (rf.length) parts.push(`latest money: ${rf.join('; ')}`);
+  else if (rh.length) parts.push('latest money: none in window — dig for spends/income');
+  // Real LinkedDomain pairs (true XD harness — not inferred).
+  const links = (context.linked_domains || []).slice(0, context.context_window?.mode === 'max' ? 6 : 4);
+  if (links.length) {
+    const bits = links.map((l) => {
+      const hs = l.health
+        ? `${l.health.type}${l.health.value != null ? ` ${l.health.value}` : ''}${l.health.value_text ? ` ${l.health.value_text}` : ''}`
+        : '?';
+      const fs = l.finance
+        ? `${l.finance.currency || ''} ${l.finance.amount}${l.finance.description ? ` ${l.finance.description}` : ''}`
+        : '?';
+      return `${hs.trim()} ↔ ${fs.trim()}`;
+    });
+    parts.push(`LINKED health↔money (${links.length}): ${bits.join('; ')}`);
+  } else if (rh.length && rf.length) {
+    parts.push('CROSS-DOMAIN: health and money both present — connect them when relevant (sleep↔spend, mood↔food cost, exercise↔gym)');
+  }
+  const horizonLine = formatHorizonLine(context.horizon, false);
+  if (horizonLine) parts.push(horizonLine.replace(/^LONG-HORIZON:\s*/, 'trends: '));
   if (!parts.length) return 'I do not have enough recent logs for a personalized trend yet.';
-  return `Your recent context: ${parts.join('; ')}.`;
+  return `Your LifeSync data picture (${winDays}d window): ${parts.join('; ')}.`;
 };
 
-// Native-Arabic mirror of buildContextSummary — get_insight/query_* answers
-// must not switch to English mid-conversation for Arabic users.
+// Native-Arabic mirror — get_insight/query_* and Track B when turnLang is ar.
 const buildContextSummaryAr = (context = {}) => {
   const parts = [];
   const goals = Array.isArray(context.active_goals) ? context.active_goals : [];
   const health = context.health || {};
-  if (health.mood) parts.push(`متوسط مزاجك ${health.mood.average}/10 من ${health.mood.count} تسجيل`);
-  if (health.sleep) parts.push(`متوسط نومك ${health.sleep.average} ساعة`);
-  if (health.steps) parts.push(`متوسط خطواتك ${Math.round(health.steps.average)} في اليوم المسجَّل`);
-  if (health.water) parts.push(`متوسط شرب الماء ${health.water.average} لتر`);
+  const winDays = context.window_days || context.context_window?.days || 90;
+  if (health.mood) parts.push(`متوسط المزاج ${health.mood.average}/10 من ${health.mood.count} تسجيل`);
+  if (health.sleep) parts.push(`متوسط النوم ${health.sleep.average} ساعة`);
+  if (health.steps) parts.push(`متوسط الخطوات ${Math.round(health.steps.average)}`);
+  if (health.water) parts.push(`متوسط الماء ${health.water.average} لتر`);
+  if (health.exercise) parts.push(`متوسط التمرين ${health.exercise.average} دقيقة`);
+  if (health.heart_rate) parts.push(`متوسط نبض القلب ${health.heart_rate.average}`);
   const financeEntries = Object.entries(context.finance || {})
-    .sort((a, b) => b[1].transactions - a[1].transactions);
+    .sort((a, b) => (b[1].transactions || 0) - (a[1].transactions || 0));
   if (financeEntries.length) {
     const [currency, summary] = financeEntries[0];
-    parts.push(`إنفاقك خلال ${context.window_days || 30} يومًا هو ${summary.expense} ${GOAL_CUR_AR[currency] || currency} ودخلك ${summary.income}`);
+    const line = fmtFinanceSummary(winDays, currency, summary, true);
+    if (line) parts.push(line);
   }
-  if (goals.length) parts.push(`لديك ${goals.length} هدف نشط`);
+  if (goals.length) {
+    parts.push(`${goals.length} هدف نشط: ${goals.slice(0, 3).map((g) => g.metric || g.domain).join('، ')}`);
+    const fGoals = goals.filter((g) => g.domain === 'finance');
+    if (fGoals.length) parts.push(`أهداف مالية: ${fGoals.slice(0, 2).map((g) => g.metric || 'ميزانية').join('، ')}`);
+    else parts.push('أهداف مالية: لا يوجد بعد');
+  }
+  const nRecent = context.context_window?.mode === 'max' ? 5 : 3;
+  const rh = (context.recent_health_entries || []).slice(0, nRecent).map(fmtHealthRecent).filter(Boolean);
+  const rf = (context.recent_finance_entries || []).slice(0, nRecent).map(fmtFinanceRecent).filter(Boolean);
+  if (rh.length) parts.push(`أحدث صحة: ${rh.join('؛ ')}`);
+  if (rf.length) parts.push(`أحدث مال: ${rf.join('؛ ')}`);
+  else if (rh.length) parts.push('أحدث مال: لا يوجد في النافذة — اسأل عن مصروف/دخل');
+  const links = (context.linked_domains || []).slice(0, context.context_window?.mode === 'max' ? 6 : 4);
+  if (links.length) {
+    const bits = links.map((l) => {
+      const hs = l.health
+        ? `${l.health.type}${l.health.value != null ? ` ${l.health.value}` : ''}${l.health.value_text ? ` ${l.health.value_text}` : ''}`
+        : '؟';
+      const fs = l.finance
+        ? `${l.finance.amount} ${l.finance.currency || ''}${l.finance.description ? ` ${l.finance.description}` : ''}`
+        : '؟';
+      return `${hs.trim()} ↔ ${fs.trim()}`;
+    });
+    parts.push(`روابط صحة↔مال (${links.length}): ${bits.join('؛ ')}`);
+  } else if (rh.length && rf.length) {
+    parts.push('عبر-المجال: الصحة والمال معاً — اربط بينهما عند اللزوم (نوم↔إنفاق، مزاج↔طعام)');
+  }
+  const horizonLine = formatHorizonLine(context.horizon, true);
+  if (horizonLine) parts.push(horizonLine.replace(/^أفق طويل المدى:\s*/, 'اتجاهات: '));
   if (!parts.length) return 'لا أملك سجلات حديثة كافية لعرض اتجاه مخصّص بعد — واصل التسجيل وستظهر الأنماط.';
-  return `سياقك الأخير: ${parts.join('؛ ')}.`;
+  return `صورة بياناتك في LifeSync (نافذة ${winDays} يوم): ${parts.join('؛ ')}.`;
 };
 
 const buildAdviceResponse = (message, context, entities) => {
@@ -1283,6 +1410,7 @@ module.exports = {
   _extractHealth: extractHealth,
   _extractBudget: extractBudget,
   _buildContextSummary: buildContextSummary,
+  _buildContextSummaryAr: buildContextSummaryAr,
   _extractGoal: extractGoal,
   _detectOuting: detectOuting,
   _transportModeFromText: transportModeFromText,

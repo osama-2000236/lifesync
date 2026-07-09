@@ -165,6 +165,32 @@ describe('POST /speak (cloud TTS fallback)', () => {
     expect(axios.post.mock.calls[0][1]).not.toHaveProperty('language');
   });
 
+  test('OpenRouter default uses mai-voice + mp3 + Arabic Neural voice', async () => {
+    delete process.env.VOICE_TTS_DISABLED;
+    delete process.env.VOICE_TTS_ENDPOINT;
+    delete process.env.VOICE_TTS_API_KEY;
+    delete process.env.VOICE_TTS_MODEL;
+    delete process.env.VOICE_TTS_VOICE;
+    delete process.env.VOICE_TTS_FORMAT;
+    process.env.OPENROUTER_API_KEY = 'or-test-key';
+    axios.post.mockResolvedValue({ data: Buffer.from([5, 6, 7]), headers: { 'content-type': 'audio/mpeg' } });
+    const res = await request(app).post('/api/voice/speak').send({ text: 'مرحبا', language: 'ar' });
+    expect(res.status).toBe(200);
+    expect(axios.post).toHaveBeenCalledWith(
+      expect.stringMatching(/openrouter\.ai\/api\/v1\/audio\/speech$/),
+      expect.objectContaining({
+        model: 'microsoft/mai-voice-2',
+        input: 'مرحبا',
+        voice: 'ar-SA-ZariyahNeural',
+        response_format: 'mp3',
+      }),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer or-test-key' }),
+      }),
+    );
+    expect(axios.post.mock.calls[0][1]).not.toHaveProperty('language');
+  });
+
   test('502 when upstream synthesis fails', async () => {
     configureTts();
     axios.post.mockRejectedValue(new Error('upstream 500'));

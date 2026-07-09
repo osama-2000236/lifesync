@@ -24,6 +24,26 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Single-flight refresh: concurrent 401s share one /auth/refresh instead of
+// rotating the refresh token N times (which can invalidate siblings mid-flight).
+let refreshInFlight = null;
+
+const refreshAccessToken = async () => {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (!refreshToken) throw new Error('No refresh token');
+    // Use bare axios (not `api`) so a 401 on refresh never re-enters this interceptor.
+    const { data } = await axios.post(`${API_BASE}/auth/refresh`, { refreshToken });
+    localStorage.setItem('accessToken', data.data.accessToken);
+    localStorage.setItem('refreshToken', data.data.refreshToken);
+    return data.data.accessToken;
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+};
+
 // ─── Response Interceptor: Handle token refresh & errors ───
 api.interceptors.response.use(
   (response) => response,
@@ -34,13 +54,9 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        const refreshToken = localStorage.getItem('refreshToken');
-        if (!refreshToken) throw new Error('No refresh token');
-
-        const { data } = await axios.post(`${API_BASE}/auth/refresh`, { refreshToken });
-        localStorage.setItem('accessToken', data.data.accessToken);
-        localStorage.setItem('refreshToken', data.data.refreshToken);
-        originalRequest.headers.Authorization = `Bearer ${data.data.accessToken}`;
+        const accessToken = await refreshAccessToken();
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         return api(originalRequest);
       } catch (refreshError) {
         localStorage.removeItem('accessToken');

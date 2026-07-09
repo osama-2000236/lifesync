@@ -10,6 +10,7 @@ const HealthLog = require('../models/HealthLog');
 const Category = require('../models/Category');
 const LinkedDomain = require('../models/LinkedDomain');
 const { success, created, paginated, error } = require('../utils/responseHelper');
+const { sanitizeListQuery } = require('../utils/listQuery');
 
 // ============================================
 // VALIDATION RULES
@@ -25,7 +26,7 @@ const createHealthLogValidation = [
   body('value_text')
     .optional()
     .trim()
-    .isLength({ max: 255 }),
+    .isLength({ max: 2000 }),
   body('unit')
     .optional()
     .trim()
@@ -106,11 +107,10 @@ const getHealthLogs = async (req, res, next) => {
       end_date,
       source,
       search,
-      page = 1,
-      limit = 20,
-      sort_by = 'logged_at',
-      sort_order = 'DESC',
     } = req.query;
+    const { page, limit, sort_by, sort_order, offset } = sanitizeListQuery(req.query, {
+      allowedSort: ['logged_at', 'created_at', 'id', 'type', 'value'],
+    });
 
     // Build filter conditions
     const where = { user_id: req.user.id };
@@ -123,30 +123,28 @@ const getHealthLogs = async (req, res, next) => {
       if (end_date) where.logged_at[Op.lte] = new Date(end_date);
     }
     if (search) {
+      const q = String(search).slice(0, 200);
       where[Op.or] = [
-        { notes: { [Op.like]: `%${search}%` } },
-        { value_text: { [Op.like]: `%${search}%` } },
+        { notes: { [Op.like]: `%${q}%` } },
+        { value_text: { [Op.like]: `%${q}%` } },
       ];
     }
-
-    // Pagination
-    const offset = (parseInt(page) - 1) * parseInt(limit);
 
     const { count, rows } = await HealthLog.findAndCountAll({
       where,
       include: [
         { model: Category, as: 'category', attributes: ['id', 'name', 'icon', 'color'] },
       ],
-      order: [[sort_by, sort_order.toUpperCase()]],
-      limit: parseInt(limit),
+      order: [[sort_by, sort_order]],
+      limit,
       offset,
     });
 
     return paginated(res, rows, {
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page,
+      limit,
       total: count,
-      totalPages: Math.ceil(count / parseInt(limit)),
+      totalPages: Math.ceil(count / limit),
     });
   } catch (err) {
     next(err);
@@ -200,6 +198,14 @@ const updateHealthLog = async (req, res, next) => {
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
+    if (updates.value !== undefined && !Number.isFinite(Number(updates.value))) {
+      return error(res, 'Value must be a number.', 400);
+    }
+    if (updates.duration !== undefined && (parseInt(updates.duration, 10) < 0 || Number.isNaN(parseInt(updates.duration, 10)))) {
+      return error(res, 'Duration must be a non-negative integer.', 400);
+    }
+    // Never allow ownership reassignment via body.
+    delete updates.user_id;
 
     await entry.update(updates);
 

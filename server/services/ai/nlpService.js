@@ -750,14 +750,19 @@ const currentRuntimeMetadata = () => {
 const parseMessage = async (message, pendingClarification = null, context = {}, options = {}, onDelta = null) => {
   const provider = options.provider || _getProvider('chat');
 
-  // Reply in the language the user ACTUALLY used this turn — real-time switch.
-  // Priority: script in this message → UI hint (options.lang) → last turn in
-  // this session → stored context.locale. Script-less "7" after Arabic stays ar.
-  const turnLang = detectLang(message)
+  // Reply in the language the user ACTUALLY used this turn — real-time AR↔EN.
+  // Priority: Arabic/Latin script in THIS message → client hint (voice STT lang)
+  // → last turn in session → context.locale. Digit-only "7" keeps prior lang.
+  // Only ar|en (never invent a third language).
+  let turnLang = detectLang(message)
     || options.lang
     || lastSessionLang(options.sessionId)
     || context.locale
     || null;
+  if (turnLang) {
+    const t = String(turnLang).toLowerCase();
+    turnLang = t.startsWith('ar') ? 'ar' : (t.startsWith('en') ? 'en' : null);
+  }
   if (turnLang) {
     context.locale = turnLang;
     rememberSessionLang(options.sessionId, turnLang);
@@ -803,6 +808,11 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
         ambiguity,
       });
 
+  // Track A (BERT) is classifier/logging only. When the user picked a generative
+  // model, the reply MUST come from that model — never a BERT template fallback
+  // that pretends to be the pick (chat + voice honesty).
+  const requestedModel = options.model || null;
+
   if (reply && reply.text) {
     const base = actions.needs_clarification
       ? {
@@ -821,29 +831,64 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
       ...base,
       response: reply.text,
       model_runtime: {
-        ...(actions.model_runtime || {}),
-        provider: reply.provider,
-        model: reply.model,
+        status: 'ready',
+        provider: reply.provider || provider,
+        // Always the slug we asked OpenRouter for (picker honesty).
+        model: reply.model || requestedModel,
         conversational: true,
         responder: 'generative',
+        // Classifier is separate — keep for ops, never as the face of the reply.
+        classifier_model: actions.model_runtime?.model || null,
       },
     };
   }
 
-  // Missing API key / model unavailable → keep the deterministic reply so the
-  // chat never breaks (cloud models stay "needs a key" but local logging works).
-  // Nothing streamed in this failure case, so emit the fallback as one delta.
-  if (onDelta && actions.response) onDelta(actions.response);
+  // Generative pick failed (429, timeout, missing key, empty body). Do NOT emit
+  // Track A template text as if the picked model answered — that is a lie.
+  // Controller turns this into an SSE/JSON error; Track A entities may still log.
+  const rawErr = reply?.error || 'generation failed';
   return {
     ...actions,
+    response: null,
+    needs_clarification: false,
+    clarification_question: null,
+    clarification_options: [],
+    // Keep extracted entities so logging can still run; the reply itself is an error.
+    success: false,
+    generative_failed: true,
+    generative_error: rawErr,
+    generative_error_user: buildHonestModelError(rawErr, requestedModel, turnLang),
     model_runtime: {
-      ...(actions.model_runtime || {}),
+      status: 'error',
+      provider,
+      model: requestedModel,
       conversational: false,
-      responder: 'deterministic_fallback',
+      responder: 'model_error',
       chat_provider: provider,
-      chat_error: reply?.error || null,
+      chat_error: rawErr,
+      classifier_model: actions.model_runtime?.model || null,
     },
   };
+};
+
+/** User-facing error when the picked generative model does not answer. */
+const buildHonestModelError = (raw, modelSlug, lang) => {
+  const slug = modelSlug || 'the selected model';
+  const r = String(raw || '').toLowerCase();
+  const ar = String(lang || '').startsWith('ar');
+  if (/\b429\b|rate.?limit|busy|overloaded|free.?pool/.test(r)) {
+    return ar
+      ? `تعذّر الرد من «${slug}» — النموذج مشغول أو محدود الآن. أعد المحاولة أو اختر نموذجاً آخر. لن نرد بنموذج مختلف بصمت.`
+      : `No reply from «${slug}» — that model is busy or rate-limited. Retry or pick another model. We never silently answer with a different model.`;
+  }
+  if (/api key|not configured|unauthorized|401|403/.test(r)) {
+    return ar
+      ? `«${slug}» غير متاح (مفتاح API أو الإعدادات). راجع إعدادات السيرفر.`
+      : `«${slug}» is unavailable (API key or config). Check server settings.`;
+  }
+  return ar
+    ? `تعذّر الرد من «${slug}». ${raw || 'حاول مرة أخرى.'}`
+    : `No reply from «${slug}». ${raw || 'Please try again.'}`;
 };
 
 /**

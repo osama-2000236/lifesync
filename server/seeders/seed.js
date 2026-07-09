@@ -6,6 +6,7 @@
 // ============================================
 
 require('dotenv').config();
+const { Op } = require('sequelize');
 const db = require('../models');
 
 const defaultCategories = [
@@ -41,34 +42,49 @@ const seed = async () => {
     await db.sequelize.sync({ force: false });
     console.log('✅ Tables synced.');
 
-    // Seed categories (skip if already exist)
-    const existingCategories = await db.Category.count({ where: { is_default: true } });
-    if (existingCategories === 0) {
-      await db.Category.bulkCreate(defaultCategories);
-      console.log(`✅ Seeded ${defaultCategories.length} default categories.`);
+    // Seed categories — upsert by (name, domain) so re-seed is idempotent
+    // even when only a partial default set exists.
+    let createdCats = 0;
+    for (const cat of defaultCategories) {
+      const [row, created] = await db.Category.findOrCreate({
+        where: { name: cat.name, domain: cat.domain, is_default: true },
+        defaults: { ...cat, user_id: null },
+      });
+      if (created) createdCats += 1;
+      void row;
+    }
+    if (createdCats > 0) {
+      console.log(`✅ Seeded ${createdCats} default categories (${defaultCategories.length} total defaults).`);
     } else {
-      console.log(`⏭️  Default categories already exist (${existingCategories} found). Skipping.`);
+      console.log(`⏭️  Default categories already exist. Skipping.`);
     }
 
-    // Seed admin user (skip if already exists)
-    const existingAdmin = await db.User.findOne({ where: { role: 'admin' } });
+    // Seed admin user (skip if already exists by role or username/email)
+    const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@lifesync.app';
+    const existingAdmin = await db.User.findOne({
+      where: {
+        [Op.or]: [
+          { role: 'admin' },
+          { username: 'admin' },
+          { email: adminEmail },
+        ],
+      },
+    });
     if (existingAdmin) {
       console.log('⏭️  Admin user already exists. Skipping.');
     } else {
-      const adminEmail = process.env.SEED_ADMIN_EMAIL;
       const adminPassword = process.env.SEED_ADMIN_PASSWORD;
       const isProduction = process.env.NODE_ENV === 'production';
 
       // In production, refuse to create an admin with the built-in known
       // password. Require explicit credentials via env instead.
-      if (isProduction && (!adminEmail || !adminPassword)) {
+      if (isProduction && (!process.env.SEED_ADMIN_EMAIL || !adminPassword)) {
         console.warn(
           '⚠️  Skipping admin seed: set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD ' +
           'to create the initial admin in production. Refusing to seed a default ' +
           'admin with a known password.'
         );
       } else {
-        const email = adminEmail || 'admin@lifesync.app';
         const password = adminPassword || 'Admin@123456';
 
         if (!adminPassword) {
@@ -80,14 +96,14 @@ const seed = async () => {
 
         await db.User.create({
           username: 'admin',
-          email,
+          email: adminEmail,
           hashed_password: password, // Will be hashed by beforeCreate hook
           name: 'System Admin',
           role: 'admin',
           verified_email: true,
           is_active: true,
         });
-        console.log(`✅ Seeded admin user (${email}).`);
+        console.log(`✅ Seeded admin user (${adminEmail}).`);
       }
     }
 

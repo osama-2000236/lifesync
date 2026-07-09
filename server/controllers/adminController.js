@@ -88,33 +88,36 @@ const getDashboard = async (req, res, next) => {
  */
 const getUsers = async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, search, role, is_active } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const { search, role, is_active } = req.query;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const offset = (page - 1) * limit;
 
     const where = {};
     if (search) {
+      const q = String(search).slice(0, 200);
       where[Op.or] = [
-        { username: { [Op.like]: `%${search}%` } },
-        { email: { [Op.like]: `%${search}%` } },
-        { name: { [Op.like]: `%${search}%` } },
+        { username: { [Op.like]: `%${q}%` } },
+        { email: { [Op.like]: `%${q}%` } },
+        { name: { [Op.like]: `%${q}%` } },
       ];
     }
-    if (role) where.role = role;
+    if (role === 'user' || role === 'admin') where.role = role;
     if (is_active !== undefined) where.is_active = is_active === 'true';
 
     const { count, rows } = await User.findAndCountAll({
       where,
       attributes: { exclude: ['hashed_password'] },
       order: [['created_at', 'DESC']],
-      limit: parseInt(limit),
+      limit,
       offset,
     });
 
     return paginated(res, rows, {
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page,
+      limit,
       total: count,
-      totalPages: Math.ceil(count / parseInt(limit)),
+      totalPages: Math.ceil(count / limit),
     });
   } catch (err) {
     next(err);
@@ -128,12 +131,15 @@ const getUsers = async (req, res, next) => {
 const updateUserStatus = async (req, res, next) => {
   try {
     const { is_active } = req.body;
+    if (typeof is_active !== 'boolean') {
+      return error(res, 'is_active must be a boolean.', 400);
+    }
     const user = await User.findByPk(req.params.id);
 
     if (!user) return error(res, 'User not found.', 404);
     if (user.id === req.user.id) return error(res, 'Cannot modify your own status.', 400);
 
-    await user.update({ is_active });
+    await user.update({ is_active: Boolean(is_active) });
 
     // Log admin action
     await SystemLog.create({
@@ -159,12 +165,16 @@ const updateUserStatus = async (req, res, next) => {
  */
 const getSystemLogs = async (req, res, next) => {
   try {
-    const { log_type, severity, page = 1, limit = 50 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const { log_type, severity } = req.query;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const offset = (page - 1) * limit;
 
     const where = {};
-    if (log_type) where.log_type = log_type;
-    if (severity) where.severity = severity;
+    const allowedTypes = ['audit', 'error', 'performance', 'security', 'system'];
+    const allowedSeverity = ['info', 'warning', 'error', 'critical'];
+    if (allowedTypes.includes(log_type)) where.log_type = log_type;
+    if (allowedSeverity.includes(severity)) where.severity = severity;
 
     const { count, rows } = await SystemLog.findAndCountAll({
       where,
@@ -172,15 +182,15 @@ const getSystemLogs = async (req, res, next) => {
         { model: User, as: 'admin', attributes: ['id', 'username'] },
       ],
       order: [['created_at', 'DESC']],
-      limit: parseInt(limit),
+      limit,
       offset,
     });
 
     return paginated(res, rows, {
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page,
+      limit,
       total: count,
-      totalPages: Math.ceil(count / parseInt(limit)),
+      totalPages: Math.ceil(count / limit),
     });
   } catch (err) {
     next(err);

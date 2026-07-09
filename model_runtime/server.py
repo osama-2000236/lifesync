@@ -13,10 +13,15 @@ from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import sys
+
+# Allow `python model_runtime/server.py` from repo root.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
 import onnxruntime as ort
 from transformers import AutoTokenizer
+from request_validation import parse_classify_text, parse_content_length, safe_error_name
 
 
 class IntentRuntime:
@@ -30,6 +35,8 @@ class IntentRuntime:
         self.latencies = deque(maxlen=1000)
         self.requests = 0
         self.lock = threading.Lock()
+        # DirectML (and some ORT EPs) are not safe for concurrent session.run.
+        self.inference_lock = threading.Lock()
         safetensors_path = self.model_dir / "model.safetensors"
         # Optional: only needed for the integrity hash. Cloud/CPU images ship the
         # ONNX + tokenizer without the 270MB PyTorch weights, so skip if absent.
@@ -120,23 +127,24 @@ class IntentRuntime:
 
         # Run one fixed-shape chunk at a time. This works with the DirectML
         # artifact even when its exported batch dimension is static at one.
-        for chunk_index in range(chunk_count):
-            inputs = {
-                "input_ids": encoded["input_ids"][chunk_index:chunk_index + 1].astype(np.int64),
-                "attention_mask": encoded["attention_mask"][chunk_index:chunk_index + 1].astype(np.int64),
-            }
-            if "token_type_ids" in session_input_names:
-                inputs["token_type_ids"] = encoded["token_type_ids"][chunk_index:chunk_index + 1].astype(np.int64)
-            logits = self.session.run(["logits"], inputs)[0][0]
-            shifted = logits - np.max(logits)
-            probabilities = np.exp(shifted) / np.exp(shifted).sum()
-            chunk_probabilities.append(probabilities)
-            chunk_label_id = int(np.argmax(probabilities))
-            chunk_results.append({
-                "index": chunk_index,
-                "label": self.id2label[chunk_label_id],
-                "confidence": round(float(probabilities[chunk_label_id]), 6),
-            })
+        with self.inference_lock:
+            for chunk_index in range(chunk_count):
+                inputs = {
+                    "input_ids": encoded["input_ids"][chunk_index:chunk_index + 1].astype(np.int64),
+                    "attention_mask": encoded["attention_mask"][chunk_index:chunk_index + 1].astype(np.int64),
+                }
+                if "token_type_ids" in session_input_names:
+                    inputs["token_type_ids"] = encoded["token_type_ids"][chunk_index:chunk_index + 1].astype(np.int64)
+                logits = self.session.run(["logits"], inputs)[0][0]
+                shifted = logits - np.max(logits)
+                probabilities = np.exp(shifted) / np.exp(shifted).sum()
+                chunk_probabilities.append(probabilities)
+                chunk_label_id = int(np.argmax(probabilities))
+                chunk_results.append({
+                    "index": chunk_index,
+                    "label": self.id2label[chunk_label_id],
+                    "confidence": round(float(probabilities[chunk_label_id]), 6),
+                })
 
         stacked = np.stack(chunk_probabilities)
         max_scores = np.max(stacked, axis=0)
@@ -222,19 +230,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
             return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > 16_384:
-                raise ValueError("invalid_content_length")
-            body = json.loads(self.rfile.read(length))
-            text = body.get("text")
-            if not isinstance(text, str) or not text.strip():
-                raise ValueError("text_required")
-            if len(text) > 2000:
-                raise ValueError("text_too_long")
-            self._json(HTTPStatus.OK, self.runtime.classify(text.strip()))
+            length = parse_content_length(self.headers.get("Content-Length"))
+            text = parse_classify_text(self.rfile.read(length))
+            self._json(HTTPStatus.OK, self.runtime.classify(text))
         except (ValueError, json.JSONDecodeError) as error:
-            self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            self._json(HTTPStatus.BAD_REQUEST, {"error": safe_error_name(error)})
         except Exception as error:
+            # Never leak traceback / paths to the client.
+            print(f"Inference error: {type(error).__name__}: {error}")
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": type(error).__name__})
 
     def log_message(self, fmt, *args):

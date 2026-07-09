@@ -42,6 +42,17 @@ const sequelize = new Sequelize(
   config
 );
 
+// SQLite: raw node-sqlite3 leaves foreign_keys OFF; CASCADE FKs from migrations
+// are then no-ops and User deletes orphan child rows. Sequelize usually enables
+// this per connection — pin it after every connect so cascade is real.
+if (dialect === 'sqlite') {
+  sequelize.addHook('afterConnect', async (connection) => {
+    await new Promise((resolve, reject) => {
+      connection.run('PRAGMA foreign_keys = ON', (err) => (err ? reject(err) : resolve()));
+    });
+  });
+}
+
 /**
  * Test the database connection
  */

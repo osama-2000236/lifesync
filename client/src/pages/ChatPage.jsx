@@ -16,16 +16,23 @@ import {
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { chatAPI, aiAPI, authAPI } from '../services/api';
-import { MODEL_OPTIONS, DEFAULT_CHAT_MODEL_ID } from '../config/models';
+import { MODEL_OPTIONS, DEFAULT_CHAT_MODEL_ID, DEFAULT_CONTEXT_WINDOW } from '../config/models';
 import ChatComposer from '../components/chat/ChatComposer';
 import Markdown from '../components/chat/Markdown';
-import { stripMarkdownForSpeech, chunkForSpeech, pickVoice, detectLang, speechLangTag } from '../utils/speech';
-import { loadChatModelId, saveChatModelId } from '../utils/chatModel';
+import { detectLang } from '../utils/speech';
+import { speakReply } from '../utils/speakReply';
+import { loadChatModelId, saveChatModelId, canChangeModel, voiceModelsOnly } from '../utils/chatModel';
 import ModelPicker from '../components/chat/ModelPicker';
 import EntityReceipts from '../components/chat/EntityReceipts';
 import SessionsRail from '../components/chat/SessionsRail';
 
 const DEPTHS = ['standard', 'deep', 'max'];
+// Chat picker: voice trio + BERT (logging-only templates).
+const chatPickerModels = (list) => {
+  const trio = voiceModelsOnly(list);
+  const bert = (list || []).find((m) => m.id === 'bert_local');
+  return bert ? [bert, ...trio] : trio;
+};
 
 const newSessionId = () => `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -33,9 +40,9 @@ export default function ChatPage() {
   const { t, locale, isRTL } = useSettings();
 
   // ─── Model + depth ───
-  const [models, setModels] = useState(MODEL_OPTIONS);
+  const [models, setModels] = useState(() => chatPickerModels(MODEL_OPTIONS));
   const [modelId, setModelId] = useState(() => loadChatModelId());
-  const [depth, setDepth] = useState('standard');
+  const [depth, setDepth] = useState(DEFAULT_CONTEXT_WINDOW); // shared max harness with voice
   const [speakReplies, setSpeakReplies] = useState(false);
 
   // ─── Conversation state ───
@@ -48,6 +55,7 @@ export default function ChatPage() {
   const [clarification, setClarification] = useState(null);
   const [railOpen, setRailOpen] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
+  const [modelLockHint, setModelLockHint] = useState(null);
 
   const abortRef = useRef(null);
   const streamBufRef = useRef('');
@@ -56,20 +64,30 @@ export default function ChatPage() {
   const inputRef = useRef(null);
 
   const chooseModel = useCallback((id) => {
+    if (id === modelId) return;
+    if (!canChangeModel({ messageCount: messages.length, busy: sending })) {
+      setModelLockHint(
+        sending ? t('model.lockedBusy') : t('model.lockedMidConvo'),
+      );
+      setTimeout(() => setModelLockHint(null), 5000);
+      return;
+    }
+    setModelLockHint(null);
     setModelId(id);
     saveChatModelId(id);
-    // Persist preferred_model so the next request (and other devices) keep
-    // the same memory + conversation with the new engine.
     authAPI.updateProfile({ preferred_model: id }).catch(() => { /* offline OK */ });
-  }, []);
+  }, [modelId, messages.length, sending, t]);
 
   // ─── Load the live server catalog (fallback: static options) ───
   useEffect(() => {
     let alive = true;
     aiAPI.getModels()
       .then(({ data }) => {
-        const list = (data?.data?.models || []).filter((m) => m.id !== 'custom_local');
-        if (alive && list.length) setModels(list);
+        const list = chatPickerModels(data?.data?.models || []);
+        if (alive && list.length) {
+          setModels(list);
+          setModelId((cur) => (list.some((m) => m.id === cur) ? cur : DEFAULT_CHAT_MODEL_ID));
+        }
       })
       .catch(() => { /* static MODEL_OPTIONS already seeded */ });
     return () => { alive = false; };
@@ -115,27 +133,16 @@ export default function ChatPage() {
   }, []);
 
   // ─── Speech output (optional) ───
+  // FACT: browser speechSynthesis has no ar-* voice on many Windows/Chrome
+  // setups — voice studio already falls back to cloud /api/voice/speak.
+  // Chat must use the same path or Arabic replies are silent (code, not model).
   const speak = useCallback((text) => {
-    if (!speakReplies || !('speechSynthesis' in window) || !text) return;
-    try {
-      // cancel() first also unfreezes Chrome's occasionally-stuck engine.
-      window.speechSynthesis.cancel();
-      // Speak in the reply's own language (mirrors the user), not the UI locale —
-      // so an Arabic reply in an English UI is read by an Arabic voice.
-      const clean = stripMarkdownForSpeech(text);
-      const lang = detectLang(clean, locale);
-      const voice = pickVoice(window.speechSynthesis.getVoices() || [], lang);
-      // Chunk under Chrome's ~200-char cutoff; the native queue plays them in
-      // order. Voice + lang must be re-set per utterance (Chrome drops them).
-      for (const chunk of chunkForSpeech(clean)) {
-        const u = new SpeechSynthesisUtterance(chunk);
-        u.lang = speechLangTag(lang);
-        if (voice) u.voice = voice;
-        window.speechSynthesis.speak(u);
-      }
-    } catch { /* speech is best-effort */ }
+    if (!speakReplies || !text) return;
+    speakReply(text, { locale }).catch(() => { /* best-effort */ });
   }, [speakReplies, locale]);
-  useEffect(() => () => { try { window.speechSynthesis?.cancel(); } catch { /* noop */ } }, []);
+  useEffect(() => () => {
+    try { window.speechSynthesis?.cancel(); } catch { /* noop */ }
+  }, []);
 
   // ─── Streaming plumbing ───
   const resetStreaming = useCallback(() => {
@@ -179,10 +186,12 @@ export default function ChatPage() {
       },
       onComplete: (result) => {
         resetStreaming();
+        // Prefer server response; if empty, use what we streamed (same text user saw).
+        const replyText = String(result.response || streamBufRef.current || '').trim();
         setMessages((prev) => [...prev, {
           id: `a-${Date.now()}`,
           role: 'assistant',
-          content: result.response,
+          content: replyText || result.response,
           entities: result.entities_logged,
           isCrossDomain: result.is_cross_domain,
           modelRuntime: result.model_runtime || null,
@@ -192,7 +201,7 @@ export default function ChatPage() {
         if (result.needs_clarification && result.clarification_options?.length) {
           setClarification(result.clarification_options);
         } else {
-          speak(result.response);
+          speak(replyText);
         }
 
         const logged = result.entities_logged || {};
@@ -213,13 +222,23 @@ export default function ChatPage() {
           content: data.message || t('chat.err.generic'),
           isError: true,
           retryText: data.retryable === false ? null : text,
+          modelRuntime: data.model_runtime || {
+            responder: 'model_error',
+            model: models.find((m) => m.id === currentModel)?.model || currentModel,
+          },
+          modelId: currentModel,
         }]);
+        // Facts may still have been logged even when the model failed to reply.
+        const logged = data.entities_logged || {};
+        if (logged.health?.length || logged.finance?.length) {
+          window.dispatchEvent(new CustomEvent('lifesync:data-changed', { detail: logged }));
+        }
         setSending(false);
         setStatusText(null);
       },
     // lang = language of THIS message (real-time AR↔EN), not only the UI locale.
     }, { model: currentModel, lang: detectLang(text, locale), context_window: depth === 'standard' ? undefined : depth });
-  }, [sending, sessionId, modelId, locale, depth, t, speak, resetStreaming, refreshSessions]);
+  }, [sending, sessionId, modelId, models, locale, depth, t, speak, resetStreaming, refreshSessions]);
 
   // ─── Stop generation ───
   // Abort the SSE request (server keeps the partial reply in history too) and
@@ -255,10 +274,16 @@ export default function ChatPage() {
   }, [models, modelId]);
 
   const attributionFor = (msg) => {
-    if (msg.role !== 'assistant' || msg.isError) return null;
+    if (msg.role !== 'assistant') return null;
     const rt = msg.modelRuntime;
-    if (rt?.responder === 'deterministic_fallback') return t('chat.attribution.fallback');
-    if (rt?.model && rt.model !== 'model') return rt.model;
+    // Errors still show which model failed (honest — never pretend BERT answered).
+    if (msg.isError || rt?.responder === 'model_error') {
+      const slug = rt?.model && rt.model !== 'model' && !/bert/i.test(rt.model)
+        ? rt.model
+        : (models.find((m) => m.id === msg.modelId)?.model || msg.modelId);
+      return slug ? `${slug} · ${t('chat.attribution.failed')}` : t('chat.attribution.failed');
+    }
+    if (rt?.model && rt.model !== 'model' && !/bert_best|bert_local/i.test(rt.model)) return rt.model;
     if (rt?.provider === 'bert_local') return t('chat.attribution.bert');
     return null;
   };
@@ -332,9 +357,20 @@ export default function ChatPage() {
               {speakReplies ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </button>
 
-            <ModelPicker models={models} value={modelId} onChange={chooseModel} disabled={sending} t={t} />
+            <ModelPicker
+              models={models}
+              value={modelId}
+              onChange={chooseModel}
+              disabled={!canChangeModel({ messageCount: messages.length, busy: sending })}
+              t={t}
+            />
           </div>
         </header>
+        {modelLockHint && (
+          <div className="px-4 py-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border-b border-amber-100 dark:border-amber-500/20" role="status" data-testid="model-lock-hint">
+            {modelLockHint}
+          </div>
+        )}
 
         {/* ── Thread ── */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto" data-testid="chat-thread">

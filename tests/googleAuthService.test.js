@@ -46,6 +46,7 @@ describe('googleAuthService', () => {
           email_verified: true,
           name: 'Test Person',
           picture: 'https://example.com/avatar.png',
+          iss: 'https://accounts.google.com',
         }),
       };
     });

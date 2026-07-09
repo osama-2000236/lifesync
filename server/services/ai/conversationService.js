@@ -12,13 +12,17 @@
 
 const { generateChat, generateChatStream } = require('./providerClient');
 const { _buildContextSummary: buildContextSummary } = require('./bertNlpService');
-const { FREE_FALLBACK_SLUGS } = require('./modelRuntimeManager');
+const {
+  coverageFromContext,
+  formatCoverageLine,
+  isSameUtcDay,
+} = require('./sameDayCoverage');
+const { formatHorizonLine, weekMonthSkip } = require('./longHorizon');
 
 // OpenRouter :free pools are shared and transiently unhealthy — they signal
 // "busy" as 429 AND as 503/502, request timeouts, dropped sockets, or an empty
-// completion body. Any of those means "this pool hiccupped", so hop to the next
-// verified free model instead of dropping to the deterministic template reply.
-// Real failures (bad/missing key, unsupported provider) must NOT hop.
+// completion body. We may RETRY the same user-picked model; we never swap to a
+// different model (that would lie about the picker label).
 const isRetryableError = (err) => {
   const msg = String(err?.message || err || '').toLowerCase();
   return /\b(429|500|502|503|408|409|522|524)\b/.test(msg)
@@ -29,37 +33,32 @@ const isRetryableError = (err) => {
     || msg.includes('empty response') || msg.includes('empty streamed');
 };
 
-// Last-resort PAID model, reached only after every :free candidate 429s. The
-// :free upstream pools (Google AI Studio etc.) saturate globally and no retry
-// conjures capacity that isn't there; a funded account (is_free_tier:false) can
-// spill to the paid endpoint of the same open model for pennies/msg. Default is
-// gpt-oss-120b WITHOUT :free (no upstream free cap). Set OPENROUTER_PAID_FALLBACK=''
-// to disable and keep chat strictly zero-cost (falls back to the local reply).
-// ponytail: single fixed paid model; make it a per-user tier only if billing needs it.
-const paidFallbackSlug = () => {
-  const v = process.env.OPENROUTER_PAID_FALLBACK;
-  return (v === undefined ? 'openai/gpt-oss-120b' : v).trim();
-};
+const isFreeSlug = (slug) => String(slug || '').includes(':free');
 
-/** Ordered candidates: requested model, the free chain, then a paid last resort. */
-const modelCandidates = (model) => {
-  const chain = [model, ...FREE_FALLBACK_SLUGS, paidFallbackSlug()].filter(Boolean);
-  return [...new Set(chain)];
-};
+/**
+ * Honest picker: the model the user picked is the ONLY model we call.
+ * Never hop Gemma → gpt-oss or free → paid — that made the label a lie.
+ * Same-slug retries only (free-pool 429 flap); then surface an error.
+ */
+const modelCandidates = (model) => (model ? [model] : []);
 
-// :free pools flap in and out of 429 second-by-second — a whole pass can find
-// every model busy in the same instant, then all clear ~1s later. So when a full
-// pass fails on retryable errors, wait briefly and run the chain again before
-// giving up. Env-tunable; passes=1 disables retry (tests set delay=0).
-// ponytail: fixed 2 passes / 600ms is enough for :free flap; add jitter/backoff
-// curve only if a real burst pattern shows it's not. Read at call time so ops
-// (and tests) can tune via env without a restart.
+// :free pools flap second-by-second — retry the SAME slug a couple times before
+// failing honestly. Env-tunable; passes=1 disables retry.
 const freePoolPasses = () => Math.max(1, parseInt(process.env.FREE_POOL_PASSES, 10) || 2);
 const freePoolRetryMs = () => {
   const n = parseInt(process.env.FREE_POOL_RETRY_MS, 10);
   return Number.isFinite(n) ? Math.max(0, n) : 600;
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Per-picked-model knobs (same harness, different capacity).
+ * Free OpenRouter slugs flap and ramble under long outputs — tighter budget.
+ */
+const genParamsForModel = (modelSlug) => {
+  const free = String(modelSlug || '').includes(':free');
+  return { free, temperature: free ? 0.3 : 0.4, maxTokens: free ? 800 : 1200 };
+};
 
 const describeLoggedFacts = (entities = []) => {
   if (!Array.isArray(entities) || entities.length === 0) return '';
@@ -109,32 +108,150 @@ const buildLanguageDirective = (locale) => {
   return 'LANGUAGE: Reply in the SAME language as the user\'s latest message — Arabic → natural Modern Standard Arabic, English → English. Never switch to a third language such as Chinese. Ignore the language of earlier turns if it differs.';
 };
 
-/** System prompt: persona + language + grounded LifeSync context + memory + just-logged facts. */
+/**
+ * Gaps for digger — ONLY metrics NOT already logged today (UTC day).
+ * Code-enforced: mood 3/10 today → mood never appears in DATA GAPS today.
+ * @param {object} context
+ * @param {Date} [now]
+ * @param {{ health: Set, finance: Set }} [today] precomputed coverage
+ */
+const buildDataGaps = (context = {}, now = new Date(), today = null) => {
+  const cov = today || coverageFromContext(context, now);
+  const cadence = weekMonthSkip(context.horizon || {});
+  const last = context.horizon?.last_days_ago || {};
+  const healthGaps = [];
+  const financeGaps = [];
+  const rf = context.recent_finance_entries || [];
+
+  // Daily metrics: skip if logged today. Prefer re-engage if last log is 3+ days stale.
+  if (!cov.health.has('sleep')) {
+    healthGaps.push(last.sleep != null && last.sleep >= 3
+      ? `sleep hours (last logged ${last.sleep}d ago)`
+      : 'sleep hours');
+  }
+  if (!cov.health.has('mood')) {
+    healthGaps.push(last.mood != null && last.mood >= 2
+      ? `mood 1-10 (last logged ${last.mood}d ago)`
+      : 'mood 1-10');
+  }
+  if (!cov.health.has('steps') && !cov.health.has('exercise')) {
+    healthGaps.push('steps or exercise');
+  }
+  if (!cov.health.has('water')) healthGaps.push('water');
+
+  // Expense: not today → dig; if today missing purpose → purpose only.
+  if (!cov.finance.has('expense')) {
+    financeGaps.push(last.expense != null && last.expense >= 3
+      ? `expense amount + what for (quiet ${last.expense}d)`
+      : 'expense amount + what for (e.g. coffee, bus, food)');
+  } else {
+    const todayExp = rf.filter((r) => r?.type === 'expense' && isSameUtcDay(r.logged_at, now));
+    if (todayExp.length && !todayExp.some((r) => r.description || r.category)) {
+      financeGaps.push("what today's spends were for (category/purpose)");
+    }
+  }
+  // Income: weekly cadence — do not re-dig income if already logged this week.
+  if (!cov.finance.has('income') && !cadence.skipIncomeWeek) {
+    financeGaps.push('income or salary amount (this week)');
+  }
+
+  const fGoals = (context.active_goals || []).filter(
+    (g) => g.domain === 'finance' || /budget|save|spend|money/i.test(String(g.metric || '')),
+  );
+  if (!fGoals.length && !cadence.skipBudgetMonth) {
+    financeGaps.push('budget or savings target');
+  }
+
+  // Second-mind digs: trend follow-ups instead of raw re-collection when data is rich.
+  const trendGaps = [];
+  const w = context.horizon?.week;
+  if (w?.expense_trend === 'up' && w.expense_delta_pct > 15 && cov.finance.has('expense')) {
+    trendGaps.push('what drove higher spending this week vs last (second mind)');
+  }
+  if (w?.sleep_trend === 'down' && w.sleep_avg != null && w.sleep_avg < 7) {
+    trendGaps.push('sleep dipped this week — what changed at night (second mind)');
+  }
+
+  const out = [];
+  for (let i = 0; i < 3; i += 1) {
+    if (healthGaps[i]) out.push(healthGaps[i]);
+    if (financeGaps[i]) out.push(financeGaps[i]);
+  }
+  trendGaps.forEach((g) => out.push(g));
+  if (!(context.memory?.count > 0) && !context.memory?.summary) out.push('name or daily routine');
+  if (!context.active_goals?.length) out.push('a simple health or money goal');
+  return [...new Set(out)].slice(0, 7);
+};
+
+/** System prompt: full data access + curious digger + dashboard logging contract. */
 const buildSystemPrompt = (context = {}, loggedEntities = [], locale = null, modelSlug = null, ambiguity = null) => {
   const name = context?.profile?.name;
   const memory = context?.memory?.summary;
-  const summary = buildContextSummary(context);
-  const logged = describeLoggedFacts(loggedEntities);
   const resolvedLocale = locale || context?.locale || null;
+  // Locale-aware data picture so AR turns get Arabic fact lines (clearer grounding).
+  const summary = buildContextSummary(context, resolvedLocale);
+  const logged = describeLoggedFacts(loggedEntities);
   const memCount = Number(context?.memory?.count) || 0;
+  const win = context?.context_window;
+  const winHint = win?.mode
+    ? `Context window: ${win.mode} (~${win.days || '?'} days, ${win.messages || '?'} chat turns, ${win.entries || '?'} log rows, ${win.links || 0} XD links).`
+    : '';
+  const counts = context?.source_counts;
+  const countHint = counts
+    ? `Loaded for this reply: ${counts.messages || 0} prior messages, ${counts.health_logs || 0} health logs, ${counts.finance_logs || 0} finance logs, ${counts.goals || 0} goals, ${counts.linked_domains || 0} linked health↔money pairs.`
+    : '';
+  const nLinks = Array.isArray(context?.linked_domains) ? context.linked_domains.length : 0;
+  // Same-day coverage includes this turn's entities so we never re-ask mood just logged.
+  const today = coverageFromContext({
+    ...context,
+    this_turn_entities: loggedEntities,
+  });
+  const gaps = buildDataGaps({ ...context, this_turn_entities: loggedEntities }, new Date(), today);
+  const loggedTodayLine = formatCoverageLine(today);
+  const horizonLine = formatHorizonLine(context.horizon, String(resolvedLocale || '').startsWith('ar'));
+  const gapHint = gaps.length
+    ? `DATA GAPS (only metrics NOT logged today — dig here): ${gaps.join('; ')}.`
+    : 'DATA GAPS: all core metrics already logged today — dig deeper on patterns or cross-domain links using numbers you already have; do not re-ask today\'s values.';
+  const { free } = genParamsForModel(modelSlug);
 
   return [
-    'You are LifeSync — a warm, concise personal daily assistant that helps with health, money, mood, and everyday planning.',
+    'You are LifeSync — a warm, curious personal daily assistant for health, money, mood, and everyday planning. You speak with the user (voice or chat) as someone who already knows their dashboard.',
     // Honest engine identity: each picked model must feel (and be) different.
     modelSlug ? `You are currently powered by the "${modelSlug}" model. If the user asks which AI model you run on, tell them this honestly.` : '',
+    // Free-tier capacity: same harness, tighter delivery so :free models stay coherent.
+    free
+      ? 'MODEL CAPACITY (free): Keep 2–4 short sentences. Obey LANGUAGE LOCK strictly. Cite at most 2 numbers from the data. One dig question max. No lists unless asked.'
+      : 'MODEL CAPACITY (paid/standard): You may use 2–5 sentences and up to two dig questions; still prefer concrete numbers from the data over generalities.',
     // Memory is model-agnostic — switching models keeps the same remembered facts + chat history.
-    'MEMORY TRANSFER: User memories and this conversation history are shared across every model. When the user switches models mid-chat, you still know everything LifeSync stored about them — continue seamlessly; never claim amnesia because the engine changed.',
+    'MEMORY TRANSFER: User memories and history live in LifeSync, not in the model. The same session stays on one model for a consistent voice; a new chat may use another model and still has full memory — never claim amnesia because the engine changed.',
+    'REAL-TIME LANGUAGE: Only Arabic or English. Match THIS turn\'s language even if earlier turns differ. Digit-only follow-ups keep the previous turn\'s language.',
     buildLanguageDirective(resolvedLocale),
     name ? `The user's name is ${name}.` : '',
-    'Speak naturally, like a curious friend who remembers the user. Keep replies short (1–4 sentences) unless asked for detail.',
-    'Output ONLY your final reply to the user — never show your reasoning, planning, a "thinking process", or step-by-step analysis.',
+    'Speak like a warm, normal person who tracks the user\'s health and money — natural everyday Arabic (فصحى عصرية واضحة) or natural everyday English, never stiff translationese or robotic lists unless asked.',
+    'Keep replies short (2–5 sentences) unless asked for detail. Output ONLY your final reply — never show reasoning or a "thinking process".',
+    // Direct data access contract (Track A logger + this context = dashboard truth).
+    'DASHBOARD ACCESS: You have direct access to the user\'s real LifeSync data below (health logs, finance logs, goals, memory, linked health↔money pairs, chat history). Cite exact numbers from that data. Never invent logs, amounts, or stats.',
+    'LOGGING: When the user states health OR money facts, the app AUTOMATICALLY logs them to the dashboard. Health: sleep hours, mood 1-10, steps, water, exercise. Money: expense/income amounts + purpose (spent 20 on coffee, earned 500 salary). Invite BOTH domains. After something is logged this turn, acknowledge it. Never claim you logged something the app did not log.',
+    'CURIOUS DIGGER: Equal curiosity for health AND finance. Ask 1–2 dig questions ONLY from DATA GAPS. Never re-ask LOGGED_TODAY metrics (if mood is already 3/10 today, do not ask mood again). Cite today\'s values if relevant instead of re-collecting them. Warm, not an interrogation.',
+    'FINANCE HARNESS: Treat money with the same depth as health. Cite spend totals, income, net, avg expense, and top spend categories from data when present. Dig for amount + purpose only when expense is not LOGGED_TODAY.',
+    'NO RE-ASK RULE: If a metric appears in LOGGED_TODAY, you already have it for this calendar day — reference it, do not ask the user for it again. Prefer week/month TREND questions over re-collecting the same number.',
+    'SECOND MIND: Act like a companion who has tracked this user for months/years. Use LONG-HORIZON trends (week vs prior week, month spend, streaks). Notice shifts (sleep down + spend up). Celebrate log streaks. Cross-domain logging should feel automatic — invite one concrete log that completes a pattern, not a form.',
     memory ? `What you remember about the user (${memCount || 'some'} facts): ${memory}.` : '',
-    summary ? `The user's recent LifeSync data (also shown on their dashboard) — ${summary}` : '',
+    winHint,
+    countHint,
+    horizonLine || '',
+    summary ? `The user's LifeSync data (dashboard truth — use exact numbers, never invent): ${summary}` : '',
+    loggedTodayLine
+      ? `LOGGED_TODAY (do NOT re-ask): ${loggedTodayLine}.`
+      : 'LOGGED_TODAY: (none yet today).',
+    gapHint,
     logged ? `IMPORTANT: this turn the app already logged to the database (dashboard will show it): ${logged}. Acknowledge it naturally; do not claim to log anything else.` : '',
-    ambiguity ? `The app's logger found this message ambiguous and did NOT log anything (it wanted to ask: "${ambiguity}"). If the user really is reporting health/finance data, weave ONE natural clarifying question into your reply; if they are just chatting or asking a question, answer normally and ignore the logger.` : '',
-    'Use the supplied data and memory when relevant; never invent numbers or facts. Do not diagnose medical conditions or promise financial outcomes.',
-    // Cross-domain + curiosity (one question max — avoid interrogation).
-    'CROSS-DOMAIN CURIOSITY: Health and money live in one life. When data or this turn links sleep/mood/movement with spending/income, name the link in one sentence and give ONE small action. End with ONE short curious question about the user when it fits (energy after spend, mood after sleep, what they plan next) — never more than one question.',
+    ambiguity ? `The app's logger found this message ambiguous and did NOT log anything (it wanted to ask: "${ambiguity}"). If the user really is reporting health/finance data, weave ONE natural clarifying question into your reply so they give a loggable number; if they are just chatting, answer normally.` : '',
+    'Never invent numbers or facts. Do not diagnose medical conditions or promise financial outcomes.',
+    // Max XD harness: prefer stored LinkedDomain pairs; else soft co-presence.
+    nLinks > 0
+      ? `CROSS-DOMAIN HARNESS (MAX): ${nLinks} stored health↔money link(s) are in the data picture (LINKED lines). Prefer those real links. (1) Cite one linked pair with numbers, (2) one small action, (3) 1–2 curious dig questions. Never invent a link that is not in the data.`
+      : 'CROSS-DOMAIN HARNESS: Health and money are one life. When both domains appear in data or this turn, (1) name the link with numbers from the data, (2) one small action, (3) 1–2 dig questions that fill gaps or invite a loggable follow-up. Never invent a link without data.',
     // Restate at the end — last instruction wins for many small models.
     buildLanguageDirective(resolvedLocale),
   ].filter(Boolean).join('\n');
@@ -157,22 +274,19 @@ const stripReasoning = (raw) => {
 };
 
 /** Map prior turns + the current message into a provider-agnostic messages array.
- *  History depth follows CONTEXT_MESSAGES (default 20) so the larger/switchable
- *  context window actually reaches the conversational model, not a fixed 16. */
-const historyLimit = () => {
-  const n = parseInt(process.env.CONTEXT_MESSAGES, 10);
-  return Number.isFinite(n) ? Math.min(80, Math.max(4, n)) : 20;
-};
+ *  History is already windowed by buildBertContext (standard/deep/max up to 120).
+ *  Hard-cap 120 — do NOT re-shrink or voice/chat max harness loses turns. */
+const HISTORY_HARD_CAP = 120;
 const buildMessages = (conversation = [], currentMessage, locale = null) => {
   const history = (Array.isArray(conversation) ? conversation : [])
     .filter((m) => m && m.content && (m.role === 'user' || m.role === 'assistant'))
-    .slice(-historyLimit());
+    .slice(-HISTORY_HARD_CAP);
   // Soft prefix on the LAST user turn only (not stored history) — free models
-  // obey the final user line more reliably than system alone.
+  // obey the final user line more reliably than system alone. AR|EN only.
   const lc = String(locale || '').toLowerCase();
   let content = String(currentMessage || '');
-  if (lc.startsWith('ar')) content = `أجب بالعربية فقط.\n${content}`;
-  else if (lc.startsWith('en')) content = `Reply in English only.\n${content}`;
+  if (lc.startsWith('ar')) content = `أجب بالعربية فقط (هذا الدور).\n${content}`;
+  else if (lc.startsWith('en')) content = `Reply in English only (this turn).\n${content}`;
   return [...history, { role: 'user', content }];
 };
 
@@ -183,8 +297,7 @@ const buildMessages = (conversation = [], currentMessage, locale = null) => {
  */
 const generateAssistantReply = async ({ provider, model, context = {}, loggedEntities = [], message, locale = null, ambiguity = null }) => {
   const messages = buildMessages(context.conversation, message, locale);
-  // OpenRouter free-pool 429s hop to the next verified free model; any other
-  // provider (or error type) keeps the original single-attempt behavior.
+  // Always the user-picked slug only (no cross-model hop).
   const candidates = provider === 'openrouter' ? modelCandidates(model) : [model];
   const passes = provider === 'openrouter' ? freePoolPasses() : 1;
   let lastError = null;
@@ -192,26 +305,25 @@ const generateAssistantReply = async ({ provider, model, context = {}, loggedEnt
     for (const candidate of candidates) {
       try {
         const system = buildSystemPrompt(context, loggedEntities, locale, candidate, ambiguity);
+        const { temperature, maxTokens } = genParamsForModel(candidate);
         const result = await generateChat({
           system,
           messages,
           providerOverride: provider,
           model: candidate,
-          temperature: 0.4,
-          // Headroom so reasoning models still reach a final answer.
-          maxTokens: 1200,
+          temperature,
+          maxTokens,
         });
         const text = stripReasoning(result?.text).trim();
-        if (text) return { text, provider: result.provider, model: result.model };
-        // Empty body = pool hiccup, not a real answer — try the next free model.
+        // Report the slug we requested (picker honesty), not a provider alias.
+        if (text) return { text, provider: result.provider, model: candidate };
         lastError = new Error(`empty response from ${candidate}`);
       } catch (error) {
         lastError = error;
         if (!isRetryableError(error)) return { error: lastError.message };
       }
     }
-    // Whole pass failed on transient errors — wait for the :free flap to clear
-    // and run the chain once more before dropping to the deterministic reply.
+    // Whole pass failed on transient errors — retry same slug after a short wait.
     if (pass < passes - 1) await sleep(freePoolRetryMs());
   }
   return { error: lastError?.message || 'generation failed' };
@@ -279,6 +391,30 @@ const makeReasoningFilter = (onChunk) => {
  * reply has finished generating. Same fallback contract as the non-streaming
  * version: returns null/{error} instead of throwing so chat never breaks.
  */
+/**
+ * Voice uses SSE streaming. OpenRouter :free pools often 429 streams while
+ * non-stream still answers (live probe 2026-07-09). Try non-stream once and
+ * emit as a single delta so voice TTS still works without hopping to paid.
+ */
+const tryNonStreamFallback = async ({
+  provider, candidate, system, messages, onDelta, signal,
+}) => {
+  if (signal?.aborted) return null;
+  const { temperature, maxTokens } = genParamsForModel(candidate);
+  const result = await generateChat({
+    system,
+    messages,
+    providerOverride: provider,
+    model: candidate,
+    temperature,
+    maxTokens,
+  });
+  const text = stripReasoning(result?.text).trim();
+  if (!text) return null;
+  onDelta?.(text);
+  return { text, provider: result.provider, model: candidate };
+};
+
 const generateAssistantReplyStream = async ({
   provider, model, context = {}, loggedEntities = [], message, locale = null, ambiguity = null, onDelta, signal,
 }) => {
@@ -292,33 +428,50 @@ const generateAssistantReplyStream = async ({
       // Hop only when nothing streamed to the client yet — after first delta the
       // UI is already rendering this model's reply, so surface the error instead.
       let streamed = false;
+      const system = buildSystemPrompt(context, loggedEntities, locale, candidate, ambiguity);
+
+      // Live fact (OpenRouter free): SSE often 429s while non-stream still works.
+      // Still the same user-picked free slug — never a different model.
+      if (!signal?.aborted && isFreeSlug(candidate)) {
+        try {
+          const recovered = await tryNonStreamFallback({
+            provider, candidate, system, messages, onDelta, signal,
+          });
+          if (recovered) return recovered;
+          lastError = new Error(`empty non-stream response from ${candidate}`);
+        } catch (nsErr) {
+          lastError = nsErr;
+          if (!isRetryableError(nsErr) || signal?.aborted) { hardStop = true; break; }
+          // retryable → try stream on the same free slug only
+        }
+      }
+
+      if (signal?.aborted) { hardStop = true; break; }
+
       try {
-        const system = buildSystemPrompt(context, loggedEntities, locale, candidate, ambiguity);
         let text = '';
         const filter = makeReasoningFilter((chunk) => { text += chunk; streamed = true; onDelta?.(chunk); });
+        const { temperature, maxTokens } = genParamsForModel(candidate);
         const result = await generateChatStream({
           system,
           messages,
           providerOverride: provider,
           model: candidate,
-          temperature: 0.4,
-          maxTokens: 1200,
+          temperature,
+          maxTokens,
           signal,
           onDelta: filter,
         });
         const finalText = text.trim() || stripReasoning(result?.text).trim();
-        if (finalText) return { text: finalText, provider: result.provider, model: result.model };
-        // Nothing streamed and empty body — pool hiccup, hop to the next free model.
+        if (finalText) return { text: finalText, provider: result.provider, model: candidate };
         lastError = new Error(`empty response from ${candidate}`);
       } catch (error) {
         lastError = error;
-        // Streamed/aborted/hard errors stop everything; a retryable pre-stream
-        // error just hops to the next candidate.
-        if (!isRetryableError(error) || streamed || signal?.aborted) { hardStop = true; break; }
+        // Streamed/aborted/hard errors stop; retryable pre-stream errors retry same slug.
+        if (streamed || signal?.aborted || !isRetryableError(error)) { hardStop = true; break; }
       }
     }
     if (hardStop || signal?.aborted) break;
-    // Whole pass was transient with nothing streamed — wait out the flap, retry.
     if (pass < passes - 1) await sleep(freePoolRetryMs());
   }
   return { error: lastError?.message || 'generation failed' };
@@ -331,7 +484,11 @@ module.exports = {
   _buildMessages: buildMessages,
   _describeLoggedFacts: describeLoggedFacts,
   _stripReasoning: stripReasoning,
+  _makeReasoningFilter: makeReasoningFilter,
   _isRetryableError: isRetryableError,
   _buildLanguageDirective: buildLanguageDirective,
   _modelCandidates: modelCandidates,
+  _buildDataGaps: buildDataGaps,
+  _genParamsForModel: genParamsForModel,
+  _MAX_THINK_BUFFER: MAX_THINK_BUFFER,
 };

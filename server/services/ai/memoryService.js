@@ -20,6 +20,16 @@ const clean = (text) => String(text || '').replace(/\s+/g, ' ').trim();
 const titleCase = (value) => clean(value).replace(/\b\w/g, (c) => c.toUpperCase());
 const lower = (text) => clean(text).toLowerCase();
 
+// Cap distinct mem_keys per user (dynamic pref.* keys could grow forever).
+const MAX_MEMORIES_PER_USER = 48;
+// Soft prompt-injection scrub when values are later injected into model context.
+const sanitizeMemoryValue = (value) => clean(String(value || ''))
+  .replace(/(?:^|\s)(?:system|assistant|user)\s*:/gi, ' ')
+  .replace(/<\/?(?:think|system|instruction)[^>]*>/gi, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .slice(0, 240);
+
 // Probe the table once so a not-yet-migrated DB degrades quietly.
 let _tableReady = null;
 const isTableReady = async () => {
@@ -89,7 +99,9 @@ const extractMemoryCandidates = (message) => {
   const out = [];
   const push = (mem_key, category, value, confidence = 0.7, salience = 1) => {
     if (!mem_key || !value) return;
-    out.push({ mem_key, category, value: clean(value).slice(0, 240), confidence, salience });
+    const safe = sanitizeMemoryValue(value);
+    if (!safe) return;
+    out.push({ mem_key, category, value: safe, confidence, salience });
   };
 
   // Name
@@ -158,12 +170,15 @@ const recordMemories = async (userId, candidates) => {
   if (!userId || !Array.isArray(candidates) || candidates.length === 0) return [];
   if (!(await isTableReady())) return [];
   const saved = [];
+  let knownCount = null;
   for (const cand of candidates) {
     try {
+      const value = sanitizeMemoryValue(cand.value);
+      if (!value || !cand.mem_key) continue;
       const existing = await UserMemory.findOne({ where: { user_id: userId, mem_key: cand.mem_key } });
       if (existing) {
         await existing.update({
-          value: cand.value,
+          value,
           confidence: Math.max(Number(existing.confidence) || 0, cand.confidence),
           salience: (existing.salience || 1) + 1,
           times_seen: (existing.times_seen || 1) + 1,
@@ -171,17 +186,22 @@ const recordMemories = async (userId, candidates) => {
         });
         saved.push(existing);
       } else {
+        if (knownCount === null) {
+          knownCount = await UserMemory.count({ where: { user_id: userId } });
+        }
+        if (knownCount >= MAX_MEMORIES_PER_USER) continue; // upsert-only once at cap
         const created = await UserMemory.create({
           user_id: userId,
-          mem_key: cand.mem_key,
+          mem_key: String(cand.mem_key).slice(0, 120),
           category: cand.category || 'other',
-          value: cand.value,
+          value,
           confidence: cand.confidence ?? 0.7,
           source: 'chat',
           salience: cand.salience || 1,
           times_seen: 1,
           last_seen_at: new Date(),
         });
+        knownCount += 1;
         saved.push(created);
       }
     } catch {
@@ -237,9 +257,9 @@ const summarizeMemories = (memories) => {
   return parts.join('; ');
 };
 
-/** Memory block for the model context object. */
-const buildMemoryContext = async (userId) => {
-  const memories = await getMemories(userId, { limit: 12 });
+/** Memory block for the model context object. limit grows with deep/max window. */
+const buildMemoryContext = async (userId, { limit = 12 } = {}) => {
+  const memories = await getMemories(userId, { limit: Math.min(24, Math.max(4, limit || 12)) });
   return {
     items: memories.map((m) => ({ key: m.mem_key, category: m.category, value: m.value })),
     summary: summarizeMemories(memories),
@@ -256,4 +276,6 @@ module.exports = {
   summarizeMemories,
   buildMemoryContext,
   _resetTableProbe: () => { _tableReady = null; },
+  _sanitizeMemoryValue: sanitizeMemoryValue,
+  _MAX_MEMORIES_PER_USER: MAX_MEMORIES_PER_USER,
 };

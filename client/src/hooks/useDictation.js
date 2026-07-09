@@ -40,6 +40,8 @@ export function useDictation({ locale = 'en', onText } = {}) {
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
   const onTextRef = useRef(onText);
+  // Avoid setState / cloud POST after unmount (start→unmount race).
+  const aliveRef = useRef(true);
   useEffect(() => { onTextRef.current = onText; }, [onText]);
 
   const emit = useCallback((text) => {
@@ -95,6 +97,11 @@ export function useDictation({ locale = 'en', onText } = {}) {
 
   // ─── Cloud fallback path ───
   const finishCloud = useCallback(async () => {
+    if (!aliveRef.current) {
+      chunksRef.current = [];
+      releaseStream();
+      return;
+    }
     setState('transcribing');
     const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
     chunksRef.current = [];
@@ -103,11 +110,13 @@ export function useDictation({ locale = 'en', onText } = {}) {
       // No forced language → Whisper auto-detects, so dictation works whichever
       // language the user speaks (the reviewed text is then sent as-is).
       const { data } = await voiceAPI.transcribe(blob);
+      if (!aliveRef.current) return;
       const text = data?.data?.text || '';
       setState('idle');
       if (text) { setPartial(text); emit(text); }
       else setError('no_transcript');
     } catch {
+      if (!aliveRef.current) return;
       setState('idle');
       setError('transcribe_failed');
     }
@@ -115,6 +124,8 @@ export function useDictation({ locale = 'en', onText } = {}) {
 
   const startCloud = useCallback(async () => {
     if (!canRecord()) { setError('unsupported'); return; }
+    // Prevent double-start race (two getUserMedia streams / stuck mics).
+    if (streamRef.current || (recorderRef.current && recorderRef.current.state !== 'inactive')) return;
     setError(null);
     // Probe whether cloud STT is configured before recording — avoids a dead-end
     // that used to surface as a fake "microphone" error after a 501.
@@ -162,12 +173,27 @@ export function useDictation({ locale = 'en', onText } = {}) {
     }
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       try { recorderRef.current.stop(); } catch { /* ignore */ }
+    } else {
+      releaseStream();
     }
-  }, []);
+  }, [releaseStream]);
 
-  useEffect(() => () => {
-    try { recognitionRef.current?.abort?.(); } catch { /* ignore */ }
-    releaseStream();
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      try { recognitionRef.current?.abort?.(); } catch { /* ignore */ }
+      recognitionRef.current = null;
+      // Stop recorder without firing finishCloud → network after unmount.
+      if (recorderRef.current) {
+        try { recorderRef.current.onstop = null; } catch { /* ignore */ }
+        try {
+          if (recorderRef.current.state !== 'inactive') recorderRef.current.stop();
+        } catch { /* ignore */ }
+        recorderRef.current = null;
+      }
+      releaseStream();
+    };
   }, [releaseStream]);
 
   return { supported, nativeSupported, state, partial, error, start, stop, setPartial };

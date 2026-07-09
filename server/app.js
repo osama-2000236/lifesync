@@ -53,6 +53,9 @@ const allowedOrigins = [
   ...DEFAULT_ALLOWED_ORIGINS,
   ...(process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean),
 ];
+// credentials:true requires a concrete reflected Origin — never bare "*".
+// If CORS_ORIGIN includes "*", treat as allow-any *by reflecting the request
+// Origin* (cors package does that when callback(null, true)), not ACAO: *.
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, curl, etc.)

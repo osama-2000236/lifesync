@@ -17,13 +17,19 @@ describe('BERT structured context summaries', () => {
   });
 
   test('keeps currency totals separate and computes net', () => {
-    expect(_summarizeFinance([
+    const summary = _summarizeFinance([
       { type: 'expense', amount: '20.50', currency: 'ILS' },
       { type: 'income', amount: '100', currency: 'ILS' },
       { type: 'expense', amount: '5', currency: 'USD' },
-    ])).toEqual({
-      ILS: { expense: 20.5, income: 100, transactions: 2, net: 79.5 },
-      USD: { expense: 5, income: 0, transactions: 1, net: -5 },
+    ]);
+    expect(summary.ILS).toMatchObject({
+      expense: 20.5, income: 100, transactions: 2, net: 79.5,
+      expense_count: 1, income_count: 1, avg_expense: 20.5,
     });
+    expect(summary.USD).toMatchObject({
+      expense: 5, income: 0, transactions: 1, net: -5,
+      expense_count: 1, income_count: 0, avg_expense: 5,
+    });
+    expect(summary.ILS.top_categories?.[0]).toMatchObject({ total: 20.5 });
   });
 });

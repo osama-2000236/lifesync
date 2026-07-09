@@ -14,9 +14,12 @@ const { ipKeyGenerator } = rateLimit;
 const isEnabled = (value) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 
 // Jest sets NODE_ENV=test; DISABLE_RATE_LIMITS=1 is the explicit opt-out for
-// local Playwright runs, where one shared QA user re-logs-in per test and
-// burns the 10-login auth budget mid-suite. Never set it in production.
-const limitsDisabled = () => process.env.NODE_ENV === 'test' || isEnabled(process.env.DISABLE_RATE_LIMITS);
+// local Playwright runs. Hard-ignore in production so a mis-set env can't
+// strip brute-force protection on a live host.
+const limitsDisabled = () => {
+  if (process.env.NODE_ENV === 'production') return false;
+  return process.env.NODE_ENV === 'test' || isEnabled(process.env.DISABLE_RATE_LIMITS);
+};
 const isLocalStrictGemmaMode = () => {
   const provider = (process.env.INSIGHTS_AI_PROVIDER || process.env.AI_PROVIDER || '').trim().toLowerCase();
   const endpoint = (process.env.CUSTOM_HF_ENDPOINT || '').trim().toLowerCase();
@@ -63,7 +66,13 @@ const otpLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `otp:${req.body?.email?.toLowerCase()?.trim() || ipKeyGenerator(req.ip)}`,
+  // IP + email: email-only keys let one IP bomb many addresses; IP-only lets
+  // distributed clients hammer one inbox. Both dimensions required.
+  // (Behind reverse proxy, app must set trust proxy so req.ip is the client.)
+  keyGenerator: (req) => {
+    const email = req.body?.email?.toLowerCase()?.trim() || '';
+    return `otp:${ipKeyGenerator(req.ip)}:${email}`;
+  },
   skip: () => limitsDisabled(),
 });
 

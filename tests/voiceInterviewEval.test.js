@@ -244,9 +244,34 @@ describe('cloud voice pure contracts', () => {
     expect(voiceRoutes.contentTypeFromFormat('opus')).toBe('audio/opus');
   });
 
-  test('default tts format is wav (Groq Orpheus-safe)', () => {
+  test('ttsFormat: OpenRouter → mp3; Orpheus/Groq → wav; env wins', () => {
     delete process.env.VOICE_TTS_FORMAT;
+    delete process.env.VOICE_TTS_ENDPOINT;
+    delete process.env.VOICE_TTS_API_KEY;
+    delete process.env.VOICE_TTS_DISABLED;
+    process.env.OPENROUTER_API_KEY = 'test-key';
+    expect(voiceRoutes.ttsFormat()).toBe('mp3');
+
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.VOICE_TTS_ENDPOINT = 'https://api.groq.com/openai/v1/audio/speech';
+    process.env.VOICE_TTS_API_KEY = 'test-key';
+    process.env.VOICE_TTS_MODEL = 'canopylabs/orpheus-3b-0.1-ft';
     expect(voiceRoutes.ttsFormat()).toBe('wav');
+
+    process.env.VOICE_TTS_FORMAT = 'mp3';
+    expect(voiceRoutes.ttsFormat()).toBe('mp3');
+  });
+
+  test('ttsVoice picks Microsoft Neural by language; env wins', () => {
+    delete process.env.VOICE_TTS_VOICE;
+    delete process.env.VOICE_TTS_ENDPOINT;
+    delete process.env.VOICE_TTS_DISABLED;
+    process.env.OPENROUTER_API_KEY = 'test-key';
+    process.env.VOICE_TTS_MODEL = 'microsoft/mai-voice-2';
+    expect(voiceRoutes.ttsVoice('ar')).toBe('ar-SA-ZariyahNeural');
+    expect(voiceRoutes.ttsVoice('en')).toBe('en-US-AvaNeural');
+    process.env.VOICE_TTS_VOICE = 'alloy';
+    expect(voiceRoutes.ttsVoice('ar')).toBe('alloy');
   });
 });
 
@@ -271,7 +296,8 @@ describe('voice language harness (STT → turnLang)', () => {
   test('cross-domain curiosity is in the system prompt', () => {
     const { _buildSystemPrompt } = require('../server/services/ai/conversationService');
     const sys = _buildSystemPrompt({}, [], 'ar', 'test-model');
-    expect(sys).toMatch(/CROSS-DOMAIN CURIOSITY/);
-    expect(sys).toMatch(/curious question/i);
+    expect(sys).toMatch(/CROSS-DOMAIN HARNESS|CROSS-DOMAIN CURIOSITY/);
+    expect(sys).toMatch(/CURIOUS DIGGER|dig questions|curious dig/i);
+    expect(sys).toMatch(/DASHBOARD ACCESS|LOGGING/i);
   });
 });

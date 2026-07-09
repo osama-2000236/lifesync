@@ -33,4 +33,13 @@ describe('OTP demo mode', () => {
     expect(res.success).toBe(false);
     expect(JSON.stringify(res)).not.toContain('123456');
   });
+
+  test('OTP_DEMO_MODE cannot enable demo path in production (even if set)', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.OTP_DEMO_MODE = 'true';
+    const res = await otp.sendOTPEmail('demo@example.com', '999888');
+    expect(res.demo).toBeUndefined();
+    expect(res.success).toBe(false);
+    expect(JSON.stringify(res)).not.toContain('999888');
+  });
 });

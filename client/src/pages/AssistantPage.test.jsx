@@ -42,8 +42,9 @@ beforeEach(() => {
   aiAPI.getModels.mockResolvedValue(wrap({
     models: [
       { id: 'bert_local', label: 'BERT', pricing: 'local' },
-      { id: 'gemma4_local', label: 'Gemma 4 31B', pricing: 'free', description: 'free' },
-      { id: 'openai_chat', label: 'GPT-OSS', pricing: 'free' },
+      { id: 'openai_chat', label: 'GPT-5.4 Mini', pricing: 'paid', model: 'openai/gpt-5.4-mini' },
+      { id: 'openrouter_chat', label: 'Llama 3.3 70B', pricing: 'paid', model: 'meta-llama/llama-3.3-70b-instruct' },
+      { id: 'gemma4_local', label: 'Gemma 4 free', pricing: 'free', description: 'free', model: 'google/gemma-4-31b-it:free' },
     ],
   }));
 });
@@ -316,6 +317,9 @@ describe('AssistantPage — converse + dictate', () => {
     const cbs = chatAPI.sendMessageStream.mock.calls[0][2];
     act(() => cbs.onError({ message: 'stream failed' }));
     expect(screen.getByText('stream failed')).toBeInTheDocument();
+    // Must leave "thinking" and speak the error so the loop resumes.
+    expect(voiceStub.enqueueSpeech).toHaveBeenCalledWith('stream failed');
+    expect(voiceStub.finishSpeechStream).toHaveBeenCalled();
   });
 
   it('converse onError falls back to a default message', async () => {
@@ -324,6 +328,8 @@ describe('AssistantPage — converse + dictate', () => {
     const cbs = chatAPI.sendMessageStream.mock.calls[0][2];
     act(() => cbs.onError({})); // no message → fallback
     expect(screen.getByText('va.err.streamFailed')).toBeInTheDocument();
+    expect(voiceStub.enqueueSpeech).toHaveBeenCalledWith('va.err.streamFailed');
+    expect(voiceStub.finishSpeechStream).toHaveBeenCalled();
   });
 
   it('converses with the stored generative chat model', async () => {
@@ -333,18 +339,18 @@ describe('AssistantPage — converse + dictate', () => {
     expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('openai_chat');
   });
 
-  it('never converses with BERT — a stored bert pick maps to the free default', async () => {
+  it('never converses with BERT — a stored bert pick maps to the voice default', async () => {
     localStorage.setItem('lifesync.chat.model', 'bert_local');
     await renderPage();
     act(() => voiceArgs.onUtterance('hi'));
-    expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('gemma4_local');
+    expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('openai_chat');
   });
 
-  it('falls back to the free default when storage is unavailable', async () => {
+  it('falls back to the voice default when storage is unavailable', async () => {
     const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
     await renderPage();
     act(() => voiceArgs.onUtterance('hi'));
-    expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('gemma4_local');
+    expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('openai_chat');
     spy.mockRestore();
   });
 
@@ -355,16 +361,38 @@ describe('AssistantPage — converse + dictate', () => {
     fireEvent.click(screen.getByTestId('model-picker-button'));
     expect(screen.getByTestId('model-option-gemma4_local')).toBeInTheDocument();
     expect(screen.getByTestId('model-option-openai_chat')).toBeInTheDocument();
+    expect(screen.getByTestId('model-option-openrouter_chat')).toBeInTheDocument();
     expect(screen.queryByTestId('model-option-bert_local')).not.toBeInTheDocument();
   });
 
-  it('switching the picker persists and is used on the next turn', async () => {
+  it('switching the picker on an empty session persists and is used on the next turn', async () => {
     await renderPage();
     fireEvent.click(screen.getByTestId('model-picker-button'));
-    fireEvent.click(screen.getByTestId('model-option-openai_chat'));
-    expect(localStorage.getItem('lifesync.chat.model')).toBe('openai_chat');
+    fireEvent.click(screen.getByTestId('model-option-gemma4_local'));
+    expect(localStorage.getItem('lifesync.chat.model')).toBe('gemma4_local');
     act(() => voiceArgs.onUtterance('hello'));
-    expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('openai_chat');
+    expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('gemma4_local');
+  });
+
+  it('denies model switch mid-conversation (picker disabled + lock badge)', async () => {
+    await renderPage();
+    act(() => voiceArgs.onUtterance('hi'));
+    // Message present → lock: button disabled, no open menu
+    expect(screen.getByTestId('model-picker-button')).toBeDisabled();
+    expect(screen.getByTestId('model-locked-badge')).toBeInTheDocument();
+    expect(localStorage.getItem('lifesync.chat.model')).not.toBe('gemma4_local');
+  });
+
+  it('new chat clears the thread and unlocks the model picker', async () => {
+    await renderPage();
+    act(() => voiceArgs.onUtterance('hi'));
+    expect(screen.getByTestId('voice-new-chat')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('voice-new-chat'));
+    expect(screen.queryByTestId('voice-new-chat')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('model-picker-button'));
+    fireEvent.click(screen.getByTestId('model-option-gemma4_local'));
+    expect(localStorage.getItem('lifesync.chat.model')).toBe('gemma4_local');
+    expect(screen.queryByTestId('model-lock-hint')).not.toBeInTheDocument();
   });
 
   it('attributes the reply model after onComplete', async () => {

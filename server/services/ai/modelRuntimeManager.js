@@ -50,13 +50,6 @@ const customModelState = {
 const openRouterModel = (envVar, fallbackSlug) =>
   process.env[envVar]?.trim() || fallbackSlug;
 
-// Ordered retry chain used when a :free model is rate-limited upstream.
-const FREE_FALLBACK_SLUGS = [
-  'google/gemma-4-31b-it:free',
-  'openai/gpt-oss-120b:free',
-  'google/gemma-4-26b-a4b-it:free',
-];
-
 const MODEL_CATALOG = [
   {
     id: 'bert_local',
@@ -68,45 +61,50 @@ const MODEL_CATALOG = [
     target: { provider: 'bert_local', model: null },
     eta_ms: { gpu: 80, cpu: 300 },
   },
-  {
-    id: 'gemma4_local',
-    label: 'Gemma 4 31B',
-    kind: 'generative',
-    is_default: false,
-    pricing: 'free',
-    description: 'Google Gemma 4 31B — free via OpenRouter. Best default for conversation; shares LifeSync memory, history, and cross-domain context.',
-    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GEMMA4_MODEL', 'google/gemma-4-31b-it:free') },
-    eta_ms: { gpu: 2200, cpu: 2200 },
-  },
-  {
-    id: 'gemma3_local',
-    label: 'Gemma 4 Flash 26B',
-    kind: 'generative',
-    is_default: false,
-    pricing: 'free',
-    description: 'Google Gemma 4 26B (A4B) — free via OpenRouter. Lighter and quicker; same LifeSync memory and context.',
-    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GEMMA3_MODEL', 'google/gemma-4-26b-a4b-it:free') },
-    eta_ms: { gpu: 1500, cpu: 1500 },
-  },
+  // Voice/chat trio — label must match the OpenRouter slug exactly (no silent swaps).
   {
     id: 'openai_chat',
-    label: 'GPT-OSS 120B',
+    label: 'GPT-5.4 Mini',
     kind: 'generative',
     is_default: false,
-    pricing: 'free',
-    description: 'OpenAI GPT-OSS 120B open-weight — free via OpenRouter. Strong reasoning with the same LifeSync memory and data context.',
-    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GPT_MODEL', 'openai/gpt-oss-120b:free') },
-    eta_ms: { gpu: 1800, cpu: 1800 },
+    pricing: 'paid',
+    voice: true,
+    description: 'OpenAI GPT-5.4 Mini via OpenRouter (paid). The slug you pick is the model that answers.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GPT_MODEL', 'openai/gpt-5.4-mini') },
+    eta_ms: { gpu: 1500, cpu: 1500 },
   },
   {
     id: 'openrouter_chat',
     label: 'Llama 3.3 70B',
     kind: 'generative',
     is_default: false,
+    pricing: 'paid',
+    voice: true,
+    description: 'Meta Llama 3.3 70B via OpenRouter (paid). The slug you pick is the model that answers.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_MODEL', 'meta-llama/llama-3.3-70b-instruct') },
+    eta_ms: { gpu: 2500, cpu: 2500 },
+  },
+  {
+    id: 'gemma4_local',
+    label: 'Gemma 4 free',
+    kind: 'generative',
+    is_default: false,
     pricing: 'free',
-    description: 'Meta Llama 3.3 70B — free via OpenRouter. Popular open model; when its free pool is busy, replies hop to another free model automatically.',
-    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_MODEL', 'meta-llama/llama-3.3-70b-instruct:free') },
-    eta_ms: { gpu: 2000, cpu: 2000 },
+    voice: true,
+    description: 'Google Gemma 4 31B free via OpenRouter. Zero cost; free pool may rate-limit (429) — we retry Gemma only, never swap to another model.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GEMMA4_MODEL', 'google/gemma-4-31b-it:free') },
+    eta_ms: { gpu: 2200, cpu: 2200 },
+  },
+  {
+    id: 'gemma3_local',
+    label: 'Gemma 4 Flash free',
+    kind: 'generative',
+    is_default: false,
+    pricing: 'free',
+    voice: false, // not in the voice trio
+    description: 'Google Gemma 4 26B free (chat only). Not offered in the voice picker.',
+    target: { provider: 'openrouter', model: openRouterModel('OPENROUTER_GEMMA3_MODEL', 'google/gemma-4-26b-a4b-it:free') },
+    eta_ms: { gpu: 1800, cpu: 1800 },
   },
   {
     id: 'custom_local',
@@ -567,9 +565,6 @@ const getModelCatalog = () => MODEL_CATALOG.map((m) => {
   if (m.kind === 'generative' && provider === 'openrouter') {
     pricing = isFreeSlug(model) ? 'free' : 'paid';
   }
-  // Voice = text chat over the same SSE path — every generative entry is voice-capable
-  // when the upstream accepts chat/completions (not a speech codec). BERT is not.
-  const voice_ok = m.kind === 'generative';
   return {
     id: m.id,
     label: m.label,
@@ -583,7 +578,7 @@ const getModelCatalog = () => MODEL_CATALOG.map((m) => {
     configured: m.id === 'custom_local' ? Boolean(customModelState.name || customModelState.endpoint) : true,
     eta_ms: m.eta_ms,
     capabilities: capabilitiesFor(provider),
-    voice_ok,
+    voice_ok: Boolean(m.voice),
   };
 });
 
@@ -619,7 +614,6 @@ module.exports = {
   resolveModel,
   startBestAvailableModel: startModel,
   startModel,
-  FREE_FALLBACK_SLUGS,
   _hardwareSnapshot: hardwareSnapshot,
   _capabilitiesFor: capabilitiesFor,
   _estimateEta: estimateEta,

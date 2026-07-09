@@ -309,6 +309,25 @@ describe('useDictation — cloud fallback path', () => {
     unmount(); // recognitionRef is null here → optional-chain abort branch
   });
 
+  it('unmount stops media tracks so the mic does not stay open', async () => {
+    const stopTrack = vi.fn();
+    setMediaDevices({
+      getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] }),
+    });
+    window.MediaRecorder = FakeRecorder;
+    const { useDictation, voiceAPI } = await loadHook();
+    voiceAPI.transcribe.mockResolvedValue({ data: { data: { text: 'late' } } });
+    const onText = vi.fn();
+    const { result, unmount } = renderHook(() => useDictation({ onText }));
+    await act(async () => { result.current.start(); });
+    await waitFor(() => expect(result.current.state).toBe('listening'));
+    unmount();
+    expect(stopTrack).toHaveBeenCalled();
+    // finishCloud must not emit after unmount (onstop nulled)
+    await act(async () => { await Promise.resolve(); });
+    expect(onText).not.toHaveBeenCalled();
+  });
+
   it('stop() is a no-op once the recorder is inactive', async () => {
     const { useDictation, voiceAPI } = await loadHook();
     voiceAPI.transcribe.mockResolvedValue({ data: { data: { text: 'x' } } });

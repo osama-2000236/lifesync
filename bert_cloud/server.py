@@ -31,6 +31,8 @@ class IntentRuntime:
         self.latencies = deque(maxlen=1000)
         self.requests = 0
         self.lock = threading.Lock()
+        # Serialize session.run — DirectML EP is not multi-thread safe.
+        self.inference_lock = threading.Lock()
         safetensors_path = self.model_dir / "model.safetensors"
         # Optional: only needed for the integrity hash. Cloud/CPU images ship the
         # ONNX + tokenizer without the 270MB PyTorch weights, so skip if absent.
@@ -121,23 +123,24 @@ class IntentRuntime:
 
         # Run one fixed-shape chunk at a time. This works with the DirectML
         # artifact even when its exported batch dimension is static at one.
-        for chunk_index in range(chunk_count):
-            inputs = {
-                "input_ids": encoded["input_ids"][chunk_index:chunk_index + 1].astype(np.int64),
-                "attention_mask": encoded["attention_mask"][chunk_index:chunk_index + 1].astype(np.int64),
-            }
-            if "token_type_ids" in session_input_names:
-                inputs["token_type_ids"] = encoded["token_type_ids"][chunk_index:chunk_index + 1].astype(np.int64)
-            logits = self.session.run(["logits"], inputs)[0][0]
-            shifted = logits - np.max(logits)
-            probabilities = np.exp(shifted) / np.exp(shifted).sum()
-            chunk_probabilities.append(probabilities)
-            chunk_label_id = int(np.argmax(probabilities))
-            chunk_results.append({
-                "index": chunk_index,
-                "label": self.id2label[chunk_label_id],
-                "confidence": round(float(probabilities[chunk_label_id]), 6),
-            })
+        with self.inference_lock:
+            for chunk_index in range(chunk_count):
+                inputs = {
+                    "input_ids": encoded["input_ids"][chunk_index:chunk_index + 1].astype(np.int64),
+                    "attention_mask": encoded["attention_mask"][chunk_index:chunk_index + 1].astype(np.int64),
+                }
+                if "token_type_ids" in session_input_names:
+                    inputs["token_type_ids"] = encoded["token_type_ids"][chunk_index:chunk_index + 1].astype(np.int64)
+                logits = self.session.run(["logits"], inputs)[0][0]
+                shifted = logits - np.max(logits)
+                probabilities = np.exp(shifted) / np.exp(shifted).sum()
+                chunk_probabilities.append(probabilities)
+                chunk_label_id = int(np.argmax(probabilities))
+                chunk_results.append({
+                    "index": chunk_index,
+                    "label": self.id2label[chunk_label_id],
+                    "confidence": round(float(probabilities[chunk_label_id]), 6),
+                })
 
         stacked = np.stack(chunk_probabilities)
         max_scores = np.max(stacked, axis=0)
@@ -223,19 +226,28 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
             return
         try:
+            # Inline twin of model_runtime/request_validation (cloud image may
+            # not ship that module). Keep limits identical.
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > 16_384:
                 raise ValueError("invalid_content_length")
-            body = json.loads(self.rfile.read(length))
+            raw = self.rfile.read(length)
+            body = json.loads(raw.decode("utf-8"))
             text = body.get("text")
             if not isinstance(text, str) or not text.strip():
                 raise ValueError("text_required")
             if len(text) > 2000:
                 raise ValueError("text_too_long")
             self._json(HTTPStatus.OK, self.runtime.classify(text.strip()))
-        except (ValueError, json.JSONDecodeError) as error:
-            self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+        except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as error:
+            code = str(error) if isinstance(error, ValueError) and str(error) in {
+                "invalid_content_length", "text_required", "text_too_long",
+            } else ("invalid_utf8" if isinstance(error, UnicodeDecodeError) else (
+                "invalid_json" if isinstance(error, json.JSONDecodeError) else type(error).__name__
+            ))
+            self._json(HTTPStatus.BAD_REQUEST, {"error": code})
         except Exception as error:
+            print(f"Inference error: {type(error).__name__}: {error}")
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": type(error).__name__})
 
     def log_message(self, fmt, *args):
