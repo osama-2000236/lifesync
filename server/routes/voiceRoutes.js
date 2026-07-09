@@ -50,14 +50,20 @@ const ttsModel = () => process.env.VOICE_TTS_MODEL || 'tts-1';
 // provider needs distinct voice ids per language.
 // ponytail: single env voice; add a lang→voice map only if a provider needs it.
 const ttsVoice = () => process.env.VOICE_TTS_VOICE || 'alloy';
+// Output container. 'wav' is the safe cross-provider default (OpenAI + Groq
+// both accept it) and is REQUIRED by Groq's Orpheus models, which reject the
+// OpenAI-default mp3. Override per provider if you want smaller mp3 payloads.
+const ttsFormat = () => process.env.VOICE_TTS_FORMAT || 'wav';
 
 // Forward text to an OpenAI-compatible /audio/speech endpoint and return the
 // raw audio bytes + content-type. Separate from the route so it can be
 // unit-tested with a mocked axios (same pattern as transcribeAudio).
-const synthesizeSpeech = async (text, language) => {
+// No `language` field: it isn't part of the /audio/speech contract (Groq 400s
+// on it) — the model speaks the input text's language natively.
+const synthesizeSpeech = async (text) => {
   const { data, headers } = await axios.post(
     process.env.VOICE_TTS_ENDPOINT,
-    { model: ttsModel(), input: String(text), voice: ttsVoice(), ...(language ? { language } : {}) },
+    { model: ttsModel(), input: String(text), voice: ttsVoice(), response_format: ttsFormat() },
     {
       headers: { Authorization: `Bearer ${process.env.VOICE_TTS_API_KEY}` },
       responseType: 'arraybuffer',
@@ -66,7 +72,7 @@ const synthesizeSpeech = async (text, language) => {
   );
   return {
     buffer: Buffer.from(data),
-    contentType: headers?.['content-type'] || 'audio/mpeg',
+    contentType: headers?.['content-type'] || 'audio/wav',
   };
 };
 
@@ -137,7 +143,7 @@ router.post('/speak', authenticate, async (req, res) => {
   // is ~4096 chars; the client already chunks, this is defense in depth).
   if (text.length > 4096) return error(res, 'Text too long for synthesis.', 413, 'VOICE_TTS_TOO_LONG');
   try {
-    const { buffer, contentType } = await synthesizeSpeech(text, req.body?.language);
+    const { buffer, contentType } = await synthesizeSpeech(text);
     res.set('Content-Type', contentType);
     res.set('Cache-Control', 'no-store');
     return res.send(buffer);

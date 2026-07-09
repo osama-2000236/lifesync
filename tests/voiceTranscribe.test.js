@@ -134,12 +134,14 @@ describe('POST /speak (cloud TTS fallback)', () => {
     expect(res.body).toEqual(Buffer.from([1, 2, 3, 4]));
     expect(axios.post).toHaveBeenCalledWith(
       process.env.VOICE_TTS_ENDPOINT,
-      expect.objectContaining({ input: 'مرحبا كيف حالك', model: 'tts-1', voice: 'alloy' }),
+      expect.objectContaining({ input: 'مرحبا كيف حالك', model: 'tts-1', voice: 'alloy', response_format: 'wav' }),
       expect.objectContaining({
         responseType: 'arraybuffer',
         headers: expect.objectContaining({ Authorization: 'Bearer test-tts-key' }),
       }),
     );
+    // `language` must NOT be forwarded — Groq's /audio/speech 400s on it.
+    expect(axios.post.mock.calls[0][1]).not.toHaveProperty('language');
   });
 
   test('502 when upstream synthesis fails', async () => {
