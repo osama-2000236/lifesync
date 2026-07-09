@@ -249,3 +249,29 @@ describe('cloud voice pure contracts', () => {
     expect(voiceRoutes.ttsFormat()).toBe('wav');
   });
 });
+
+// Voice→chat language contract: Arabic STT must not be treated as English
+// just because Whisper omitted language=ar in the past (root-cause harness).
+describe('voice language harness (STT → turnLang)', () => {
+  const { _detectLang: detectLang } = require('../server/services/ai/nlpService');
+  const { _buildMessages, _buildLanguageDirective } = require('../server/services/ai/conversationService');
+
+  test('Arabic transcript locks AR reply; English transcript locks EN', () => {
+    expect(detectLang('نمت قليل الليلة')).toBe('ar');
+    expect(detectLang('I slept poorly')).toBe('en');
+    expect(_buildLanguageDirective('ar')).toMatch(/Do NOT reply in English/);
+    expect(_buildLanguageDirective('en')).toMatch(/Do NOT reply in Arabic/);
+  });
+
+  test('user message for AR generation carries an Arabic-only prefix', () => {
+    const msgs = _buildMessages([], 'صرفت ٥٠ على عشاء', 'ar');
+    expect(msgs[0].content.startsWith('أجب بالعربية فقط')).toBe(true);
+  });
+
+  test('cross-domain curiosity is in the system prompt', () => {
+    const { _buildSystemPrompt } = require('../server/services/ai/conversationService');
+    const sys = _buildSystemPrompt({}, [], 'ar', 'test-model');
+    expect(sys).toMatch(/CROSS-DOMAIN CURIOSITY/);
+    expect(sys).toMatch(/curious question/i);
+  });
+});

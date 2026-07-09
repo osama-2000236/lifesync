@@ -299,13 +299,20 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
       setPhase('thinking');
       try {
         const blob = new Blob(chunks, { type: 'audio/webm' });
-        // No language forced → Whisper auto-detects, so a bilingual user is
-        // transcribed correctly whichever language they spoke.
-        const { data } = await voiceAPI.transcribe(blob);
+        // Arabic session → force language=ar so Whisper TRANSCRIBES (not
+        // translates to English). English session → omit language for
+        // auto-detect so a mid-session switch into Arabic still works.
+        const sttHint = sessionLangRef.current === 'ar' ? 'ar' : undefined;
+        const { data } = await voiceAPI.transcribe(blob, sttHint);
         const text = String(data?.data?.text || '').trim();
         if (!activeRef.current) return;
         if (text) {
-          const lang = detectLang(text, sessionLangRef.current);
+          const detected = detectLang(text, sessionLangRef.current);
+          // If we forced ar STT, keep ar unless the transcript is clearly Latin prose
+          // (user switched to English mid-session).
+          const lang = sttHint === 'ar'
+            ? (detected === 'en' && /[A-Za-z]{4,}/.test(text) && !/[\u0600-\u06FF]/.test(text) ? 'en' : 'ar')
+            : detected;
           sessionLangRef.current = lang;
           setTranscript(text);
           onUtteranceRef.current?.(text, lang);
@@ -596,13 +603,17 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     if (activeRef.current) return; // guard against double-start (StrictMode / re-open)
     setError(null);
     srLangIdxRef.current = 0;
-    // No native Web Speech → cloud record→Whisper only if configured.
+    // Arabic on desktop Web Speech is usually broken — go straight to cloud
+    // Whisper with language=ar so we don't spend a failed native cycle first.
+    // English keeps native when available (fast + free).
     if (!SR) {
       if (cloudSttRef.current && canRecord()) engineRef.current = 'cloud';
       else {
         setError('stt-unavailable');
         return;
       }
+    } else if (sessionLangRef.current === 'ar' && cloudSttRef.current && canRecord()) {
+      engineRef.current = 'cloud';
     } else {
       engineRef.current = 'native';
     }

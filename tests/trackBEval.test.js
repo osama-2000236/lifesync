@@ -65,12 +65,25 @@ describe('Track B floors — system prompt contracts', () => {
     expect(sys).toContain('Sara');
     expect(sys).toContain('likes morning walks');
     expect(sys).toContain('google/gemma-4-31b-it:free');
-    expect(sys).toMatch(/CROSS-DOMAIN/);
+    expect(sys).toMatch(/CROSS-DOMAIN CURIOSITY/i);
     expect(sys).toMatch(/never invent numbers/i);
     expect(sys).toMatch(/already logged.*12/i);
     expect(sys).toMatch(/LANGUAGE LOCK|ENTIRELY in English/i);
     expect(sys).toMatch(/MEMORY TRANSFER/i);
     expect(sys).toMatch(/dashboard/i);
+    expect(sys).toMatch(/ONE short curious question/i);
+  });
+
+  test('buildMessages prefixes a language nudge on the last user turn only', () => {
+    const msgs = _buildMessages(
+      [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'hi' }],
+      'نمت ٤ ساعات',
+      'ar',
+    );
+    expect(msgs).toHaveLength(3);
+    expect(msgs[0].content).toBe('hello'); // history untouched
+    expect(msgs[2].content).toMatch(/^أجب بالعربية فقط/);
+    expect(msgs[2].content).toContain('نمت ٤ ساعات');
   });
 
   test('ambiguity line is present only when the logger was unclear', () => {
