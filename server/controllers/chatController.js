@@ -263,9 +263,11 @@ const sseWrite = (res, event, data) => {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 };
 
+// Model-neutral: this fires when the pipeline throws, whatever model the user
+// picked — naming "Gemma" here lied whenever the picker said GPT/Llama.
 const resolveAIErrorMessage = (aiError) =>
   aiError?.userMessage
-  || 'Sorry, Local Gemma is temporarily unavailable. Your message was saved and you can try again shortly.';
+  || 'Sorry, the assistant is temporarily unavailable. Your message was saved and you can try again shortly.';
 
 /** Generative pick failed: log Track A entities if any, persist error row, return payload. */
 const handleGenerativeFailure = async ({

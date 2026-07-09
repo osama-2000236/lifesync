@@ -61,52 +61,10 @@ const AI_SERVICE_ERROR_PATTERNS = [
   /all retry attempts exhausted/i,
 ];
 
-const AI_TIMEOUT_ERROR_PATTERNS = [
-  /timeout/i,
-  /timed out/i,
-  /aborted/i,
-];
-
 const isAIServiceFailure = (error) => {
   const message = error?.message || '';
   return AI_SERVICE_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 };
-
-const isAITimeoutFailure = (error) => {
-  const message = error?.message || '';
-  return AI_TIMEOUT_ERROR_PATTERNS.some((pattern) => pattern.test(message));
-};
-
-const createAIUnavailableError = (processingTime, cause) => {
-  const error = new Error('Local Gemma is taking longer than usual or is unavailable right now.');
-  error.code = 'AI_UNAVAILABLE';
-  error.statusCode = 503;
-  error.retryable = true;
-  error.processing_time_ms = processingTime;
-  error.userMessage = 'Local Gemma is taking longer than usual or is unavailable right now. Please try again in a moment.';
-  error.cause = cause;
-  return error;
-};
-
-const createModelDelayClarification = (message, processingTime, cause) => ({
-  success: false,
-  intent: 'unclear',
-  domain: 'general',
-  entities: [],
-  response: "I couldn't tell what to save yet. Try adding a number and what it was for.",
-  is_cross_domain: false,
-  needs_clarification: true,
-  clarification_question: 'Try one of these formats:',
-  clarification_options: [
-    'Spent $20 on food',
-    'Walked 5000 steps',
-    'Slept 7 hours',
-  ],
-  confidence: 0.2,
-  processing_time_ms: processingTime,
-  original_message: message,
-  error: cause?.message || 'Local Gemma timed out',
-});
 
 const createInsightsUnavailableError = (processingTime, cause) => {
   const error = new Error('Local Gemma could not generate insight cards right now.');
