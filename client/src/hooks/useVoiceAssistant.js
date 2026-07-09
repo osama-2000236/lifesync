@@ -27,8 +27,46 @@ const VOICE_START_LEVEL = 0.06;
 const VOICE_KEEP_LEVEL = 0.035;
 const MAX_TURN_MS = 30_000; // hard cap per recorded turn
 
+/**
+ * Map getUserMedia / MediaDevices failures to stable UI codes.
+ * Exported for unit tests — browsers disagree on DOMException names.
+ */
+export const classifyMicError = (e, { isSecureContext } = {}) => {
+  const secure = typeof isSecureContext === 'boolean'
+    ? isSecureContext
+    : (typeof window !== 'undefined' ? window.isSecureContext : true);
+  if (secure === false) return 'mic-insecure';
+
+  const name = String(e?.name || '');
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') return 'mic-denied';
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') return 'mic-none';
+  if (name === 'NotReadableError' || name === 'TrackStartError') return 'mic-busy';
+  if (name === 'SecurityError') return 'mic-insecure';
+  if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') return 'mic-failed';
+
+  const msg = String(e?.message || '').toLowerCase();
+  if (msg.includes('permission') || msg.includes('not allowed') || msg.includes('denied')) {
+    return 'mic-denied';
+  }
+  if (msg.includes('not found') || msg.includes('no device') || msg.includes('requested device')) {
+    return 'mic-none';
+  }
+  if (msg.includes('could not start') || msg.includes('in use') || msg.includes('busy')) {
+    return 'mic-busy';
+  }
+  if (msg.includes('secure') || msg.includes('https') || msg.includes('only secure')) {
+    return 'mic-insecure';
+  }
+  return 'mic-failed';
+};
+
 export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}) {
-  const supported = Boolean(SR) && typeof window !== 'undefined' && 'speechSynthesis' in window;
+  // Native Web Speech OR cloud record→Whisper is enough to converse.
+  // speechSynthesis is preferred for replies; cloud TTS covers Arabic gaps.
+  const supported = Boolean(
+    typeof window !== 'undefined'
+    && (SR || (navigator.mediaDevices?.getUserMedia && canRecord())),
+  );
 
   const [active, setActive] = useState(false);
   const [state, setState] = useState('idle'); // idle | listening | thinking | speaking
@@ -107,12 +145,39 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
 
   // ─── Mic level metering (drives the orb) ───
   const startMeter = useCallback(async () => {
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      setError('mic-insecure');
+      return false;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError(window.isSecureContext === false ? 'mic-insecure' : 'mic-failed');
+      return false;
+    }
+
+    let stream;
     try {
       // Echo cancellation keeps the spoken reply from re-triggering the mic.
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
-      streamRef.current = stream;
+      // Fall back to plain { audio: true } when advanced constraints fail
+      // (some Windows drivers reject over-constrained requests as generic errors).
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+      } catch (constrainedErr) {
+        if (constrainedErr?.name === 'OverconstrainedError'
+          || constrainedErr?.name === 'ConstraintNotSatisfiedError') {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } else {
+          throw constrainedErr;
+        }
+      }
+    } catch (e) {
+      setError(classifyMicError(e));
+      return false;
+    }
+
+    streamRef.current = stream;
+    try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       const ctx = new Ctx();
       audioCtxRef.current = ctx;
@@ -148,13 +213,9 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
       };
       tick();
       return true;
-    } catch (e) {
-      setError(
-        e?.name === 'NotAllowedError' ? 'mic-denied'
-          : e?.name === 'NotFoundError' ? 'mic-none'
-            : 'mic-failed'
-      );
-      return false;
+    } catch {
+      // Mic stream is open; metering failed — still usable for cloud STT.
+      return true;
     }
   }, []);
 
@@ -465,6 +526,8 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     if (!supported) { setError('unsupported'); return; }
     if (activeRef.current) return; // guard against double-start (StrictMode / re-open)
     setError(null);
+    // No native Web Speech → go straight to cloud record→Whisper (don't fail as "mic").
+    if (!SR && canRecord()) engineRef.current = 'cloud';
     activeRef.current = true;
     setActive(true);
     const micOk = await startMeter();

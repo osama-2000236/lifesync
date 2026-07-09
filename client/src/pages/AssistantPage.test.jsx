@@ -214,7 +214,7 @@ describe('AssistantPage — converse + dictate', () => {
     voiceStub.error = 'mic-denied';
     await renderPage();
     expect(screen.getByText('assistant.micDeniedTitle')).toBeInTheDocument();
-    expect(screen.getByTestId('mic-denied-help')).toBeInTheDocument();
+    expect(screen.getByTestId('mic-error-help')).toHaveTextContent('assistant.micDeniedBody');
     // Idle + error → the toggle becomes "try again" and calls start.
     fireEvent.click(screen.getByTestId('converse-toggle'));
     expect(voiceStub.start).toHaveBeenCalled();
@@ -225,13 +225,33 @@ describe('AssistantPage — converse + dictate', () => {
     voiceStub.error = 'mic-none';
     await renderPage();
     expect(screen.getByText('assistant.micNone')).toBeInTheDocument();
-    expect(screen.queryByTestId('mic-denied-help')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mic-error-help')).toHaveTextContent('assistant.micNoneBody');
+  });
+
+  it('labels busy and insecure mic failures distinctly (not a bare "تعذّر")', async () => {
+    voiceStub.error = 'mic-busy';
+    const { unmount } = await renderPage();
+    expect(screen.getByText('assistant.micBusy')).toBeInTheDocument();
+    expect(screen.getByTestId('mic-error-help')).toHaveTextContent('assistant.micBusyBody');
+    unmount();
+    voiceStub = { ...voiceStub, error: 'mic-insecure' };
+    await renderPage();
+    expect(screen.getByText('assistant.micInsecure')).toBeInTheDocument();
+    expect(screen.getByTestId('mic-error-help')).toHaveTextContent('assistant.micInsecureBody');
   });
 
   it('falls back to the generic mic-error label for other failures', async () => {
     voiceStub.error = 'mic-failed';
     await renderPage();
     expect(screen.getByText('assistant.micError')).toBeInTheDocument();
+    expect(screen.getByTestId('mic-error-help')).toHaveTextContent('assistant.micErrorBody');
+  });
+
+  it('maps unsupported browser to the right copy, not a mic failure', async () => {
+    voiceStub.error = 'unsupported';
+    await renderPage();
+    expect(screen.getByText('assistant.micUnsupported')).toBeInTheDocument();
+    expect(screen.getByTestId('mic-error-help')).toHaveTextContent('assistant.micUnsupportedBody');
   });
 
   it('maps every voice phase to a label', async () => {

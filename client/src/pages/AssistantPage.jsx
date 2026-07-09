@@ -261,9 +261,22 @@ export default function AssistantPage() {
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
   const lastUser = [...messages].reverse().find((m) => m.role === 'user');
   const lastAttr = attributionLabel(lastAssistant, models);
-  const micErrorTitle = voice.error === 'mic-denied' ? t('assistant.micDeniedTitle')
-    : voice.error === 'mic-none' ? t('assistant.micNone')
-      : t('assistant.micError');
+  const micErrorTitle = ({
+    'mic-denied': t('assistant.micDeniedTitle'),
+    'mic-none': t('assistant.micNone'),
+    'mic-busy': t('assistant.micBusy'),
+    'mic-insecure': t('assistant.micInsecure'),
+    unsupported: t('assistant.micUnsupported'),
+    'mic-failed': t('assistant.micError'),
+  })[voice.error] || (voice.error ? t('assistant.micError') : '');
+  const micHelpKey = ({
+    'mic-denied': 'assistant.micDeniedBody',
+    'mic-busy': 'assistant.micBusyBody',
+    'mic-insecure': 'assistant.micInsecureBody',
+    'mic-none': 'assistant.micNoneBody',
+    'mic-failed': 'assistant.micErrorBody',
+    unsupported: 'assistant.micUnsupportedBody',
+  })[voice.error];
   const phaseLabel = voice.error ? micErrorTitle
     : ({ listening: t('va.listening'), thinking: t('va.thinking'), speaking: t('va.speaking'), idle: t('assistant.tapConverse') }[voice.state] || '');
 
@@ -356,9 +369,9 @@ export default function AssistantPage() {
                     </>
                   )}
                 </div>
-                {voice.error === 'mic-denied' && (
-                  <p className="max-w-sm text-center text-xs leading-5 text-white/50" data-testid="mic-denied-help">
-                    {t('assistant.micDeniedBody')}
+                {micHelpKey && (
+                  <p className="max-w-sm text-center text-xs leading-5 text-white/50" data-testid="mic-error-help">
+                    {t(micHelpKey)}
                   </p>
                 )}
                 {voice.ttsVoiceMissing && !voice.error && (
