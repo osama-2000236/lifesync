@@ -219,6 +219,9 @@ const buildBertContext = async (
             model: FinancialLog,
             as: 'financialLog',
             required: true,
+            // Both sides user-scoped: a tampered link row must never pull
+            // another user's finance log into this user's prompt context.
+            where: { user_id: userId },
             attributes: ['id', 'type', 'amount', 'currency', 'description', 'logged_at'],
           },
         ],
