@@ -17,6 +17,7 @@ vi.mock('../services/api', () => ({
   assistantAPI: { getSuggestion: vi.fn(), startInterview: vi.fn(), answer: vi.fn() },
   voiceAPI: { transcribe: vi.fn() },
   aiAPI: { getModels: vi.fn() },
+  authAPI: { updateProfile: vi.fn(() => Promise.resolve({ data: { data: {} } })) },
 }));
 
 import AssistantPage from './AssistantPage';

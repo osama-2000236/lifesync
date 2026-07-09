@@ -17,7 +17,7 @@ import { Sparkles, Mic, MessageSquareText, Square, RefreshCw, MessageCircle } fr
 import { useSettings } from '../contexts/SettingsContext';
 import { useVoiceAssistant } from '../hooks/useVoiceAssistant';
 import { stripMarkdownForSpeech, detectLang } from '../utils/speech';
-import { chatAPI, assistantAPI, aiAPI } from '../services/api';
+import { chatAPI, assistantAPI, aiAPI, authAPI } from '../services/api';
 import { MODEL_OPTIONS, DEFAULT_CHAT_MODEL_ID } from '../config/models';
 import {
   generativeModelsOnly,
@@ -78,6 +78,8 @@ export default function AssistantPage() {
     const next = resolveVoiceModelId(id);
     setModelId(next);
     saveChatModelId(next);
+    // Persist so chat + voice share preferred_model; memory/history stay server-side.
+    authAPI.updateProfile({ preferred_model: next }).catch(() => {});
     setSwitching(true);
     // Brief status so the user sees the switch took effect before the next turn.
     setTimeout(() => setSwitching(false), 1200);

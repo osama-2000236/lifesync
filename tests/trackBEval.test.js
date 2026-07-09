@@ -37,21 +37,23 @@ beforeEach(() => { generateChat.mockReset(); });
 describe('Track B floors — system prompt contracts', () => {
   test('EN directive forbids third languages and asserts English only', () => {
     const d = _buildLanguageDirective('en');
-    expect(d).toMatch(/Reply ONLY in English/i);
+    expect(d).toMatch(/ENTIRELY in English|Reply ONLY in English|LANGUAGE LOCK/i);
     expect(d).toMatch(/Chinese/);
+    expect(d).toMatch(/Do NOT reply in Arabic/i);
   });
 
-  test('AR directive asserts fluent MSA (not translationese)', () => {
+  test('AR directive asserts fluent MSA (not translationese) and real-time lock', () => {
     const d = _buildLanguageDirective('ar');
     expect(d).toMatch(/Modern Standard Arabic|فصحى/);
     expect(d).toMatch(/native phrasing/i);
+    expect(d).toMatch(/Do NOT reply in English/i);
   });
 
-  test('system prompt always includes persona, cross-domain, no-invent, model identity', () => {
+  test('system prompt always includes persona, cross-domain, no-invent, model identity, memory transfer', () => {
     const sys = _buildSystemPrompt(
       {
         profile: { name: 'Sara' },
-        memory: { summary: 'likes morning walks' },
+        memory: { summary: 'likes morning walks', count: 2 },
         health: { sleep: { average: 6.5, count: 3 } },
         finance: {},
       },
@@ -66,7 +68,9 @@ describe('Track B floors — system prompt contracts', () => {
     expect(sys).toMatch(/CROSS-DOMAIN/);
     expect(sys).toMatch(/never invent numbers/i);
     expect(sys).toMatch(/already logged.*12/i);
-    expect(sys).toMatch(/Reply ONLY in English/i);
+    expect(sys).toMatch(/LANGUAGE LOCK|ENTIRELY in English/i);
+    expect(sys).toMatch(/MEMORY TRANSFER/i);
+    expect(sys).toMatch(/dashboard/i);
   });
 
   test('ambiguity line is present only when the logger was unclear', () => {

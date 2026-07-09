@@ -406,6 +406,7 @@ const ALLOWED_MODELS = new Set([
   'openai_chat',
   'anthropic_opus',
   'anthropic_sonnet',
+  'openrouter_chat',
   'custom_local',
 ]);
 

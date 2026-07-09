@@ -107,9 +107,11 @@ const chatValidation = [
     .isIn(['standard', 'deep', 'max']),
 ];
 
-/** Per-request chat model → { provider, model } options for parseMessage. */
-const resolveChatOptions = (modelId) => {
-  const resolved = modelId ? resolveModel(modelId) : null;
+/** Per-request chat model → { provider, model } options for parseMessage.
+ *  Falls back to the user's preferred_model so memory + history stay on the
+ *  same thread when the client omits `model` after a switch. */
+const resolveChatOptions = (modelId, userPreferred = null) => {
+  const resolved = resolveModel(modelId || userPreferred || null);
   return resolved ? { provider: resolved.provider, model: resolved.model } : {};
 };
 
@@ -276,9 +278,13 @@ const processMessageStream = async (req, res) => {
   const { message, session_id } = req.body;
   const userId = req.user.id;
   const currentSessionId = session_id || randomUUID();
-  // lang = UI locale hint (tiebreaker for script-less input); the server also
-  // detects the actual language from the message text and that takes priority.
-  const aiOptions = { ...resolveChatOptions(req.body?.model), lang: req.body?.lang || null };
+  // lang = UI/client-detected hint (tiebreaker); server re-detects from text
+  // and wins when scripts disagree — real-time AR↔EN switch.
+  const aiOptions = {
+    ...resolveChatOptions(req.body?.model, req.user?.preferred_model),
+    lang: req.body?.lang || null,
+    sessionId: currentSessionId,
+  };
 
   // If the client disconnects mid-stream (voice barge-in, tab close), stop the
   // upstream model call instead of burning tokens on a reply nobody will see.
@@ -572,7 +578,11 @@ const processMessage = async (req, res, next) => {
     const { message, session_id } = req.body;
     const userId = req.user.id;
     const currentSessionId = session_id || randomUUID();
-    const aiOptions = { ...resolveChatOptions(req.body?.model), lang: req.body?.lang || null };
+    const aiOptions = {
+      ...resolveChatOptions(req.body?.model, req.user?.preferred_model),
+      lang: req.body?.lang || null,
+      sessionId: currentSessionId,
+    };
 
     // ─── Optimistic write: persist user message immediately ───
     const userChatLog = await ChatLog.create(await safeFields({

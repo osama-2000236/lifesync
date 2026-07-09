@@ -15,31 +15,26 @@ import {
   Sparkles, History, Volume2, VolumeX, Layers, HeartPulse, Wallet, Link2, AudioLines, Square, Copy, Check,
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
-import { chatAPI, aiAPI } from '../services/api';
+import { chatAPI, aiAPI, authAPI } from '../services/api';
 import { MODEL_OPTIONS, DEFAULT_CHAT_MODEL_ID } from '../config/models';
 import ChatComposer from '../components/chat/ChatComposer';
 import Markdown from '../components/chat/Markdown';
 import { stripMarkdownForSpeech, chunkForSpeech, pickVoice, detectLang, speechLangTag } from '../utils/speech';
+import { loadChatModelId, saveChatModelId } from '../utils/chatModel';
 import ModelPicker from '../components/chat/ModelPicker';
 import EntityReceipts from '../components/chat/EntityReceipts';
 import SessionsRail from '../components/chat/SessionsRail';
 
-const MODEL_STORAGE_KEY = 'lifesync.chat.model';
 const DEPTHS = ['standard', 'deep', 'max'];
 
 const newSessionId = () => `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-const loadStoredModel = () => {
-  try { return localStorage.getItem(MODEL_STORAGE_KEY) || DEFAULT_CHAT_MODEL_ID; }
-  catch { return DEFAULT_CHAT_MODEL_ID; }
-};
 
 export default function ChatPage() {
   const { t, locale, isRTL } = useSettings();
 
   // ─── Model + depth ───
   const [models, setModels] = useState(MODEL_OPTIONS);
-  const [modelId, setModelId] = useState(loadStoredModel);
+  const [modelId, setModelId] = useState(() => loadChatModelId());
   const [depth, setDepth] = useState('standard');
   const [speakReplies, setSpeakReplies] = useState(false);
 
@@ -62,7 +57,10 @@ export default function ChatPage() {
 
   const chooseModel = useCallback((id) => {
     setModelId(id);
-    try { localStorage.setItem(MODEL_STORAGE_KEY, id); } catch { /* private mode */ }
+    saveChatModelId(id);
+    // Persist preferred_model so the next request (and other devices) keep
+    // the same memory + conversation with the new engine.
+    authAPI.updateProfile({ preferred_model: id }).catch(() => { /* offline OK */ });
   }, []);
 
   // ─── Load the live server catalog (fallback: static options) ───
@@ -219,7 +217,8 @@ export default function ChatPage() {
         setSending(false);
         setStatusText(null);
       },
-    }, { model: currentModel, lang: locale, context_window: depth === 'standard' ? undefined : depth });
+    // lang = language of THIS message (real-time AR↔EN), not only the UI locale.
+    }, { model: currentModel, lang: detectLang(text, locale), context_window: depth === 'standard' ? undefined : depth });
   }, [sending, sessionId, modelId, locale, depth, t, speak, resetStreaming, refreshSessions]);
 
   // ─── Stop generation ───

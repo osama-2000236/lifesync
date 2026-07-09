@@ -25,12 +25,29 @@ const { generateAssistantReply, generateAssistantReplyStream } = require('./conv
 // language. ponytail: regex over the Arabic Unicode blocks beats a langdetect
 // dependency for an ar/en app — widen the ranges if a third language is added.
 const AR_SCRIPT = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
+/** Detect turn language for real-time EN↔AR switching.
+ *  Any Arabic script → ar (user is conversing in Arabic even with a brand name);
+ *  else Latin → en; else null (caller keeps prior session/UI language). */
 const detectLang = (text) => {
   const s = String(text || '');
   if (AR_SCRIPT.test(s)) return 'ar';
   if (/[A-Za-z]/.test(s)) return 'en';
   return null;
 };
+
+// Per-session last spoken/written language so digit-only follow-ups ("7", "40")
+// stay in the language of the previous turn instead of flipping to UI locale.
+const sessionTurnLang = new Map();
+const rememberSessionLang = (sessionId, lang) => {
+  if (!sessionId || !lang) return;
+  sessionTurnLang.set(String(sessionId), lang);
+  // Cap map size (long-lived process)
+  if (sessionTurnLang.size > 5000) {
+    const first = sessionTurnLang.keys().next().value;
+    sessionTurnLang.delete(first);
+  }
+};
+const lastSessionLang = (sessionId) => (sessionId ? sessionTurnLang.get(String(sessionId)) : null);
 
 const AI_SERVICE_ERROR_PATTERNS = [
   /timeout/i,
@@ -733,13 +750,18 @@ const currentRuntimeMetadata = () => {
 const parseMessage = async (message, pendingClarification = null, context = {}, options = {}, onDelta = null) => {
   const provider = options.provider || _getProvider('chat');
 
-  // Reply in the language the user ACTUALLY used this turn — detected from the
-  // message text, overriding the UI locale hint (Arabic-app user typing English
-  // gets English back, and vice versa). Script-less input keeps the prior/UI
-  // language. Drives BOTH the deterministic Track-A Arabic replies (via
-  // context.locale) and Track-B's language directive (via turnLang below).
-  const turnLang = detectLang(message) || options.lang || context.locale || null;
-  if (turnLang) context.locale = turnLang;
+  // Reply in the language the user ACTUALLY used this turn — real-time switch.
+  // Priority: script in this message → UI hint (options.lang) → last turn in
+  // this session → stored context.locale. Script-less "7" after Arabic stays ar.
+  const turnLang = detectLang(message)
+    || options.lang
+    || lastSessionLang(options.sessionId)
+    || context.locale
+    || null;
+  if (turnLang) {
+    context.locale = turnLang;
+    rememberSessionLang(options.sessionId, turnLang);
+  }
 
   // Track A — deterministic actions + a safe baseline reply.
   const actions = await parseMessageWithBert(message, pendingClarification, context);

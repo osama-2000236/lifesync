@@ -117,5 +117,37 @@ describe('parseMessage two-track routing', () => {
     const sentMessages = generateChat.mock.calls[0][0].messages;
     expect(sentMessages.some((m) => m.content.includes('budget is $1200'))).toBe(true);
     expect(sentMessages[sentMessages.length - 1].content).toMatch(/what did I say/);
+    // Memory + history transfer is explicit in the system prompt for model switches.
+    expect(generateChat.mock.calls[0][0].system).toMatch(/MEMORY TRANSFER/i);
+  });
+
+  test('real-time language switch: Arabic message locks Arabic even after English history', async () => {
+    generateChat.mockResolvedValue({ provider: 'openai', model: 'gpt', text: 'تم' });
+    const history = [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'Hi there!' },
+    ];
+    await parseMessage('نمت ٤ ساعات وصرفت ٨٠', null, ctx(history), {
+      provider: 'openai', model: 'gpt', lang: 'en', sessionId: 's-lang-1',
+    });
+    const sys = generateChat.mock.calls[0][0].system;
+    expect(sys).toMatch(/LANGUAGE LOCK/i);
+    expect(sys).toMatch(/Arabic|فصحى/i);
+    expect(sys).toMatch(/Do NOT reply in English/i);
+  });
+
+  test('real-time language switch: English after Arabic history locks English', async () => {
+    generateChat.mockResolvedValue({ provider: 'openai', model: 'gpt', text: 'Logged.' });
+    const history = [
+      { role: 'user', content: 'مرحبا' },
+      { role: 'assistant', content: 'أهلاً' },
+    ];
+    await parseMessage('I slept 7 hours', null, ctx(history), {
+      provider: 'openai', model: 'gpt', lang: 'ar', sessionId: 's-lang-2',
+    });
+    const sys = generateChat.mock.calls[0][0].system;
+    expect(sys).toMatch(/LANGUAGE LOCK/i);
+    expect(sys).toMatch(/English/i);
+    expect(sys).toMatch(/Do NOT reply in Arabic/i);
   });
 });

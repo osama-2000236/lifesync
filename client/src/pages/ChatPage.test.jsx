@@ -19,6 +19,7 @@ vi.mock('../services/api', () => ({
     getSessions: vi.fn(),
   },
   aiAPI: { getModels: vi.fn() },
+  authAPI: { updateProfile: vi.fn(() => Promise.resolve({ data: { data: {} } })) },
 }));
 
 import ChatPage from './ChatPage';

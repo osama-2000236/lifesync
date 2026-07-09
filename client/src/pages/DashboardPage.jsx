@@ -59,12 +59,18 @@ export default function DashboardPage() {
   const [spendingView, setSpendingView] = useState('doughnut');
   const dashboardFetchInFlightRef = useRef(false);
   const insightsFetchInFlightRef = useRef(false);
+  // If chat logs XD data while a fetch is already running, don't drop the refresh.
+  const dashboardRefreshQueuedRef = useRef(false);
+  const insightsRefreshQueuedRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
 
     const fetchDashboardData = async ({ isInitial = false } = {}) => {
-      if (dashboardFetchInFlightRef.current) return;
+      if (dashboardFetchInFlightRef.current) {
+        dashboardRefreshQueuedRef.current = true;
+        return;
+      }
       dashboardFetchInFlightRef.current = true;
 
       if (isInitial && isMounted) {
@@ -105,11 +111,19 @@ export default function DashboardPage() {
         if (isInitial && isMounted) {
           setDashboardLoading(false);
         }
+        // Chat logged while we were fetching → pull again so XD values show up.
+        if (dashboardRefreshQueuedRef.current && isMounted) {
+          dashboardRefreshQueuedRef.current = false;
+          fetchDashboardData();
+        }
       }
     };
 
     const fetchInsights = async ({ isInitial = false } = {}) => {
-      if (insightsFetchInFlightRef.current) return;
+      if (insightsFetchInFlightRef.current) {
+        insightsRefreshQueuedRef.current = true;
+        return;
+      }
       insightsFetchInFlightRef.current = true;
 
       if (isInitial && isMounted) {
@@ -132,6 +146,10 @@ export default function DashboardPage() {
         if (isMounted) {
           setInsightsLoading(false);
         }
+        if (insightsRefreshQueuedRef.current && isMounted) {
+          insightsRefreshQueuedRef.current = false;
+          fetchInsights();
+        }
       }
     };
 
@@ -148,6 +166,11 @@ export default function DashboardPage() {
       fetchInsights();
     };
     window.addEventListener('lifesync:data-changed', onDataChanged);
+    // Also refresh when the tab becomes visible again (user switched from chat).
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') onDataChanged();
+    };
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       isMounted = false;
@@ -155,9 +178,12 @@ export default function DashboardPage() {
       // mount→unmount→remount in dev) can fetch again instead of deadlocking.
       dashboardFetchInFlightRef.current = false;
       insightsFetchInFlightRef.current = false;
+      dashboardRefreshQueuedRef.current = false;
+      insightsRefreshQueuedRef.current = false;
       clearInterval(dashboardInterval);
       clearInterval(insightsInterval);
       window.removeEventListener('lifesync:data-changed', onDataChanged);
+      document.removeEventListener('visibilitychange', onVisible);
     };
     // Mount-only by design: intervals + the data-changed listener must not be
     // torn down and re-created on locale switches (`t` is only used for

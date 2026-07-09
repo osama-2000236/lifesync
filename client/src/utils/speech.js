@@ -12,6 +12,7 @@ const COMMA = /[,،;؛]/;
 // spoken voice matches the model's reply language. ponytail: script regex, not a
 // langdetect dependency — widen the ranges only if a third language is added.
 const AR_SCRIPT = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+/** Real-time AR↔EN: any Arabic script → ar; pure Latin → en; else fallback (UI). */
 export const detectLang = (text, fallback = 'en') => {
   const s = String(text || '');
   if (AR_SCRIPT.test(s)) return 'ar';
