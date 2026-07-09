@@ -332,6 +332,20 @@ describe('AssistantPage — converse + dictate', () => {
     expect(voiceStub.finishSpeechStream).toHaveBeenCalled();
   });
 
+  it('converse onError still refreshes the dashboard when facts were logged (chat parity)', async () => {
+    await renderPage();
+    act(() => voiceArgs.onUtterance('spent 20 on lunch'));
+    const cbs = chatAPI.sendMessageStream.mock.calls[0][2];
+    const dataChanged = vi.fn();
+    window.addEventListener('lifesync:data-changed', dataChanged);
+    act(() => cbs.onError({
+      message: 'model failed',
+      entities_logged: { health: [], finance: [{ type: 'expense', amount: 20 }], linked: [] },
+    }));
+    window.removeEventListener('lifesync:data-changed', dataChanged);
+    expect(dataChanged).toHaveBeenCalled();
+  });
+
   it('converses with the stored generative chat model', async () => {
     localStorage.setItem('lifesync.chat.model', 'openai_chat');
     await renderPage();

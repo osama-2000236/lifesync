@@ -180,6 +180,10 @@ export default function AssistantPage() {
           },
           isError: true,
         }]);
+        // Same as ChatPage: Track A may have logged facts even when the model
+        // failed to reply — the dashboard must still refresh.
+        const logged = err.entities_logged || {};
+        if (logged.health?.length || logged.finance?.length) notifyDataChanged();
         // Voice loop must leave "thinking" — speak the error and resume listen.
         if (speak) {
           voiceRef.current?.enqueueSpeech?.(msg);
