@@ -21,6 +21,7 @@ const {
   generateAssistantReplyStream,
   _buildSystemPrompt,
   _modelCandidates,
+  _isRetryableError,
 } = require('../server/services/ai/conversationService');
 
 const RATE_LIMIT = new Error('Provider returned error: 429 rate-limited upstream');
@@ -67,7 +68,7 @@ describe('generateAssistantReply same-slug only', () => {
     });
     expect(out).toEqual({
       text: 'hi from gemma', provider: 'openrouter', model: GEMMA,
-      attempts: 1, latency_ms: expect.any(Number),
+      path: 'nonstream', attempts: 1, latency_ms: expect.any(Number),
     });
     expect(generateChat).toHaveBeenCalledTimes(1);
     expect(generateChat.mock.calls[0][0].model).toBe(GEMMA);
@@ -135,6 +136,7 @@ describe('generateAssistantReplyStream free voice path', () => {
       text: 'nonstream free ok',
       provider: 'openrouter',
       model: GEMMA,
+      path: 'nonstream',
       attempts: 1,
       latency_ms: expect.any(Number),
     });
@@ -160,7 +162,48 @@ describe('generateAssistantReplyStream free voice path', () => {
 
     expect(out.text).toBe('streamed reply');
     expect(out.model).toBe(GEMMA);
+    expect(out.path).toBe('stream');
     expect(deltas.join('')).toBe('streamed reply');
+  });
+
+  test('pre-token stream stall retries the same slug instead of hard-stopping', async () => {
+    // Live failure shape: free pool accepts the stream then goes silent — the
+    // stall watchdog rejects with retryable:true but a message the old regex
+    // never matched, hard-stopping a turn the next pass would have saved.
+    const stall = new Error('openrouter stream stalled — no tokens for 12s');
+    stall.retryable = true;
+    generateChat
+      .mockRejectedValueOnce(RATE_LIMIT) // pass 1 non-stream busy
+      .mockResolvedValueOnce({ provider: 'openrouter', model: GEMMA, text: 'recovered' }); // pass 2
+    generateChatStream.mockRejectedValueOnce(stall); // pass 1 stream stalls pre-token
+
+    const out = await generateAssistantReplyStream({
+      provider: 'openrouter', model: GEMMA, message: 'hi',
+    });
+    expect(out.text).toBe('recovered');
+    expect(out.path).toBe('nonstream');
+    expect(out.attempts).toBe(3);
+    expect(generateChat.mock.calls.every((c) => c[0].model === GEMMA)).toBe(true);
+  });
+
+  test('provider-classified retryable flags are honored; 529 counts as busy', () => {
+    const stall = new Error('totally unmatchable message');
+    stall.retryable = true;
+    expect(_isRetryableError(stall)).toBe(true);
+    expect(_isRetryableError(new Error('anthropic request failed (529)'))).toBe(true);
+    expect(_isRetryableError(new Error('invalid api key'))).toBe(false);
+  });
+
+  test('wall-clock retry budget bounds the passes (FREE_RETRY_BUDGET_MS=0 → single pass)', async () => {
+    process.env.FREE_RETRY_BUDGET_MS = '0';
+    try {
+      generateChat.mockRejectedValue(RATE_LIMIT);
+      const out = await generateAssistantReply({ provider: 'openrouter', model: GEMMA, message: 'hi' });
+      expect(out.error).toBeTruthy();
+      expect(generateChat).toHaveBeenCalledTimes(1); // second pass skipped by budget
+    } finally {
+      delete process.env.FREE_RETRY_BUDGET_MS;
+    }
   });
 
   test('does NOT hop after tokens already reached the client', async () => {

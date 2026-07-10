@@ -24,8 +24,13 @@ const { weekMonthSkip } = require('./longHorizon');
 // completion body. We may RETRY the same user-picked model; we never swap to a
 // different model (that would lie about the picker label).
 const isRetryableError = (err) => {
+  // providerClient classifies its own errors (toProviderError, stall watchdog)
+  // and marks them retryable — honor that flag first. Without this, a pre-token
+  // stream stall ("stream stalled — no tokens for 12s", retryable:true) failed
+  // the message regex and hard-stopped a turn a same-slug retry would save.
+  if (err?.retryable === true) return true;
   const msg = String(err?.message || err || '').toLowerCase();
-  return /\b(429|500|502|503|408|409|522|524)\b/.test(msg)
+  return /\b(429|500|502|503|408|409|522|524|529)\b/.test(msg)
     || msg.includes('rate limit') || msg.includes('rate-limit')
     || msg.includes('timeout') || msg.includes('timed out')
     || msg.includes('econnreset') || msg.includes('econnaborted') || msg.includes('socket hang up')
@@ -48,6 +53,13 @@ const freePoolPasses = () => Math.max(1, parseInt(process.env.FREE_POOL_PASSES, 
 const freePoolRetryMs = () => {
   const n = parseInt(process.env.FREE_POOL_RETRY_MS, 10);
   return Number.isFinite(n) ? Math.max(0, n) : 600;
+};
+// Wall-clock cap across ALL retry passes for one turn — voice cannot sit
+// "thinking" for minutes while free attempts serially time out. When the
+// budget is spent, remaining passes are skipped and the turn fails honestly.
+const freeRetryBudgetMs = () => {
+  const n = parseInt(process.env.FREE_RETRY_BUDGET_MS, 10);
+  return Number.isFinite(n) ? Math.max(0, n) : 45_000;
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -331,14 +343,16 @@ const generateAssistantReply = async ({ provider, model, context = {}, loggedEnt
         });
         const text = stripReasoning(result?.text).trim();
         // Report the slug we requested (picker honesty), not a provider alias.
-        if (text) return { text, provider: result.provider, model: candidate, ...diag() };
+        if (text) return { text, provider: result.provider, model: candidate, path: 'nonstream', ...diag() };
         lastError = new Error(`empty response from ${candidate}`);
       } catch (error) {
         lastError = error;
         if (!isRetryableError(error)) return { error: lastError.message, ...diag() };
       }
     }
-    // Whole pass failed on transient errors — retry same slug after a short wait.
+    // Whole pass failed on transient errors — retry same slug after a short
+    // wait, but never past the wall-clock budget (voice cannot hang for minutes).
+    if (Date.now() - startedAt >= freeRetryBudgetMs()) break;
     if (pass < passes - 1) await sleep(freePoolRetryMs());
   }
   return { error: lastError?.message || 'generation failed', ...diag() };
@@ -457,7 +471,7 @@ const generateAssistantReplyStream = async ({
           const recovered = await tryNonStreamFallback({
             provider, candidate, system, messages, onDelta, signal,
           });
-          if (recovered) return { ...recovered, ...diag() };
+          if (recovered) return { ...recovered, path: 'nonstream', ...diag() };
           lastError = new Error(`empty non-stream response from ${candidate}`);
         } catch (nsErr) {
           lastError = nsErr;
@@ -484,7 +498,7 @@ const generateAssistantReplyStream = async ({
           onDelta: filter,
         });
         const finalText = text.trim() || stripReasoning(result?.text).trim();
-        if (finalText) return { text: finalText, provider: result.provider, model: candidate, ...diag() };
+        if (finalText) return { text: finalText, provider: result.provider, model: candidate, path: 'stream', ...diag() };
         lastError = new Error(`empty response from ${candidate}`);
       } catch (error) {
         lastError = error;
@@ -493,6 +507,8 @@ const generateAssistantReplyStream = async ({
       }
     }
     if (hardStop || signal?.aborted) break;
+    // Same wall-clock budget as the non-stream path — bounded, then honest.
+    if (Date.now() - startedAt >= freeRetryBudgetMs()) break;
     if (pass < passes - 1) await sleep(freePoolRetryMs());
   }
   return { error: lastError?.message || 'generation failed', ...diag() };

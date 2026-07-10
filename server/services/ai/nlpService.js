@@ -801,6 +801,9 @@ const parseMessage = async (message, pendingClarification = null, context = {}, 
         // retries show as attempts > 1). No keys, no provider bodies.
         latency_ms: reply.latency_ms ?? null,
         attempts: reply.attempts ?? null,
+        // Which transport answered: free slugs try non-stream first (429-flap
+        // workaround), so 'nonstream' here is expected, not a bug.
+        path: reply.path ?? null,
       },
     };
   }

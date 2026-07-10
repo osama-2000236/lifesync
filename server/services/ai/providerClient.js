@@ -479,7 +479,7 @@ const toProviderError = (err, providerLabel) => {
   out.code = code || null;
   out.retryable = Boolean(
     status === 429 || status === 408 || status === 500 || status === 502 || status === 503
-    || status === 522 || status === 524
+    || status === 522 || status === 524 || status === 529 // 529 = provider overloaded
     || code === 'ECONNABORTED' || code === 'ECONNRESET' || code === 'ETIMEDOUT'
     || /timeout|rate.?limit|overloaded/i.test(rawMsg)
   );
@@ -534,6 +534,9 @@ const generateChat = async ({ system, messages, temperature = 0.4, maxTokens = 6
       throw new Error(`${provider} API key is not configured.`);
     }
     const msgs = system ? [{ role: 'system', content: system }, ...turns] : turns;
+    // Free OpenRouter pools flap — a 60s hang per attempt × retry passes made
+    // voice unusable. Same short budget philosophy as the free stream timeout.
+    const freeCall = provider === 'openrouter' && String(settings.model || '').includes(':free');
     try {
       const response = await axios.post(settings.endpoint, {
         model: settings.model,
@@ -544,7 +547,9 @@ const generateChat = async ({ system, messages, temperature = 0.4, maxTokens = 6
       }, {
         timeout: provider === 'lmstudio'
           ? (parseInt(process.env.LM_STUDIO_REQUEST_TIMEOUT_MS, 10) || 180000)
-          : 60000,
+          : freeCall
+            ? (parseInt(process.env.CHAT_FREE_TIMEOUT_MS, 10) || 20_000)
+            : 60000,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}`, ...(settings.extraHeaders || {}) },
       });
       return { provider, model: settings.model, text: extractOpenAIText(response.data, provider) };
