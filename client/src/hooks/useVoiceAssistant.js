@@ -30,6 +30,17 @@ const VOICE_KEEP_LEVEL = 0.035;
 const MAX_TURN_MS = 30_000; // hard cap per recorded turn
 
 /**
+ * Decide what a cloud-STT transcribe failure does to the converse loop.
+ * 501 = provider unconfigured → hard stop. A single transient failure (502
+ * upstream flap, network blip) recycles the turn; repeated failures stop
+ * honestly instead of looping a dead mic. Exported for unit tests.
+ */
+export const sttFailurePlan = (status, consecutiveFails) => {
+  if (status === 501) return 'stt-unavailable';
+  return consecutiveFails < 2 ? 'retry' : 'stt-failed';
+};
+
+/**
  * Map getUserMedia / MediaDevices failures to stable UI codes.
  * Exported for unit tests — browsers disagree on DOMException names.
  */
@@ -268,6 +279,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
   // for the rest of the session so every turn doesn't re-fail first.
   const engineRef = useRef('native'); // 'native' | 'cloud'
   const cloudRecorderRef = useRef(null);
+  const sttFailsRef = useRef(0); // consecutive cloud-STT failures (reset on success)
   const vadTimerRef = useRef(null);
   const startCloudTurnRef = useRef(() => {});
   const startListeningRef = useRef(() => {});
@@ -306,6 +318,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
         // auto-detect so a mid-session switch into Arabic still works.
         const sttHint = sessionLangRef.current === 'ar' ? 'ar' : undefined;
         const { data } = await voiceAPI.transcribe(blob, sttHint);
+        sttFailsRef.current = 0;
         const text = String(data?.data?.text || '').trim();
         if (!activeRef.current) return;
         if (text) {
@@ -324,9 +337,16 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
           startCloudTurnRef.current();
         }
       } catch (err) {
-        // 501 = cloud STT not configured — not a microphone problem.
-        const status = err?.response?.status;
-        setError(status === 501 ? 'stt-unavailable' : 'stt-failed');
+        // 501 = cloud STT not configured — not a microphone problem. One
+        // transient flap (502 upstream, network) recycles the turn instead of
+        // killing the whole session; repeated failures stop honestly.
+        sttFailsRef.current += 1;
+        const plan = sttFailurePlan(err?.response?.status, sttFailsRef.current);
+        if (plan === 'retry' && activeRef.current) {
+          startCloudTurnRef.current();
+          return;
+        }
+        setError(plan);
         activeRef.current = false;
         setActive(false);
         setPhase('idle');
@@ -608,6 +628,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     if (activeRef.current) return; // guard against double-start (StrictMode / re-open)
     setError(null);
     srLangIdxRef.current = 0;
+    sttFailsRef.current = 0;
     // Arabic on desktop Web Speech is usually broken — go straight to cloud
     // Whisper with language=ar so we don't spend a failed native cycle first.
     // English keeps native when available (fast + free).

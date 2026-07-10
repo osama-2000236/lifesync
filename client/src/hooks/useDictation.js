@@ -9,6 +9,7 @@
 // `onText` so the caller can drop it into an editable composer for review.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { voiceAPI } from '../services/api';
+import { classifyMicError } from './useVoiceAssistant';
 
 // Browser-only hook (Vite client bundle) — window/navigator always exist.
 const NativeSR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -152,8 +153,9 @@ export function useDictation({ locale = 'en', onText } = {}) {
       setState('listening');
       recorder.start();
     } catch (e) {
-      const name = e?.name || '';
-      setError(name === 'NotAllowedError' || name === 'PermissionDeniedError' ? 'mic_denied' : 'mic_denied');
+      // Same classifier as the converse loop: busy/no-device/insecure are not
+      // "denied" — mic truth, one code table for both hooks.
+      setError(classifyMicError(e));
       setState('idle');
     }
   }, [finishCloud]);

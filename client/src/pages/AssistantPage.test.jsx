@@ -332,6 +332,17 @@ describe('AssistantPage — converse + dictate', () => {
     expect(voiceStub.finishSpeechStream).toHaveBeenCalled();
   });
 
+  it('stop button aborts the in-flight reply, not just mic/TTS', async () => {
+    const abort = vi.fn();
+    chatAPI.sendMessageStream.mockReturnValue(abort);
+    voiceStub = { ...voiceStub, state: 'listening' };
+    await renderPage();
+    act(() => voiceArgs.onUtterance('hi'));
+    fireEvent.click(screen.getByTestId('converse-toggle'));
+    expect(abort).toHaveBeenCalled();
+    expect(voiceStub.stop).toHaveBeenCalled();
+  });
+
   it('converse onError still refreshes the dashboard when facts were logged (chat parity)', async () => {
     await renderPage();
     act(() => voiceArgs.onUtterance('spent 20 on lunch'));

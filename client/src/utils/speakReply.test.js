@@ -41,4 +41,33 @@ describe('speakReply', () => {
     expect(voiceAPI.speak).toHaveBeenCalled();
     expect(voiceAPI.speak.mock.calls[0][1]).toMatch(/^ar/);
   });
+
+  it('a transient cloud failure falls back to browser but retries cloud next reply', async () => {
+    const err = new Error('flap');
+    err.response = { status: 502 };
+    voiceAPI.speak.mockRejectedValueOnce(err);
+    const first = await speakReply('مرحبا بك', { locale: 'en' });
+    expect(first.via).toBe('browser');
+
+    global.URL.createObjectURL = vi.fn(() => 'blob:test');
+    global.URL.revokeObjectURL = vi.fn();
+    window.Audio = function Audio() {
+      this.play = () => Promise.resolve();
+      this.pause = () => {};
+      queueMicrotask(() => this.onended?.());
+    };
+    const second = await speakReply('مرحبا مجددا', { locale: 'en' });
+    expect(second.via).toBe('cloud'); // not stuck on browser after one blip
+  });
+
+  it('501 (unconfigured) turns cloud off for the session', async () => {
+    const err = new Error('not configured');
+    err.response = { status: 501 };
+    voiceAPI.speak.mockRejectedValueOnce(err);
+    await speakReply('مرحبا بك', { locale: 'en' });
+    voiceAPI.speak.mockClear();
+    const r = await speakReply('مرحبا مجددا', { locale: 'en' });
+    expect(r.via).toBe('browser');
+    expect(voiceAPI.speak).not.toHaveBeenCalled();
+  });
 });

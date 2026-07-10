@@ -48,7 +48,11 @@ export default function DictationComposer({ locale, busy, onSubmit, t }) {
         <p className="px-2 text-xs text-coral-500" data-testid="dictation-error">
           {({
             unsupported: t('assistant.micUnsupported'),
-            mic_denied: t('assistant.micDeniedTitle'),
+            // classifyMicError codes — same table as the converse loop.
+            'mic-denied': t('assistant.micDeniedTitle'),
+            'mic-busy': t('assistant.micBusy'),
+            'mic-none': t('assistant.micNone'),
+            'mic-insecure': t('assistant.micInsecure'),
             'not-allowed': t('assistant.micDeniedTitle'),
             'stt-unavailable': t('assistant.sttUnavailable'),
             'language-not-supported': t('assistant.sttUnavailable'),

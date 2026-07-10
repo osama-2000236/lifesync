@@ -98,9 +98,12 @@ describe('DictationComposer', () => {
     dict.error = 'unsupported';
     const { rerender } = render(<DictationComposer locale="en" onSubmit={() => {}} t={t} />);
     expect(screen.getByTestId('dictation-error')).toHaveTextContent('assistant.micUnsupported');
-    dict = { ...dict, error: 'mic_denied' };
+    dict = { ...dict, error: 'mic-denied' };
     rerender(<DictationComposer locale="en" onSubmit={() => {}} t={t} />);
     expect(screen.getByTestId('dictation-error')).toHaveTextContent('assistant.micDeniedTitle');
+    dict = { ...dict, error: 'mic-busy' };
+    rerender(<DictationComposer locale="en" onSubmit={() => {}} t={t} />);
+    expect(screen.getByTestId('dictation-error')).toHaveTextContent('assistant.micBusy');
     dict = { ...dict, error: 'stt-unavailable' };
     rerender(<DictationComposer locale="en" onSubmit={() => {}} t={t} />);
     expect(screen.getByTestId('dictation-error')).toHaveTextContent('assistant.sttUnavailable');

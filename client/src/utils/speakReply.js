@@ -61,8 +61,11 @@ export const speakReply = async (text, { locale = 'en' } = {}) => {
       }
       cloudTtsKnown = true;
       return { via: 'cloud', lang };
-    } catch {
-      cloudTtsKnown = false;
+    } catch (err) {
+      // Parity with useVoiceAssistant: only 501 (provider unconfigured) turns
+      // cloud TTS off for the session. A transient 5xx/network blip must not
+      // leave Arabic chat silent until reload — retry cloud on the next reply.
+      if (err?.response?.status === 501) cloudTtsKnown = false;
     }
   }
 

@@ -274,12 +274,22 @@ describe('useDictation — cloud fallback path', () => {
     await waitFor(() => expect(result.current.error).toBe('transcribe_failed'));
   });
 
-  it('sets mic_denied when getUserMedia rejects', async () => {
+  it('classifies getUserMedia rejections with the shared mic codes', async () => {
     setMediaDevices({ getUserMedia: vi.fn().mockRejectedValue(new Error('denied')) });
     const { useDictation } = await loadHook();
     const { result } = renderHook(() => useDictation({ onText: vi.fn() }));
     await act(async () => { result.current.start(); });
-    await waitFor(() => expect(result.current.error).toBe('mic_denied'));
+    await waitFor(() => expect(result.current.error).toBe('mic-denied'));
+  });
+
+  it('busy mic is mic-busy, not a fake permission denial', async () => {
+    const busy = new Error('in use');
+    busy.name = 'NotReadableError';
+    setMediaDevices({ getUserMedia: vi.fn().mockRejectedValue(busy) });
+    const { useDictation } = await loadHook();
+    const { result } = renderHook(() => useDictation({ onText: vi.fn() }));
+    await act(async () => { result.current.start(); });
+    await waitFor(() => expect(result.current.error).toBe('mic-busy'));
   });
 
   it('swallows errors when releasing the media stream', async () => {

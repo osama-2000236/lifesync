@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyMicError } from './useVoiceAssistant';
+import { classifyMicError, sttFailurePlan } from './useVoiceAssistant';
 
 describe('classifyMicError', () => {
   it('maps permission denials', () => {
@@ -28,5 +28,22 @@ describe('classifyMicError', () => {
   it('falls back to mic-failed for unknown errors', () => {
     expect(classifyMicError({ name: 'TypeError', message: 'boom' })).toBe('mic-failed');
     expect(classifyMicError(null)).toBe('mic-failed');
+  });
+});
+
+describe('sttFailurePlan', () => {
+  it('501 (unconfigured) stops immediately — never retries', () => {
+    expect(sttFailurePlan(501, 1)).toBe('stt-unavailable');
+    expect(sttFailurePlan(501, 5)).toBe('stt-unavailable');
+  });
+
+  it('one transient failure recycles the turn instead of killing the session', () => {
+    expect(sttFailurePlan(502, 1)).toBe('retry');
+    expect(sttFailurePlan(undefined, 1)).toBe('retry'); // network blip, no status
+  });
+
+  it('repeated failures stop honestly with stt-failed', () => {
+    expect(sttFailurePlan(502, 2)).toBe('stt-failed');
+    expect(sttFailurePlan(undefined, 3)).toBe('stt-failed');
   });
 });

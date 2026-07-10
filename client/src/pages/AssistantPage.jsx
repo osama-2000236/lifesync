@@ -204,7 +204,17 @@ export default function AssistantPage() {
   useEffect(() => { voiceRef.current = voice; }, [voice]);
 
   const talking = voice.state !== 'idle';
-  const toggleConverse = () => { if (talking) voice.stop(); else voice.start(); };
+  const toggleConverse = () => {
+    if (talking) {
+      // Stop means stop everything: kill the in-flight reply too (like
+      // ChatPage's stop button), not just the mic and TTS — otherwise the
+      // server keeps generating a reply nobody will hear.
+      if (abortRef.current) { abortRef.current(); abortRef.current = null; }
+      voice.stop();
+    } else {
+      voice.start();
+    }
+  };
 
   /** New voice turn = new session_id + empty thread → model picker unlocks. */
   const startFreshConversation = useCallback(() => {
