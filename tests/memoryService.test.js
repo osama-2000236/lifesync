@@ -87,6 +87,27 @@ describe('memoryService.extractMemoryCandidates', () => {
   });
 });
 
+describe('memoryService.recordMemories (DB write path)', () => {
+  test('restated fact updates in place — no duplicate row, count stays honest', async () => {
+    jest.resetModules();
+    const update = jest.fn(async () => {});
+    jest.doMock('../server/models/UserMemory', () => ({
+      describe: jest.fn(async () => ({})),
+      findOne: jest.fn(async () => ({ confidence: 0.9, salience: 5, times_seen: 2, update })),
+      count: jest.fn(async () => 1),
+      create: jest.fn(),
+    }));
+    const svc = require('../server/services/ai/memoryService');
+    svc._resetTableProbe();
+    const saved = await svc.recordMemories(7, [{ mem_key: 'name', category: 'profile', value: 'Osama', confidence: 0.9, salience: 5 }]);
+    const model = require('../server/models/UserMemory');
+    expect(saved).toHaveLength(1);
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ value: 'Osama', times_seen: 3, salience: 6 }));
+    expect(model.create).not.toHaveBeenCalled();
+    jest.dontMock('../server/models/UserMemory');
+  });
+});
+
 describe('memoryService.getMemories (DB read path)', () => {
   test('interview dismissal rows (assistant.*) never enter memory context', async () => {
     jest.resetModules();
