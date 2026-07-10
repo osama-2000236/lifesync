@@ -14,6 +14,7 @@
 // hybrid-router philosophy (BERT is a classifier, not a generator).
 // ============================================
 
+const { Op } = require('sequelize');
 const UserMemory = require('../../models/UserMemory');
 
 const clean = (text) => String(text || '').replace(/\s+/g, ' ').trim();
@@ -51,6 +52,8 @@ const NAME_PATTERNS = [
   /\bmy name is\s+([a-z][a-z' -]{1,40})/i,
   /\b(?:i am|i'm)\s+([A-Z][a-z]{2,20})\b(?!\s+(?:feeling|going|happy|sad|tired|at|in|on|a|an|the|so|very|really|not|good|bad|ok|okay|fine|great))/,
   /\bcall me\s+([a-z][a-z' -]{1,30})/i,
+  // Arabic (no \b — JS word boundaries are ASCII-only): «اسمي أسامة», «نادني سامي»
+  /(?:^|[\s،.])(?:أنا اسمي|انا اسمي|اسمي|نادني)\s+([ء-ي]{2,20})/,
 ];
 
 const OCCUPATION_PATTERNS = [
@@ -83,6 +86,8 @@ const ROUTINE_RULES = [
 const LOCATION_PATTERNS = [
   /\bi live in\s+([a-z][a-z' -]{2,40})/i,
   /\bi'?m (?:from|based in)\s+([a-z][a-z' -]{2,40})/i,
+  // Arabic: «أسكن في رام الله», «وأعيش في نابلس» — clitic و/ف attaches directly.
+  /(?:^|[\s،.])[وف]?(?:أسكن في|اسكن في|أعيش في|اعيش في|أنا من|انا من)\s+([ء-ي][ء-ي\s]{1,30})/,
 ];
 
 const BUDGET_PATTERN = /\bmy (?:monthly )?budget is\s*([$€£₪]?\s*\d[\d,]*(?:\.\d+)?)/i;
@@ -156,8 +161,12 @@ const extractMemoryCandidates = (message) => {
   // Budget / savings goal
   const budget = text.match(BUDGET_PATTERN);
   if (budget && budget[1]) push('finance.budget', 'finance', `monthly budget around ${clean(budget[1])}`, 0.8, 3);
+  // "i want to save" alone matches "save time/my document" — require an amount
+  // or an explicit money word before storing a savings-goal memory.
   const save = text.match(SAVE_GOAL_PATTERN);
-  if (save) push('finance.save_goal', 'goal', save[1] ? `wants to save ${clean(save[1])}` : 'wants to build savings', 0.7, 2);
+  if (save && (save[1] || /\bi want to save (?:money|up|more)\b/i.test(text))) {
+    push('finance.save_goal', 'goal', save[1] ? `wants to save ${clean(save[1])}` : 'wants to build savings', 0.7, 2);
+  }
 
   return out;
 };
@@ -238,7 +247,13 @@ const getMemories = async (userId, { limit = 12 } = {}) => {
   if (!userId || !(await isTableReady())) return [];
   try {
     const rows = await UserMemory.findAll({
-      where: { user_id: userId },
+      where: {
+        user_id: userId,
+        // Interview bookkeeping shares this table (assistant.dismiss.<topic>,
+        // value 'dismissed') — never surface it as a remembered fact in the
+        // prompt or count it in "(N facts)".
+        mem_key: { [Op.notLike]: 'assistant.%' },
+      },
       order: [['salience', 'DESC'], ['times_seen', 'DESC'], ['last_seen_at', 'DESC']],
       limit,
       attributes: ['mem_key', 'category', 'value', 'confidence', 'salience', 'last_seen_at'],
