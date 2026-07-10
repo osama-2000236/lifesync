@@ -113,6 +113,16 @@ describe('pure helpers', () => {
     expect(svc.mapAnswerToEntities('sleep_spending', 9, 1)).toBeNull();
   });
 
+  test('mapAnswerToEntities — honest zero on finance questions skips, never 422s', () => {
+    // "How much did you spend today?" → 0 is a true answer with nothing to log.
+    expect(svc.mapAnswerToEntities('sleep_spending', 1, 0)).toEqual({ domain: 'finance', skip: true });
+    expect(svc.mapAnswerToEntities('budget_savings', 0, '0')).toEqual({ domain: 'finance', skip: true });
+    // Health zeros keep logging as before (0h sleep is a loggable value).
+    expect(svc.mapAnswerToEntities('sleep_spending', 0, 0)).toMatchObject({ domain: 'health', value: 0 });
+    // Negative finance still invalid.
+    expect(svc.mapAnswerToEntities('sleep_spending', 1, -5)).toBeNull();
+  });
+
   test('selectTopic — concerning pattern wins', () => {
     const engine = { patterns: [{ severity: 'concerning', domain: 'both' }], recommendations: [] };
     expect(svc.selectTopic(engine, { sleep: 9, expense: 9 }, [])).toBe('sleep_spending');

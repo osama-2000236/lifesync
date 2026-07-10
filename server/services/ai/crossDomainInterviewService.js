@@ -205,6 +205,10 @@ const mapAnswerToEntities = (topic, step, answer) => {
   // number input
   const num = typeof answer === 'number' ? answer : Number(answer);
   if (!Number.isFinite(num)) return null;
+  // Honest zero: "how much did you spend/earn" answered 0 is a TRUE answer with
+  // nothing to log (FinancialLog requires amount >= 0.01). Skip the step instead
+  // of rejecting the user's honest answer with a 422.
+  if (entity.domain === 'finance' && num === 0) return { domain: 'finance', skip: true };
   if (question.min != null && num < question.min) return null;
   if (question.max != null && num > question.max) return null;
 
@@ -422,6 +426,8 @@ const pickTopic = async (userId, lang = 'en') => {
 const logAnswerEntities = async (userId, topic, step, answer) => {
   const entity = mapAnswerToEntities(topic, step, answer);
   if (!entity) return null;
+  // Honest zero-amount answer: valid, but there is no row to create.
+  if (entity.skip) return { domain: entity.domain, skipped: true };
 
   if (entity.domain === 'health') {
     const row = await HealthLog.create({

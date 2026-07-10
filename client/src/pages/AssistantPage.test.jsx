@@ -117,6 +117,14 @@ describe('AssistantPage — interview flow', () => {
     expect(assistantAPI.startInterview).toHaveBeenCalledWith('sleep_spending', false, 'en');
   });
 
+  it('accept on a fully-covered topic shows the covered note, not a blank interview', async () => {
+    assistantAPI.startInterview.mockResolvedValue(wrap({ topic: 'sleep_spending', done: true, skipped: true }));
+    await renderPage();
+    fireEvent.click(await screen.findByTestId('consent-accept'));
+    expect(await screen.findByTestId('covered-note')).toBeInTheDocument();
+    expect(screen.queryByTestId('interview-panel')).not.toBeInTheDocument();
+  });
+
   it('decline still dismisses even when the request fails', async () => {
     assistantAPI.startInterview.mockRejectedValue(new Error('offline'));
     await renderPage();

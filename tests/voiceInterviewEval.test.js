@@ -111,10 +111,11 @@ describe('mapAnswerToEntities golden matrix', () => {
     expect(svc.mapAnswerToEntities('mood_nutrition', 2, 'unknown')).toBeNull();
     expect(svc.mapAnswerToEntities('bad', 0, 1)).toBeNull();
     // Finance rows require amount >= 0.01 (FinancialLog validation) — zero must
-    // not reach create() or the interview freezes on a 500.
-    expect(svc.mapAnswerToEntities('sleep_spending', 1, 0)).toBeNull();
-    expect(svc.mapAnswerToEntities('budget_savings', 0, 0)).toBeNull();
-    expect(svc.mapAnswerToEntities('budget_savings', 1, 0.009)).toBeNull();
+    // not reach create() or the interview freezes on a 500. Zero is an HONEST
+    // answer though: it maps to a skip (advance, log nothing), never a 422.
+    expect(svc.mapAnswerToEntities('sleep_spending', 1, 0)).toEqual({ domain: 'finance', skip: true });
+    expect(svc.mapAnswerToEntities('budget_savings', 0, 0)).toEqual({ domain: 'finance', skip: true });
+    expect(svc.mapAnswerToEntities('budget_savings', 1, 0.009)).toBeNull(); // below-min non-zero stays invalid
   });
 });
 

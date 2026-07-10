@@ -53,6 +53,7 @@ export const en = {
   'assistant.healthScore': 'Health',
   'assistant.financeScore': 'Money',
   'assistant.dismissed': "No worries — I'll leave that alone for a bit.",
+  'assistant.alreadyCovered': "You've already logged everything for this today — nothing to ask. Check back tomorrow.",
   'assistant.noSuggestion': 'Nothing to check in on right now. Keep logging, and I\'ll notice things worth asking about.',
   'assistant.invalidAnswer': 'That answer is out of range — try a different number or choice.',
   'assistant.stepError': 'That step is out of sync. Refresh the check-in and try again.',

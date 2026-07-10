@@ -167,6 +167,19 @@ describe('answerInterview', () => {
     await ctrl.answerInterview({ user: { id: 1 }, body: { step: 0, answer: 8 } }, makeRes(), next);
     expect(next).toHaveBeenCalledWith(expect.any(Error));
   });
+
+  test('honest zero answer advances without tracking a row id (no 422)', async () => {
+    ctrl._activeInterviews.set(4, { topic: 'sleep_spending', step: 1, healthIds: [11], financeIds: [], createdAt: Date.now() });
+    svc.logAnswerEntities.mockResolvedValue({ domain: 'finance', skipped: true });
+    svc.nextQuestion.mockReturnValue(null);
+    svc.finalizeInterview.mockResolvedValue({ links: [], advice: { topic: 'sleep_spending' } });
+    const res = makeRes();
+    await ctrl.answerInterview({ user: { id: 4 }, body: { step: 1, answer: 0 } }, res, jest.fn());
+    // Nothing logged for the zero answer — no fake finance id, no fake link.
+    expect(svc.finalizeInterview).toHaveBeenCalledWith(4, 'sleep_spending',
+      expect.objectContaining({ healthIds: [11], financeIds: [] }), 'en');
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ done: true }) }));
+  });
 });
 
 describe('evictStale', () => {

@@ -272,8 +272,16 @@ export default function AssistantPage() {
     setAnswerError(null);
     try {
       const { data } = await assistantAPI.startInterview(suggestion.topic, true, locale);
-      setQuestion(data.data.question);
-      setFlow('interview');
+      const payload = data?.data;
+      if (payload?.skipped) {
+        // Everything for this topic is already logged today — honest note
+        // instead of an interview panel with no question (blank dead-end).
+        setQuestion(null);
+        setFlow('covered');
+      } else {
+        setQuestion(payload?.question);
+        setFlow('interview');
+      }
     } catch { /* keep consent card */ } finally { setBusy(false); }
   };
 
@@ -523,6 +531,9 @@ export default function AssistantPage() {
           {flow === 'advice' && <AdviceCards advice={advice} t={t} />}
           {flow === 'dismissed' && (
             <div className="rounded-2xl border border-navy-100 bg-white p-5 text-sm text-navy-500" data-testid="dismissed-note">{t('assistant.dismissed')}</div>
+          )}
+          {flow === 'covered' && (
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 dark:bg-emerald-500/10 p-5 text-sm text-emerald-700 dark:text-emerald-300" data-testid="covered-note">{t('assistant.alreadyCovered')}</div>
           )}
           {flow === 'idle' && (
             <div className="rounded-2xl border border-dashed border-navy-200 bg-white/50 dark:bg-white/5 p-5 text-sm text-navy-400" data-testid="idle-note">{t('assistant.noSuggestion')}</div>

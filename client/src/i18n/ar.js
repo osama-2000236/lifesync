@@ -53,6 +53,7 @@ export const ar = {
   'assistant.healthScore': 'الصحة',
   'assistant.financeScore': 'المال',
   'assistant.dismissed': 'لا بأس — لن أسأل عن ذلك لفترة.',
+  'assistant.alreadyCovered': 'سجّلت كل ما يخص هذا الموضوع اليوم — لا يوجد ما أسأله. عد غدًا.',
   'assistant.noSuggestion': 'لا يوجد ما نتابعه الآن. واصل التسجيل وسألاحظ ما يستحق السؤال.',
   'assistant.invalidAnswer': 'الإجابة خارج النطاق — جرّب رقمًا أو خيارًا آخر.',
   'assistant.stepError': 'الخطوة غير متزامنة. حدّث المتابعة وحاول مجددًا.',

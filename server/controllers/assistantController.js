@@ -132,7 +132,9 @@ const answerInterview = async (req, res, next) => {
     if (!logged) {
       return error(res, 'Invalid answer for this question.', 422, 'INVALID_ANSWER');
     }
-    if (logged.domain === 'health') state.healthIds.push(logged.id);
+    if (logged.skipped) {
+      // Honest zero answer — nothing logged, still advance the interview.
+    } else if (logged.domain === 'health') state.healthIds.push(logged.id);
     else state.financeIds.push(logged.id);
 
     // Advance past steps already satisfied today (including what we just logged).
