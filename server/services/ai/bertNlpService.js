@@ -634,6 +634,18 @@ const fmtFinanceSummary = (winDays, currency, summary, ar = false) => {
   return bits.join(', ');
 };
 
+// Identical consecutive rows ("sleep 5.5h" ×5 from daily logging) are token
+// spam with zero signal — collapse to one entry with a count.
+const collapseRepeats = (items) => {
+  const out = [];
+  for (const item of items) {
+    const last = out[out.length - 1];
+    if (last && last.text === item) last.count += 1;
+    else out.push({ text: item, count: 1 });
+  }
+  return out.map(({ text, count }) => (count > 1 ? `${text} ×${count}` : text));
+};
+
 /**
  * Dense but short user-data picture for generative models (voice + chat).
  * Aggregates + last few concrete rows so answers feel vivid, not generic.
@@ -670,8 +682,8 @@ const buildContextSummary = (context = {}, locale = null) => {
   }
   // Concrete latest rows — denser for max harness (5) else 3; health & finance same N.
   const nRecent = context.context_window?.mode === 'max' ? 5 : 3;
-  const rh = (context.recent_health_entries || []).slice(0, nRecent).map(fmtHealthRecent).filter(Boolean);
-  const rf = (context.recent_finance_entries || []).slice(0, nRecent).map(fmtFinanceRecent).filter(Boolean);
+  const rh = collapseRepeats((context.recent_health_entries || []).slice(0, nRecent).map(fmtHealthRecent).filter(Boolean));
+  const rf = collapseRepeats((context.recent_finance_entries || []).slice(0, nRecent).map(fmtFinanceRecent).filter(Boolean));
   if (rh.length) parts.push(`latest health: ${rh.join('; ')}`);
   if (rf.length) parts.push(`latest money: ${rf.join('; ')}`);
   else if (rh.length) parts.push('latest money: none in window — dig for spends/income');
@@ -724,8 +736,8 @@ const buildContextSummaryAr = (context = {}) => {
     else parts.push('أهداف مالية: لا يوجد بعد');
   }
   const nRecent = context.context_window?.mode === 'max' ? 5 : 3;
-  const rh = (context.recent_health_entries || []).slice(0, nRecent).map(fmtHealthRecent).filter(Boolean);
-  const rf = (context.recent_finance_entries || []).slice(0, nRecent).map(fmtFinanceRecent).filter(Boolean);
+  const rh = collapseRepeats((context.recent_health_entries || []).slice(0, nRecent).map(fmtHealthRecent).filter(Boolean));
+  const rf = collapseRepeats((context.recent_finance_entries || []).slice(0, nRecent).map(fmtFinanceRecent).filter(Boolean));
   if (rh.length) parts.push(`أحدث صحة: ${rh.join('؛ ')}`);
   if (rf.length) parts.push(`أحدث مال: ${rf.join('؛ ')}`);
   else if (rh.length) parts.push('أحدث مال: لا يوجد في النافذة — اسأل عن مصروف/دخل');
@@ -968,6 +980,18 @@ const buildResponse = (intent, entities, message, context = {}, adviceRequested 
       return ar
         ? `تم تحديد هدفك: ${goalLabel(goal, true)}. سأتابع تقدّمك وأحسبه ضمن تحليلاتك الأسبوعية.`
         : `Goal set: ${goalLabel(goal, false)}. I'll track your progress and factor it into your weekly insights.`;
+    }
+    // "how is my savings goal going?" lands here via the goal-keyword rule
+    // with no extractable target — answer with live progress instead of
+    // demanding a target the user already set.
+    const activeGoals = Array.isArray(context.active_goals) ? context.active_goals : [];
+    if (activeGoals.length) {
+      const line = activeGoals.slice(0, 3)
+        .map((g) => `${g.metric || g.domain}: ${g.current ?? 0}/${g.target}${g.unit ? ` ${g.unit}` : ''} (${g.period})`)
+        .join(ar ? '، ' : ', ');
+      return ar
+        ? `تقدّم أهدافك: ${line}. أخبرني إذا أردت تعديل هدف أو وضع هدف جديد.`
+        : `Your goal progress: ${line}. Tell me if you want to adjust one or set a new goal.`;
     }
     return ar
       ? 'هدف جميل! أخبرني بالرقم المستهدف — مثلًا «أريد أن أدخر ٥٠٠ شيكل شهريًا» أو «هدفي ١٠٠٠٠ خطوة يوميًا» — وسأتتبّعه لك.'

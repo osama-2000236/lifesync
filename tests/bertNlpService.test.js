@@ -239,3 +239,59 @@ describe('BERT intent routing and deterministic extraction', () => {
     expect(result.model_runtime).toMatchObject({ status: 'deterministic_fallback', error: 'ECONNREFUSED' });
   });
 });
+
+describe('goal progress questions (set_goal routed, no extractable target)', () => {
+  test('answers with live current/target instead of demanding a target', async () => {
+    classifyText.mockResolvedValue({ label: 'query_summary', confidence: 0.99, provider: 'cpu', model: 'bert', latency_ms: 5 });
+    const result = await parseMessageWithBert('how is my savings goal going?', null, {
+      active_goals: [{ domain: 'finance', metric: 'savings', target: 300, current: 420, unit: 'USD', period: 'monthly' }],
+    });
+    expect(result.intent).toBe('set_goal');
+    expect(result.response).toContain('savings: 420/300 USD (monthly)');
+    expect(result.response).not.toMatch(/Give me the target/);
+    expect(result._goal).toBeUndefined(); // nothing parsed → nothing upserted
+  });
+
+  test('no active goals → still invites a target', async () => {
+    const result = await parseMessageWithBert('I want to set a goal', null, { active_goals: [] });
+    expect(result.intent).toBe('set_goal');
+    expect(result.response).toMatch(/Give me the target/);
+  });
+});
+
+describe('recent-row repeat collapse (prompt token spam)', () => {
+  test('identical consecutive rows collapse to one entry with a count, EN + AR', () => {
+    const { _buildContextSummary, _buildContextSummaryAr } = require('../server/services/ai/bertNlpService');
+    const ctx = {
+      health: { sleep: { average: 5.5, count: 5 } },
+      finance: {},
+      recent_health_entries: Array.from({ length: 5 }, () => ({ type: 'sleep', value: 5.5 })),
+      recent_finance_entries: [
+        { type: 'expense', amount: 12, currency: 'USD', description: 'coffee' },
+        { type: 'expense', amount: 12, currency: 'USD', description: 'coffee' },
+        { type: 'expense', amount: 30, currency: 'USD', description: 'groceries' },
+      ],
+      context_window: { mode: 'max' },
+    };
+    const en = _buildContextSummary(ctx);
+    expect(en).toContain('sleep 5.5h ×5');
+    expect(en).not.toMatch(/sleep 5\.5h; sleep 5\.5h/);
+    expect(en).toContain('expense USD 12 (coffee) ×2');
+    expect(en).toContain('expense USD 30 (groceries)');
+    const arSum = _buildContextSummaryAr(ctx);
+    expect(arSum).toContain('sleep 5.5h ×5');
+    expect(arSum).not.toMatch(/sleep 5\.5h؛ sleep 5\.5h/);
+  });
+
+  test('distinct values never collapse', () => {
+    const { _buildContextSummary } = require('../server/services/ai/bertNlpService');
+    const en = _buildContextSummary({
+      health: {},
+      finance: {},
+      recent_health_entries: [{ type: 'sleep', value: 7 }, { type: 'sleep', value: 5.5 }],
+      recent_finance_entries: [],
+    });
+    expect(en).toContain('sleep 7h; sleep 5.5h');
+    expect(en).not.toContain('×');
+  });
+});

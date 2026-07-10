@@ -174,3 +174,17 @@ describe('Arabic deterministic logging', () => {
     expect(hea[0]).toMatchObject({ type: 'steps', value: 8000 });
   });
 });
+
+  test('Arabic goal-progress question answers with live progress, not a target demand', async () => {
+    const r = await parseMessageWithBert('كيف حال هدف الادخار؟', null, {
+      active_goals: [{ domain: 'finance', metric: 'savings', target: 300, current: 420, unit: 'USD', period: 'monthly' }],
+    });
+    if (r.intent === 'set_goal') {
+      expect(r.response).toContain('420/300');
+      expect(r.response).toMatch(/تقدّم أهدافك/);
+    } else {
+      // Router may prefer the insight path — the summary must still carry live progress.
+      expect(r.response).toContain('420/300');
+    }
+    expect(r.response).toMatch(/[؀-ۿ]/);
+  });
