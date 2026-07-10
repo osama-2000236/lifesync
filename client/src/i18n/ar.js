@@ -370,6 +370,16 @@ export const ar = {
   'dash.mind.xdSleepSpend': 'نومك منخفض ({sleep} ساعة) بينما إنفاقك مرتفع {pct}% عن الأسبوع الماضي — هل بينهما رابط؟',
   'dash.mind.empty': 'لا توجد تسجيلات كافية هذا الأسبوع بعد — أخبر المساعد عن يومك وستظهر هنا.',
   'dash.mind.cta': 'اسأل في الدردشة',
+  // goal progress strip (live current/target from real logs)
+  'dash.goals.title': 'أهدافك',
+  'dash.goals.steps': 'هدف الخطوات',
+  'dash.goals.sleep': 'هدف النوم',
+  'dash.goals.water': 'هدف الماء',
+  'dash.goals.budget': 'الميزانية',
+  'dash.goals.savings': 'هدف الادخار',
+  'dash.goals.daily': 'اليوم',
+  'dash.goals.weekly': 'هذا الأسبوع',
+  'dash.goals.monthly': 'هذا الشهر',
   // chart chrome (labels/legends/empty-states used across dashboard charts)
   'chart.steps': 'خطوات',
   'chart.sleepHrs': 'النوم (ساعات)',

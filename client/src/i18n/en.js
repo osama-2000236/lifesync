@@ -370,6 +370,16 @@ export const en = {
   'dash.mind.xdSleepSpend': 'Sleep is low ({sleep}h) while spending is up {pct}% vs last week — connected?',
   'dash.mind.empty': 'Not enough logs this week yet — tell the assistant about your day and it shows up here.',
   'dash.mind.cta': 'Ask in chat',
+  // goal progress strip (live current/target from real logs)
+  'dash.goals.title': 'Your goals',
+  'dash.goals.steps': 'Steps goal',
+  'dash.goals.sleep': 'Sleep goal',
+  'dash.goals.water': 'Water goal',
+  'dash.goals.budget': 'Budget',
+  'dash.goals.savings': 'Savings goal',
+  'dash.goals.daily': 'today',
+  'dash.goals.weekly': 'this week',
+  'dash.goals.monthly': 'this month',
   // chart chrome (labels/legends/empty-states used across dashboard charts)
   'chart.steps': 'Steps',
   'chart.sleepHrs': 'Sleep (hrs)',

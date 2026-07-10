@@ -53,4 +53,24 @@ describe('SecondMindCard', () => {
     // XD line carries the real numbers, never invented.
     expect(screen.getByTestId('second-mind-xd')).toHaveTextContent('dash.mind.xdSleepSpend:{"sleep":5.8,"pct":66.7}');
   });
+
+  it('renders live goal progress with server-computed current/target', () => {
+    renderCard({
+      horizon: null,
+      goals: [
+        { domain: 'health', metric: 'steps', target: 10000, current: 6800, unit: 'steps', period: 'daily' },
+        { domain: 'finance', metric: 'budget', target: 1200, current: 350, unit: 'ILS', period: 'monthly' },
+        { domain: 'health', metric: 'water', target: 0, current: 0, unit: 'liters', period: 'daily' }, // target 0 → hidden
+      ],
+    });
+    expect(screen.getByTestId('mind-goals')).toBeInTheDocument();
+    expect(screen.getByTestId('mind-goal-steps')).toHaveTextContent('6,800/10,000 steps');
+    expect(screen.getByTestId('mind-goal-budget')).toHaveTextContent('350/1,200 ILS');
+    expect(screen.queryByTestId('mind-goal-water')).not.toBeInTheDocument();
+  });
+
+  it('no goals → no goals strip', () => {
+    renderCard({ horizon: null, goals: [] });
+    expect(screen.queryByTestId('mind-goals')).not.toBeInTheDocument();
+  });
 });

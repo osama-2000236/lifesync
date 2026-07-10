@@ -21,11 +21,44 @@ const TrendBadge = ({ trend, pct, goodWhenUp }) => {
   );
 };
 
-export default function SecondMindCard({ horizon, loading }) {
+// Known parser metrics get a localized label; anything else shows raw.
+const GOAL_LABEL_KEYS = {
+  steps: 'dash.goals.steps',
+  sleep: 'dash.goals.sleep',
+  water: 'dash.goals.water',
+  budget: 'dash.goals.budget',
+  savings: 'dash.goals.savings',
+};
+
+// current is server-computed from real logs (goalProgress) — never invented.
+const GoalRow = ({ goal, t }) => {
+  const pct = Math.max(0, Math.round((goal.current / goal.target) * 100));
+  // Budget counts spend against a cap: over 100% is bad; every other goal
+  // hitting 100% is good.
+  const overBudget = goal.metric === 'budget' && pct > 100;
+  const barTone = overBudget ? 'bg-coral-500' : pct >= 100 ? 'bg-emerald-500' : 'bg-navy-400';
+  const labelKey = GOAL_LABEL_KEYS[goal.metric];
+  return (
+    <div data-testid={`mind-goal-${goal.metric}`}>
+      <div className="flex items-baseline justify-between gap-2 text-[11px] text-navy-500">
+        <span>{labelKey ? t(labelKey) : goal.metric} · {t(`dash.goals.${goal.period}`)}</span>
+        <span className="tabular-nums font-semibold text-navy-700">
+          {Number(goal.current).toLocaleString()}/{Number(goal.target).toLocaleString()}{goal.unit ? ` ${goal.unit}` : ''}
+        </span>
+      </div>
+      <div className="mt-1 h-1.5 rounded-full bg-navy-100 overflow-hidden">
+        <div className={`h-full rounded-full ${barTone}`} style={{ width: `${Math.min(100, pct)}%` }} />
+      </div>
+    </div>
+  );
+};
+
+export default function SecondMindCard({ horizon, goals, loading }) {
   const { t } = useSettings();
   if (loading) return <SkeletonCard />;
 
   const w = horizon?.week || {};
+  const goalRows = (goals || []).filter((g) => g.target > 0).slice(0, 3);
   const tiles = [
     { key: 'sleep', label: t('dash.mind.sleep'), value: w.sleep_avg != null ? `${w.sleep_avg}h` : null, trend: w.sleep_trend, pct: w.sleep_delta_pct, goodWhenUp: true },
     { key: 'mood', label: t('dash.mind.mood'), value: w.mood_avg != null ? `${w.mood_avg}/10` : null, trend: w.mood_trend, pct: w.mood_delta_pct, goodWhenUp: true },
@@ -77,6 +110,15 @@ export default function SecondMindCard({ horizon, loading }) {
             </p>
           )}
         </>
+      )}
+
+      {goalRows.length > 0 && (
+        <div className="mt-4 space-y-2.5" data-testid="mind-goals">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-navy-400">{t('dash.goals.title')}</p>
+          {goalRows.map((g) => (
+            <GoalRow key={`${g.domain}-${g.metric}-${g.period}`} goal={g} t={t} />
+          ))}
+        </div>
       )}
     </div>
   );

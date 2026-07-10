@@ -663,7 +663,8 @@ const buildContextSummary = (context = {}, locale = null) => {
   if (goals.length) {
     const hGoals = goals.filter((g) => g.domain === 'health' || !g.domain);
     const fGoals = goals.filter((g) => g.domain === 'finance');
-    parts.push(`${goals.length} active goal(s): ${goals.slice(0, 3).map((g) => `${g.metric || g.domain}${g.target != null ? `→${g.target}` : ''}`).join(', ')}`);
+    // current/target is live (goalProgress) — the model can cite real progress.
+    parts.push(`${goals.length} active goal(s): ${goals.slice(0, 3).map((g) => `${g.metric || g.domain}${g.target != null ? ` ${g.current ?? 0}/${g.target} ${g.period || ''}`.trimEnd() : ''}`).join(', ')}`);
     if (fGoals.length) parts.push(`money goals: ${fGoals.slice(0, 2).map((g) => g.metric || 'budget').join(', ')}`);
     else if (hGoals.length && !fGoals.length) parts.push('money goals: none yet');
   }
@@ -716,7 +717,8 @@ const buildContextSummaryAr = (context = {}) => {
     if (line) parts.push(line);
   }
   if (goals.length) {
-    parts.push(`${goals.length} هدف نشط: ${goals.slice(0, 3).map((g) => g.metric || g.domain).join('، ')}`);
+    // نفس تنسيق التقدّم الحيّ current/target كما في السطر الإنجليزي.
+    parts.push(`${goals.length} هدف نشط: ${goals.slice(0, 3).map((g) => `${g.metric || g.domain}${g.target != null ? ` ${g.current ?? 0}/${g.target}` : ''}`).join('، ')}`);
     const fGoals = goals.filter((g) => g.domain === 'finance');
     if (fGoals.length) parts.push(`أهداف مالية: ${fGoals.slice(0, 2).map((g) => g.metric || 'ميزانية').join('، ')}`);
     else parts.push('أهداف مالية: لا يوجد بعد');

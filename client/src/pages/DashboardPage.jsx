@@ -269,7 +269,7 @@ export default function DashboardPage() {
 
       {(gamification || dashboardLoading) && (
         <div className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <SecondMindCard horizon={gamification?.horizon} loading={dashboardLoading && !gamification} />
+          <SecondMindCard horizon={gamification?.horizon} goals={gamification?.goals} loading={dashboardLoading && !gamification} />
           <StreakCard data={gamification} loading={dashboardLoading && !gamification} />
         </div>
       )}

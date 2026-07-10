@@ -1,8 +1,9 @@
 const { Op } = require('sequelize');
 // Load registry so LinkedDomain ↔ Health/Finance associations exist.
 const {
-  ChatLog, HealthLog, FinancialLog, User, UserGoal, LinkedDomain, Category,
+  ChatLog, HealthLog, FinancialLog, User, LinkedDomain, Category,
 } = require('../../models');
+const { getGoalsWithProgress } = require('./goalProgress');
 const { buildMemoryContext } = require('./memoryService');
 const { buildHorizon } = require('./longHorizon');
 
@@ -176,15 +177,9 @@ const buildBertContext = async (
       User.findByPk(userId, {
         attributes: ['id', 'name', 'username', 'created_at'],
       }),
-      UserGoal.findAll({
-        where: { user_id: userId, status: 'active' },
-        order: [['created_at', 'DESC']],
-        limit: win.mode === 'max' ? 20 : 12,
-        attributes: [
-          'domain', 'metric_type', 'target_value', 'current_value',
-          'unit', 'period', 'start_date', 'end_date', 'status',
-        ],
-      }),
+      // Live progress from real logs — the stored current_value is write-only
+      // and frozen at 0 (goalProgress.js computes at read time instead).
+      getGoalsWithProgress(userId, { limit: win.mode === 'max' ? 20 : 12 }),
       ChatLog.findAll({
         where: chatWhere,
         order: [['created_at', 'DESC']],
@@ -253,15 +248,7 @@ const buildBertContext = async (
         links: win.links,
       },
       profile,
-      active_goals: goals.map(plain).map((goal) => ({
-        domain: goal.domain,
-        metric: goal.metric_type,
-        target: numeric(goal.target_value),
-        current: numeric(goal.current_value),
-        unit: goal.unit || null,
-        period: goal.period,
-        end_date: goal.end_date || null,
-      })),
+      active_goals: goals,
       recent_messages: chatRows.map(plain).reverse().map((row) => ({
         role: row.role,
         message: String(row.message || '').slice(0, 500),
