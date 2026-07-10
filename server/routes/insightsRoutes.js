@@ -16,6 +16,7 @@ const {
 } = require('../services/ai/dashboardInsightsService');
 const { getLatestInsights, markAsRead } = require('../services/ai/insightsService');
 const { buildGamification } = require('../services/ai/gamificationService');
+const { buildHorizon } = require('../services/ai/longHorizon');
 const HealthLog = require('../models/HealthLog');
 const FinancialLog = require('../models/FinancialLog');
 const { success, error, created } = require('../utils/responseHelper');
@@ -55,13 +56,16 @@ router.post('/generate', authenticate, async (req, res, next) => {
 router.get('/gamification', authenticate, async (req, res, next) => {
   try {
     const [healthRows, financeRows] = await Promise.all([
-      HealthLog.findAll({ where: { user_id: req.user.id }, attributes: ['logged_at'], order: [['logged_at', 'DESC']], limit: 1000 }),
+      // type + value so buildHorizon can compute week sleep/mood averages.
+      HealthLog.findAll({ where: { user_id: req.user.id }, attributes: ['logged_at', 'type', 'value'], order: [['logged_at', 'DESC']], limit: 1000 }),
       FinancialLog.findAll({ where: { user_id: req.user.id }, attributes: ['logged_at', 'type', 'amount'], order: [['logged_at', 'DESC']], limit: 1000 }),
     ]);
-    const data = buildGamification(
-      healthRows.map((r) => (r.get ? r.get({ plain: true }) : r)),
-      financeRows.map((r) => (r.get ? r.get({ plain: true }) : r)),
-    );
+    const health = healthRows.map((r) => (r.get ? r.get({ plain: true }) : r));
+    const finance = financeRows.map((r) => (r.get ? r.get({ plain: true }) : r));
+    const data = buildGamification(health, finance);
+    // Second-mind snapshot for the dashboard card: same rows, same refresh
+    // cycle as the streak — pure math, no extra query, no model call.
+    data.horizon = buildHorizon(health, finance);
     success(res, data, 'Gamification snapshot');
   } catch (err) {
     next(err);

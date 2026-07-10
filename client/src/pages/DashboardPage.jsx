@@ -12,6 +12,7 @@ const SpendingChart = lazy(() => import('../components/dashboard/SpendingChart')
 const MoodActivityChart = lazy(() => import('../components/dashboard/MoodActivityChart'));
 const chartSkeleton = <div className="h-64 skeleton rounded-xl" />;
 import InsightCards from '../components/dashboard/InsightCards';
+import SecondMindCard from '../components/dashboard/SecondMindCard';
 import StreakCard from '../components/dashboard/StreakCard';
 import CorrelationPanel from '../components/dashboard/CorrelationPanel';
 import CrossDomainTimeline from '../components/dashboard/CrossDomainTimeline';
@@ -267,7 +268,8 @@ export default function DashboardPage() {
       </div>
 
       {(gamification || dashboardLoading) && (
-        <div className="mb-8">
+        <div className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <SecondMindCard horizon={gamification?.horizon} loading={dashboardLoading && !gamification} />
           <StreakCard data={gamification} loading={dashboardLoading && !gamification} />
         </div>
       )}
