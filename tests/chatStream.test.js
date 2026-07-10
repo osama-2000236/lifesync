@@ -46,6 +46,14 @@ jest.mock('../server/middleware/auth', () => ({
 
 jest.mock('../server/services/ai/nlpService', () => ({
   parseMessage: jest.fn(),
+  // Mirrors the real detectLang — the controller uses it to pick the error
+  // fallback language, and error paths in this suite must not TypeError.
+  _detectLang: (text) => {
+    const s = String(text || '');
+    if (/[؀-ۿ]/.test(s)) return 'ar';
+    if (/[A-Za-z]/.test(s)) return 'en';
+    return null;
+  },
 }));
 
 const request = require('supertest');
@@ -426,5 +434,16 @@ describe('POST /api/chat/stream', () => {
     expect(assistantRow.message).toBe('');
     expect(assistantRow.intent).toBe('aborted');
     expect(assistantRow.status).toBe('error');
+  });
+});
+
+describe('resolveAIErrorMessage language parity', () => {
+  test('Arabic turn → Arabic fallback; English turn → English; provider userMessage wins', () => {
+    const { _resolveAIErrorMessage } = require('../server/controllers/chatController');
+    expect(_resolveAIErrorMessage(new Error('boom'), 'صرفت ٢٠ شيكل على الغداء')).toMatch(/المساعد غير متاح مؤقتًا/);
+    expect(_resolveAIErrorMessage(new Error('boom'), 'spent 20 on lunch')).toMatch(/temporarily unavailable/);
+    const err = new Error('boom');
+    err.userMessage = 'custom provider-safe text';
+    expect(_resolveAIErrorMessage(err, 'صرفت ٢٠')).toBe('custom provider-safe text');
   });
 });

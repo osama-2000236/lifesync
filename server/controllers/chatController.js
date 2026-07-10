@@ -12,7 +12,7 @@
 const { randomUUID } = require('crypto');
 const { body } = require('express-validator');
 const { Op } = require('sequelize');
-const { parseMessage } = require('../services/ai/nlpService');
+const { parseMessage, _detectLang } = require('../services/ai/nlpService');
 const { buildBertContext } = require('../services/ai/bertContextService');
 const { recordTurnMemories } = require('../services/ai/memoryService');
 const { resolveModel } = require('../services/ai/modelRuntimeManager');
@@ -265,9 +265,12 @@ const sseWrite = (res, event, data) => {
 
 // Model-neutral: this fires when the pipeline throws, whatever model the user
 // picked — naming "Gemma" here lied whenever the picker said GPT/Llama.
-const resolveAIErrorMessage = (aiError) =>
+// Language follows the user's turn: an Arabic message gets an Arabic error.
+const resolveAIErrorMessage = (aiError, userMessage) =>
   aiError?.userMessage
-  || 'Sorry, the assistant is temporarily unavailable. Your message was saved and you can try again shortly.';
+  || (_detectLang(userMessage) === 'ar'
+    ? 'عذرًا، المساعد غير متاح مؤقتًا. رسالتك محفوظة ويمكنك المحاولة مرة أخرى بعد قليل.'
+    : 'Sorry, the assistant is temporarily unavailable. Your message was saved and you can try again shortly.');
 
 /** Generative pick failed: log Track A entities if any, persist error row, return payload. */
 const handleGenerativeFailure = async ({
@@ -480,7 +483,7 @@ const processMessageStream = async (req, res) => {
         return res.end();
       }
 
-      const errorMessage = resolveAIErrorMessage(aiError);
+      const errorMessage = resolveAIErrorMessage(aiError, message);
 
       // ─── AI Failed — persist error state to DB ───
       await safeUpdate(userChatLog, { intent: 'unclear', status: 'complete' });
@@ -745,7 +748,7 @@ const processMessage = async (req, res, next) => {
         nlpResult = await parseMessage(message, null, nlpContext, aiOptions);
       }
     } catch (aiError) {
-      const errorMessage = resolveAIErrorMessage(aiError);
+      const errorMessage = resolveAIErrorMessage(aiError, message);
 
       // AI failed — persist error state, still return a response
       await safeUpdate(userChatLog, { intent: 'unclear', status: 'complete' });
@@ -959,4 +962,5 @@ module.exports = {
   getSessions,
   chatValidation,
   _pendingClarifications: pendingClarifications,
+  _resolveAIErrorMessage: resolveAIErrorMessage,
 };

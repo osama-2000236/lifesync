@@ -174,7 +174,13 @@ export default function ChatPage() {
       onAck: (data) => {
         if (data.session_id && data.session_id !== sessionId) setSessionId(data.session_id);
       },
-      onStatus: (data) => setStatusText(data.message || t('chat.status.default')),
+      // Known status codes get localized copy — raw wire strings like
+      // "model_locked" must never reach the user.
+      onStatus: (data) => setStatusText(
+        data.code === 'MODEL_SWITCH_DENIED'
+          ? t('chat.status.modelLocked', { model: data.locked_model || '' })
+          : (data.message || t('chat.status.default')),
+      ),
       onDelta: (data) => {
         streamBufRef.current += data.text || '';
         if (!streamRafRef.current) {

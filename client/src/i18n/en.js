@@ -97,6 +97,7 @@ export const en = {
   'chat.status.default': 'One moment…',
   'chat.status.checkingLocal': 'Checking this on your device…',
   'chat.status.slow': 'This is taking longer than usual — you can keep using the app, or try again.',
+  'chat.status.modelLocked': 'This chat stays on {model} — start a new chat to switch models.',
   'chat.err.generic': 'Something went wrong. Try again in a moment.',
   'chat.dictate.start': 'Speak instead of typing',
   'chat.dictate.stop': 'Stop listening',

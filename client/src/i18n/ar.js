@@ -97,6 +97,7 @@ export const ar = {
   'chat.status.default': 'لحظة…',
   'chat.status.checkingLocal': 'أراجع ذلك على جهازك…',
   'chat.status.slow': 'يستغرق الأمر وقتًا أطول من المعتاد — يمكنك متابعة الاستخدام أو إعادة المحاولة.',
+  'chat.status.modelLocked': 'هذه المحادثة مستمرة على {model} — ابدأ محادثة جديدة لتبديل النموذج.',
   'chat.err.generic': 'حدث خطأ. حاول بعد قليل.',
   'chat.dictate.start': 'تحدّث بدل الكتابة',
   'chat.dictate.stop': 'إيقاف الاستماع',
