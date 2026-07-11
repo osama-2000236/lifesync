@@ -25,19 +25,28 @@ const periodStart = (period, now = new Date()) => {
 };
 
 // Money sums are per-currency: an ILS budget must not absorb USD rows.
-// No goal currency → sum everything (ponytail: no FX conversion here).
-const pickCurrency = (byCurrency, unit) => {
-  if (!byCurrency) return 0;
-  if (unit) return num(byCurrency[unit]);
-  return Object.values(byCurrency).reduce((acc, v) => acc + num(v), 0);
+// No goal currency → the period's dominant currency (most money moved), never
+// a cross-currency sum — 100 ILS + 50 USD is not 150 of anything.
+// ponytail: dominant-currency heuristic, no FX — add real conversion when a
+// user holds goals across currencies and asks for combined totals.
+const dominantCurrency = (income = {}, expense = {}) => {
+  const totals = {};
+  for (const [cur, v] of [...Object.entries(income), ...Object.entries(expense)]) {
+    totals[cur] = (totals[cur] || 0) + Math.abs(num(v));
+  }
+  return Object.keys(totals).reduce(
+    (best, cur) => (best == null || totals[cur] > totals[best] ? cur : best),
+    null,
+  );
 };
 
 // Pure: current value for one goal from its period sums.
 // health metric → SUM(value); budget → spend so far; savings → income − expense.
 const currentFor = (goal, sums = {}) => {
   if (goal.domain === 'finance') {
-    const income = pickCurrency(sums.income, goal.unit);
-    const expense = pickCurrency(sums.expense, goal.unit);
+    const unit = goal.unit || dominantCurrency(sums.income, sums.expense);
+    const income = num(sums.income?.[unit]);
+    const expense = num(sums.expense?.[unit]);
     return round2(goal.metric_type === 'budget' ? expense : income - expense);
   }
   return round2(num(sums.health?.[goal.metric_type]));

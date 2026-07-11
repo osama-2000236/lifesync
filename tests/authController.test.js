@@ -233,4 +233,37 @@ describe('authController account flows', () => {
     expect(update).toHaveBeenCalledWith({ is_active: false });
     expect(res.status).toHaveBeenCalledWith(200);
   });
+
+  test('updateProfile stores a compressed image data URL as avatar', async () => {
+    const update = jest.fn().mockResolvedValue(undefined);
+    const dataUrl = `data:image/jpeg;base64,${'a'.repeat(2000)}`;
+    const req = {
+      body: { avatar_url: dataUrl },
+      user: { update, toSafeJSON: jest.fn().mockReturnValue({}) },
+    };
+    const res = createRes();
+
+    await authController.updateProfile(req, res, jest.fn());
+
+    expect(update).toHaveBeenCalledWith({ avatar_url: dataUrl });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  test('updateProfile rejects oversized and non-image avatar values', async () => {
+    const update = jest.fn();
+    const cases = [
+      `data:image/jpeg;base64,${'a'.repeat(65_000)}`, // over 64KB cap
+      'data:text/html;base64,PHNjcmlwdD4=', // not an image
+      'javascript:alert(1)', // junk scheme
+      `https://x.com/${'a'.repeat(600)}`, // remote URL too long
+    ];
+    for (const avatar_url of cases) {
+      const req = { body: { avatar_url }, user: { update, toSafeJSON: jest.fn() } };
+      const res = createRes();
+      await authController.updateProfile(req, res, jest.fn());
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'INVALID_AVATAR' }));
+    }
+    expect(update).not.toHaveBeenCalled();
+  });
 });

@@ -193,7 +193,7 @@ export const en = {
   'profile.info.fullName': 'Full name',
   'profile.info.namePlaceholder': 'Your name',
   'profile.info.avatarUrl': 'Photo link (optional)',
-  'profile.info.avatarUrlHint': 'Or paste an image link. Uploaded photos stay on this device until server upload is enabled.',
+  'profile.info.avatarUrlHint': 'Or paste an image link. Uploaded photos are saved to your account and follow you across devices.',
   'profile.info.uploadPhoto': 'Upload photo',
   'profile.info.changePhoto': 'Change profile photo',
   'profile.info.removePhoto': 'Remove photo',
@@ -256,7 +256,6 @@ export const en = {
   'reports.prefFailed': 'Could not update preference.',
   'reports.markRead': 'Mark as read',
   'reports.markAllRead': 'Mark all read',
-  'common.loading': 'Loading…',
 
   'profile.memory.title': 'What the assistant remembers',
   'profile.memory.desc': 'Facts learned from your chats. They follow you across models — correct or delete anything that is wrong.',
@@ -430,6 +429,8 @@ export const en = {
   'dash.mind.spend': 'Spent this week',
   'dash.mind.vsPrior': 'vs last week',
   'dash.mind.xdSleepSpend': 'Sleep is low ({sleep}h) while spending is up {pct}% vs last week — connected?',
+  'dash.mind.xdMoodSpend': 'Mood is soft ({mood}/10) with spending up vs last week — worth a gentle check-in?',
+  'dash.mind.xdMoodExercise': 'Mood is solid ({mood}/10) in a week with exercise logged — keep that link going.',
   'dash.mind.empty': 'Not enough logs this week yet — tell the assistant about your day and it shows up here.',
   'dash.mind.cta': 'Ask in chat',
   // goal progress strip (live current/target from real logs)

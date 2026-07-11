@@ -4,14 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { authAPI, aiAPI } from '../services/api';
 import { getApiErrorMessage } from '../utils/apiErrors';
-import {
-  compressImageFile,
-  clearLocalAvatar,
-  getLocalAvatar,
-  isRemoteAvatarUrl,
-  resolveAvatarUrl,
-  setLocalAvatar,
-} from '../utils/avatarStorage';
+import { compressImageFile, isRemoteAvatarUrl } from '../utils/avatarStorage';
 import { MODEL_OPTIONS } from '../config/models';
 import MemorySection from '../components/profile/MemorySection';
 import NotificationsSection from '../components/profile/NotificationsSection';
@@ -55,9 +48,11 @@ function ProfileInfoSection({ user, onUpdate }) {
   const { t } = useSettings();
   const fileRef = useRef(null);
   const [name, setName] = useState(user?.name || '');
-  // Remote URL field (optional). File picks live in localPreview until save.
-  const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || '');
-  const [localPreview, setLocalPreview] = useState(() => resolveAvatarUrl(user));
+  // Remote URL field (optional) — only shows http(s) URLs, never data: blobs.
+  const [avatarUrl, setAvatarUrl] = useState(
+    isRemoteAvatarUrl(user?.avatar_url) ? user.avatar_url : '',
+  );
+  const [localPreview, setLocalPreview] = useState(user?.avatar_url || null);
   const [pendingFile, setPendingFile] = useState(null); // data URL from file pick
   const [cleared, setCleared] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -67,8 +62,8 @@ function ProfileInfoSection({ user, onUpdate }) {
 
   useEffect(() => {
     setName(user?.name || '');
-    setAvatarUrl(user?.avatar_url || '');
-    if (!pendingFile && !cleared) setLocalPreview(resolveAvatarUrl(user));
+    setAvatarUrl(isRemoteAvatarUrl(user?.avatar_url) ? user.avatar_url : '');
+    if (!pendingFile && !cleared) setLocalPreview(user?.avatar_url || null);
   }, [user, pendingFile, cleared]);
 
   const displaySrc = cleared ? null : (pendingFile || localPreview || null);
@@ -115,36 +110,25 @@ function ProfileInfoSection({ user, onUpdate }) {
     setOk('');
     setLoading(true);
     try {
-      // Server still only stores short URLs (STRING 500). File photos stay local
-      // until a dedicated upload endpoint is added later.
+      // Photos are compressed data URLs; the server stores them in avatar_url (TEXT).
       let payload = { name: name || null };
-      let displayAfter = null;
 
       if (pendingFile) {
-        setLocalAvatar(user.id, pendingFile);
-        displayAfter = pendingFile;
-        // Keep any previous remote URL on the server as-is (don't send data:).
+        payload = { ...payload, avatar_url: pendingFile };
       } else if (cleared) {
-        clearLocalAvatar(user.id);
         payload = { ...payload, avatar_url: null };
-        displayAfter = null;
       } else if (isRemoteAvatarUrl(avatarUrl)) {
-        clearLocalAvatar(user.id);
         payload = { ...payload, avatar_url: avatarUrl.trim() };
-        displayAfter = avatarUrl.trim();
-      } else {
-        // Name-only save: keep local photo or existing server URL.
-        displayAfter = getLocalAvatar(user.id) || user?.avatar_url || null;
       }
+      // else: name-only save, avatar untouched.
 
       const { data } = await authAPI.updateProfile(payload);
       const serverUser = data.data.user;
-      // Surface local photo on the shared user object so sidebar updates now.
-      onUpdate({ ...serverUser, avatar_url: displayAfter || serverUser.avatar_url || null });
+      onUpdate(serverUser);
       setPendingFile(null);
       setCleared(false);
-      setLocalPreview(displayAfter || resolveAvatarUrl({ ...serverUser, id: user.id }));
-      setAvatarUrl(isRemoteAvatarUrl(displayAfter) ? displayAfter : (serverUser.avatar_url || ''));
+      setLocalPreview(serverUser.avatar_url || null);
+      setAvatarUrl(isRemoteAvatarUrl(serverUser.avatar_url) ? serverUser.avatar_url : '');
       setOk(t('profile.info.updated'));
     } catch (err) {
       setError(getApiErrorMessage(err, t('profile.info.updateFailed')));

@@ -54,6 +54,29 @@ describe('SecondMindCard', () => {
     expect(screen.getByTestId('second-mind-xd')).toHaveTextContent('dash.mind.xdSleepSpend:{"sleep":5.8,"pct":66.7}');
   });
 
+  it('mood↓ + spend↑ week: mood-spend XD line (sleep pattern not matched)', () => {
+    renderCard({
+      horizon: {
+        week: {
+          sleep_avg: 7.5, sleep_trend: 'flat', sleep_delta_pct: 0,
+          mood_avg: 3, mood_trend: 'down', mood_delta_pct: -40,
+          expense_total: 300, expense_prev: 200, expense_trend: 'up', expense_delta_pct: 10,
+        },
+      },
+    });
+    expect(screen.getByTestId('second-mind-xd')).toHaveTextContent('dash.mind.xdMoodSpend:{"mood":3}');
+  });
+
+  it('mood↑ + exercise week: mood-exercise XD line from coverage', () => {
+    renderCard({
+      horizon: {
+        week: { mood_avg: 8, mood_trend: 'up', mood_delta_pct: 14 },
+        coverage_week: { health: ['mood', 'exercise'] },
+      },
+    });
+    expect(screen.getByTestId('second-mind-xd')).toHaveTextContent('dash.mind.xdMoodExercise:{"mood":8}');
+  });
+
   it('renders live goal progress with server-computed current/target', () => {
     renderCard({
       horizon: null,

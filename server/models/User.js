@@ -58,7 +58,9 @@ const User = sequelize.define('users', {
     defaultValue: 'user',
   },
   avatar_url: {
-    type: DataTypes.STRING(500),
+    // TEXT: holds either a short remote URL or a compressed data: URL
+    // (client caps uploads at 256px JPEG, well under MySQL TEXT's 64KB).
+    type: DataTypes.TEXT,
     allowNull: true,
   },
   last_login_at: {

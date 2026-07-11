@@ -410,12 +410,26 @@ const ALLOWED_MODELS = new Set([
   'custom_local',
 ]);
 
+// Avatar accepts a short remote URL or the client's compressed data URL.
+// 64,000 chars keeps the value inside MySQL TEXT (65,535 bytes).
+const isValidAvatarUrl = (value) => (
+  typeof value === 'string' && (
+    (/^https?:\/\//i.test(value) && value.length <= 500)
+    || (/^data:image\/(jpeg|png|webp);base64,/i.test(value) && value.length <= 64_000)
+  )
+);
+
 const updateProfile = async (req, res, next) => {
   try {
     const { name, avatar_url, preferred_model } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name || null;
-    if (avatar_url !== undefined) updates.avatar_url = avatar_url || null;
+    if (avatar_url !== undefined) {
+      if (avatar_url && !isValidAvatarUrl(avatar_url)) {
+        return error(res, 'Avatar must be an http(s) URL or a small image data URL.', 400, 'INVALID_AVATAR');
+      }
+      updates.avatar_url = avatar_url || null;
+    }
     if (preferred_model !== undefined) {
       if (!ALLOWED_MODELS.has(preferred_model)) {
         return error(res, 'Unknown model selection.', 400, 'INVALID_MODEL');

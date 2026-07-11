@@ -1,38 +1,8 @@
-// Profile photo storage. File picks are stored per-user in localStorage until a
-// real server upload lands (avatar_url is STRING(500) and can't hold data URLs).
-// Remote https URLs still go through PUT /auth/me as today.
-// ponytail: swap setLocalAvatar → FormData upload when the server is ready.
+// Profile photo helpers. File picks are compressed client-side and stored on
+// the server via PUT /auth/me (avatar_url is TEXT and holds data: URLs).
+// Remote https URLs go through the same endpoint.
 
-const storageKey = (userId) => `lifesync.avatar.${userId}`;
-
-export const getLocalAvatar = (userId) => {
-  if (userId == null) return null;
-  try {
-    return localStorage.getItem(storageKey(userId));
-  } catch {
-    return null;
-  }
-};
-
-export const setLocalAvatar = (userId, dataUrl) => {
-  if (userId == null) return;
-  try {
-    if (!dataUrl) localStorage.removeItem(storageKey(userId));
-    else localStorage.setItem(storageKey(userId), dataUrl);
-  } catch {
-    /* quota / private mode — caller shows a soft error */
-  }
-};
-
-export const clearLocalAvatar = (userId) => setLocalAvatar(userId, null);
-
-/** Local file (if any) wins over server avatar_url. */
-export const resolveAvatarUrl = (user) => {
-  if (!user) return null;
-  return getLocalAvatar(user.id) || user.avatar_url || null;
-};
-
-/** Short remote URLs fit the current DB column; data: URLs do not. */
+/** Short remote URLs; data: URLs are handled separately by the server. */
 export const isRemoteAvatarUrl = (value) => (
   typeof value === 'string'
   && /^https?:\/\//i.test(value.trim())
@@ -49,7 +19,7 @@ export const compressImageFile = (file, { maxSide = 256, quality = 0.82 } = {}) 
       reject(Object.assign(new Error('NOT_IMAGE'), { code: 'NOT_IMAGE' }));
       return;
     }
-    // 8 MB pre-compress ceiling — after compress we stay well under localStorage limits.
+    // 8 MB pre-compress ceiling — after compress we stay well under the server's 64KB cap.
     if (file.size > 8 * 1024 * 1024) {
       reject(Object.assign(new Error('TOO_LARGE'), { code: 'TOO_LARGE' }));
       return;

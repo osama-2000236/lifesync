@@ -43,9 +43,19 @@ describe('goalProgress derivation per goal', () => {
     )).toBe(-250);
   });
 
-  test('no goal currency → sums across currencies; no sums at all → 0', () => {
+  test('no goal currency → dominant currency, never a cross-currency sum', () => {
     const sums = { income: {}, expense: { ILS: 100, USD: 50 } };
-    expect(_currentFor({ domain: 'finance', metric_type: 'budget' }, sums)).toBe(150);
+    expect(_currentFor({ domain: 'finance', metric_type: 'budget' }, sums)).toBe(100);
+    // Dominance counts income + expense so savings stays in one currency.
+    expect(_currentFor(
+      { domain: 'finance', metric_type: 'savings' },
+      { income: { USD: 500 }, expense: { ILS: 100, USD: 50 } },
+    )).toBe(450);
+    // Single currency behaves exactly as before.
+    expect(_currentFor(
+      { domain: 'finance', metric_type: 'budget' },
+      { income: {}, expense: { ILS: 100 } },
+    )).toBe(100);
     expect(_currentFor({ domain: 'finance', metric_type: 'budget', unit: 'ILS' }, {})).toBe(0);
   });
 });

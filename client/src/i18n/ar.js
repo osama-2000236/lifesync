@@ -193,7 +193,7 @@ export const ar = {
   'profile.info.fullName': 'الاسم الكامل',
   'profile.info.namePlaceholder': 'اسمك',
   'profile.info.avatarUrl': 'رابط الصورة (اختياري)',
-  'profile.info.avatarUrlHint': 'أو الصق رابط صورة. الصور المرفوعة تبقى على هذا الجهاز حتى يتوفر الرفع على الخادم.',
+  'profile.info.avatarUrlHint': 'أو الصق رابط صورة. الصور المرفوعة تُحفظ في حسابك وتظهر على جميع أجهزتك.',
   'profile.info.uploadPhoto': 'رفع صورة',
   'profile.info.changePhoto': 'تغيير صورة الملف الشخصي',
   'profile.info.removePhoto': 'إزالة الصورة',
@@ -255,7 +255,6 @@ export const ar = {
   'reports.prefFailed': 'تعذّر تحديث التفضيل.',
   'reports.markRead': 'تعليم كمقروء',
   'reports.markAllRead': 'تعليم الكل كمقروء',
-  'common.loading': 'جارٍ التحميل…',
 
   'profile.memory.title': 'ما يتذكّره المساعد',
   'profile.memory.desc': 'حقائق تعلّمها من محادثاتك. تنتقل معك بين النماذج — صحّح أو احذف أي معلومة خاطئة.',
@@ -429,6 +428,8 @@ export const ar = {
   'dash.mind.spend': 'إنفاق هذا الأسبوع',
   'dash.mind.vsPrior': 'مقارنة بالأسبوع الماضي',
   'dash.mind.xdSleepSpend': 'نومك منخفض ({sleep} ساعة) بينما إنفاقك مرتفع {pct}% عن الأسبوع الماضي — هل بينهما رابط؟',
+  'dash.mind.xdMoodSpend': 'مزاجك منخفض ({mood}/10) وإنفاقك أعلى من الأسبوع الماضي — يستحق وقفة لطيفة؟',
+  'dash.mind.xdMoodExercise': 'مزاجك جيد ({mood}/10) في أسبوع سجّلت فيه تمارين — حافظ على هذا الرابط.',
   'dash.mind.empty': 'لا توجد تسجيلات كافية هذا الأسبوع بعد — أخبر المساعد عن يومك وستظهر هنا.',
   'dash.mind.cta': 'اسأل في الدردشة',
   // goal progress strip (live current/target from real logs)

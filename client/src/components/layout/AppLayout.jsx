@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../contexts/SettingsContext';
-import { resolveAvatarUrl } from '../../utils/avatarStorage';
 import SettingsControls from '../common/SettingsControls';
 import {
   LayoutDashboard, MessageCircle, Heart, Wallet, Shield,
@@ -43,7 +42,7 @@ export default function AppLayout() {
     }`;
 
   const userInitial = (user?.name || user?.username || '?')[0].toUpperCase();
-  const avatarSrc = resolveAvatarUrl(user);
+  const avatarSrc = user?.avatar_url || null;
 
   return (
     <div className="flex h-screen bg-surface overflow-hidden">

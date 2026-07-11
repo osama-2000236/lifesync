@@ -65,12 +65,17 @@ export default function SecondMindCard({ horizon, goals, loading }) {
     { key: 'spend', label: t('dash.mind.spend'), value: w.expense_total > 0 ? w.expense_total.toLocaleString() : null, trend: w.expense_trend, pct: w.expense_delta_pct, goodWhenUp: false },
   ].filter((m) => m.value != null);
 
-  // ponytail: one XD pattern (sleep↓ + spend↑), thresholds mirror longHorizon
-  // xd_hints; add more templates only when users actually hit them.
-  const xdLine = w.sleep_avg != null && w.sleep_avg < 6.5
-    && w.expense_trend === 'up' && w.expense_delta_pct > 15 && w.expense_prev > 0
+  // All three XD patterns mirror longHorizon xd_hints — same thresholds, same
+  // order; first match wins like the server's xd_hints[0].
+  const hasExercise = (horizon?.coverage_week?.health || []).includes('exercise');
+  const xdLine = (w.sleep_avg != null && w.sleep_avg < 6.5
+    && w.expense_trend === 'up' && w.expense_delta_pct > 15 && w.expense_prev > 0)
     ? t('dash.mind.xdSleepSpend', { sleep: w.sleep_avg, pct: Math.abs(w.expense_delta_pct) })
-    : null;
+    : (w.mood_avg != null && w.mood_avg <= 4 && w.expense_prev > 0 && w.expense_total > w.expense_prev)
+      ? t('dash.mind.xdMoodSpend', { mood: w.mood_avg })
+      : (w.mood_avg != null && w.mood_avg >= 7 && hasExercise)
+        ? t('dash.mind.xdMoodExercise', { mood: w.mood_avg })
+        : null;
 
   return (
     <div className="bg-white rounded-2xl border border-navy-100 p-5 shadow-card" data-testid="second-mind-card">
