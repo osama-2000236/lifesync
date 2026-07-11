@@ -33,10 +33,14 @@ const loadAiSnapshot = async () => {
       chat_status: chat.status || null,
       bert_status: bert.status || null,
       openrouter_status: openrouter.status || null,
-      google_fit_configured: Boolean(
-        (process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_AUTH_CLIENT_IDS)
-        && process.env.GOOGLE_CLIENT_SECRET,
-      ),
+      google_fit_configured: (() => {
+        try {
+          const GoogleFitAdapter = require('../services/external/googleFitAdapter');
+          return new GoogleFitAdapter().isConfigured();
+        } catch {
+          return false;
+        }
+      })(),
     };
   } catch (err) {
     return { error: err.message || 'ai_status_unavailable' };

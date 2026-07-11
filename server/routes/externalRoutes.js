@@ -307,6 +307,10 @@ router.get('/status', authenticate, async (req, res, next) => {
           connectedAt: stored.connected_at,
         })
         : false;
+      const callbackUri = callbackRedirectUri(key);
+      const setup = typeof adapter.getSetupStatus === 'function'
+        ? adapter.getSetupStatus(callbackUri)
+        : { configured, callback_uri: callbackUri };
       platforms[key] = {
         connected: !!stored,
         connectedAt: stored?.connected_at || null,
@@ -314,6 +318,7 @@ router.get('/status', authenticate, async (req, res, next) => {
         needs_reconnect: Boolean(stored && !tokenValid && !stored.refresh_token),
         // refresh available means client can still try sync (server will refresh)
         can_sync: Boolean(stored && (tokenValid || stored.refresh_token)),
+        setup,
       };
     }
     success(res, {

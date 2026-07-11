@@ -28,17 +28,44 @@ const DATA_SOURCES = {
   sleep: 'derived:com.google.sleep.segment:com.google.android.gms:merged',
 };
 
+/**
+ * Reject empty / template / example env values so "configured" is honest.
+ * Never logs the raw secret.
+ */
+const looksLikeRealCredential = (value, { kind = 'any' } = {}) => {
+  const v = String(value || '').trim();
+  if (!v || v.length < 12) return false;
+  if (/^(your[_-]?|change[_-]?me|placeholder|example|xxx+|todo|fix[_-]?secret)/i.test(v)) {
+    return false;
+  }
+  if (kind === 'client_id') {
+    // Google OAuth web client IDs end with this suffix.
+    return /\.apps\.googleusercontent\.com$/i.test(v);
+  }
+  if (kind === 'client_secret') {
+    // Modern Google secrets often start with GOCSPX-; also accept long opaque secrets.
+    return v.startsWith('GOCSPX-') || v.length >= 20;
+  }
+  return true;
+};
+
+const firstAuthClientId = () => String(process.env.GOOGLE_AUTH_CLIENT_IDS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => looksLikeRealCredential(s, { kind: 'client_id' }))[0] || '';
+
 class GoogleFitAdapter extends HealthPlatformAdapter {
   constructor() {
     super('google_fit');
-    // Prefer dedicated Fit OAuth client; fall back to the first Google Sign-In
-    // web client id when GOOGLE_CLIENT_ID is unset (same Cloud project is common).
-    const authIds = String(process.env.GOOGLE_AUTH_CLIENT_IDS || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    this.clientId = process.env.GOOGLE_CLIENT_ID || authIds[0] || '';
-    this.clientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
+    // Prefer dedicated Fit OAuth client; fall back to the first real Google Sign-In
+    // web client id when GOOGLE_CLIENT_ID is unset/placeholder.
+    const dedicated = looksLikeRealCredential(process.env.GOOGLE_CLIENT_ID, { kind: 'client_id' })
+      ? String(process.env.GOOGLE_CLIENT_ID).trim()
+      : '';
+    this.clientId = dedicated || firstAuthClientId();
+    this.clientSecret = looksLikeRealCredential(process.env.GOOGLE_CLIENT_SECRET, { kind: 'client_secret' })
+      ? String(process.env.GOOGLE_CLIENT_SECRET).trim()
+      : '';
     this.tokenUrl = 'https://oauth2.googleapis.com/token';
     this.authUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
     this.apiBase = 'https://www.googleapis.com/fitness/v1/users/me';
@@ -49,29 +76,51 @@ class GoogleFitAdapter extends HealthPlatformAdapter {
   // ────────────────────────────────────────
 
   /**
-   * Generate Google OAuth consent URL
-   * @param {string} state - Opaque server-issued nonce; the route layer binds
-   *   it to the initiating user. Never identity data — the callback is
-   *   unauthenticated, so state is the only account-binding proof.
-   * @param {string} redirectUri - Must match Google Console config
-   */
-  /**
-   * True when OAuth client credentials are present.
+   * True when non-placeholder OAuth client credentials are present.
    * Does not prove Google Console redirect URIs are correct.
    */
   isConfigured() {
     return Boolean(this.clientId && this.clientSecret);
   }
 
+  /**
+   * Secret-free setup snapshot for status/admin UIs.
+   * @param {string} [callbackUri]
+   */
+  getSetupStatus(callbackUri) {
+    const envClientRaw = String(process.env.GOOGLE_CLIENT_ID || '').trim();
+    const envSecretRaw = String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
+    return {
+      configured: this.isConfigured(),
+      has_client_id: Boolean(this.clientId),
+      has_client_secret: Boolean(this.clientSecret),
+      client_id_source: this.clientId
+        ? (looksLikeRealCredential(envClientRaw, { kind: 'client_id' }) ? 'GOOGLE_CLIENT_ID' : 'GOOGLE_AUTH_CLIENT_IDS')
+        : null,
+      env_client_id_placeholder: Boolean(envClientRaw) && !looksLikeRealCredential(envClientRaw, { kind: 'client_id' }),
+      env_secret_placeholder: Boolean(envSecretRaw) && !looksLikeRealCredential(envSecretRaw, { kind: 'client_secret' }),
+      callback_uri: callbackUri || null,
+      missing: [
+        !this.clientId ? 'client_id' : null,
+        !this.clientSecret ? 'client_secret' : null,
+      ].filter(Boolean),
+    };
+  }
+
   assertConfigured() {
     if (!this.isConfigured()) {
+      const setup = this.getSetupStatus();
+      const detail = setup.missing.length
+        ? `Missing: ${setup.missing.join(', ')}.`
+        : 'Credentials look like placeholders.';
       const err = new Error(
-        'Google Fit is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET '
-        + 'on the server, and register the callback URL in Google Cloud Console.',
+        'Google Fit is not configured. Set real GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET '
+        + `(not template values) on the server, and register the OAuth callback URL in Google Cloud Console. ${detail}`,
       );
       err.statusCode = 503;
       err.code = 'GOOGLE_FIT_NOT_CONFIGURED';
       err.isOperational = true;
+      err.setup = setup;
       throw err;
     }
   }

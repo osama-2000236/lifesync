@@ -37,6 +37,8 @@ function GoogleFitPanel({ status, onRefreshStatus }) {
   const connectedAt = status?.connectedAt;
   const configured = status?.configured !== false;
   const needsReconnect = status?.needs_reconnect;
+  const setup = status?.setup || {};
+  const callbackUri = setup.callback_uri || null;
   const [syncing, setSyncing] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -129,7 +131,19 @@ function GoogleFitPanel({ status, onRefreshStatus }) {
         {error && <Alert tone="error" onDismiss={() => setError('')}>{error}</Alert>}
         {ok && <Alert tone="success" onDismiss={() => setOk('')}>{ok}</Alert>}
         {!configured && (
-          <Alert tone="warning">{t('integrations.googleFitNotConfigured')}</Alert>
+          <Alert tone="warning" data-testid="google-fit-not-configured">
+            <div className="space-y-1">
+              <p>{t('integrations.googleFitNotConfigured')}</p>
+              {setup.env_secret_placeholder && (
+                <p className="text-xs opacity-90">{t('integrations.fitSecretPlaceholder')}</p>
+              )}
+              {callbackUri && (
+                <p className="text-xs font-mono break-all opacity-90">
+                  {t('integrations.fitCallbackHint', { uri: callbackUri })}
+                </p>
+              )}
+            </div>
+          </Alert>
         )}
         {needsReconnect && (
           <Alert tone="warning">{t('integrations.needsReconnect')}</Alert>

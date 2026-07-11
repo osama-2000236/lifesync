@@ -395,11 +395,39 @@ async function section(title, fn) {
   // ── UC-15 External integrations surface ───────────────────────────
   await section('UC-15 External sync surface', async () => {
     const st = await http('GET', `${BE}/api/external/status`, { headers: A });
-    expectStatus('External connection status', st, 200);
+    if (!expectStatus('External connection status', st, 200)) return;
+    const fit = st.json?.data?.platforms?.google_fit;
+    if (fit && typeof fit.configured === 'boolean') {
+      ok('Google Fit status includes configured flag', `configured=${fit.configured}`);
+    } else {
+      bad('Google Fit status missing configured flag');
+    }
+    if (fit?.setup && typeof fit.setup === 'object') {
+      ok('Google Fit setup diagnostics present', `missing=${(fit.setup.missing || []).join(',') || 'none'}`);
+      if (fit.setup.callback_uri && String(fit.setup.callback_uri).includes('/api/external/callback/google_fit')) {
+        ok('Google Fit callback_uri shape', fit.setup.callback_uri);
+      } else {
+        wrn('Google Fit callback_uri missing/unexpected', JSON.stringify(fit.setup).slice(0, 120));
+      }
+      // Honesty: placeholder secrets must not report configured=true
+      if (fit.setup.env_secret_placeholder && fit.configured) {
+        bad('configured=true despite secret placeholder');
+      } else if (fit.setup.env_secret_placeholder) {
+        ok('Placeholder secret correctly reports not configured');
+      }
+    } else {
+      wrn('Google Fit setup object missing (older deploy?)');
+    }
     // Connect without full OAuth secrets may 400/503 — not 500
     const connect = await http('GET', `${BE}/api/external/connect/google_fit`, { headers: A });
     if ([200, 400, 503, 501].includes(connect.status)) {
       ok('Google Fit connect surface responds', `HTTP ${connect.status}`);
+      if (fit?.configured === false && connect.status === 503) {
+        ok('Connect fails closed when Fit not configured');
+      }
+      if (fit?.configured === true && connect.status === 200 && connect.json?.data?.url) {
+        ok('Connect returns OAuth URL when configured');
+      }
     } else {
       wrn('Google Fit connect', `HTTP ${connect.status} ${(connect.text || '').slice(0, 100)}`);
     }
@@ -411,6 +439,10 @@ async function section(title, fn) {
     expectStatus('Non-admin admin dashboard → 403', dash, [401, 403]);
     const users = await http('GET', `${BE}/api/admin/users`, { headers: A });
     expectStatus('Non-admin users list → 403', users, [401, 403]);
+    // Admin SPA shell must load for authorized operators (auth gate is client-side too)
+    const adminPage = await http('GET', `${FE}/admin`);
+    if ([200, 304].includes(adminPage.status)) ok('FE /admin shell', `HTTP ${adminPage.status}`);
+    else wrn('FE /admin', `HTTP ${adminPage.status}`);
   });
 
   // ── Memory + assistant + voice (product surfaces) ─────────────────

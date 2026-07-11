@@ -51,12 +51,16 @@ npm run smoke:api -- https://YOUR_API_HOST
 | `scripts/validate-production-env.mjs` | Offline production preflight |
 | `scripts/smoke-api.mjs` | Live `/api/health` smoke |
 
-### Out of scope (product, not hardening)
+### Product follow-ups (status as of 2026-07-11)
 
-- Weekly PDF/CSV report download  
-- Scheduled push notifications  
-- Full wearable product polish beyond durable OAuth  
-- New AI models  
+| Item | Status |
+|------|--------|
+| Weekly PDF report download (UC-13) | ✅ shipped |
+| In-app (+ email) report notifications (UC-14) | ✅ shipped |
+| Admin ops dashboard (UC-16) | ✅ shipped (metrics + user mgmt) |
+| Google Fit OAuth/sync harden (UC-15) | ✅ code path; needs real Console secret for user E2E |
+| Mobile push (FCM) | ❌ not configured (no Firebase prod creds) |
+| New AI models | out of scope |
 
 ---
 
