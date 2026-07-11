@@ -48,5 +48,43 @@ describe('runMigrations', () => {
     expect(again.baselined.length).toBeGreaterThan(0);
     expect(again.applied.length).toBe(0);
   });
+
+  test('baseline does not mark 007/008 applied when columns are missing', async () => {
+    // Real bug class: missing await on hasColumn made Promises truthy → false baseline.
+    const { isMigrationAlreadyInSchema } = require('../server/config/runMigrations');
+    const qi = sequelize.getQueryInterface();
+    // Minimal "users" world without integrations / avatar upgrade path
+    await qi.createTable('users', {
+      id: { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true },
+      email: { type: Sequelize.STRING },
+    });
+    const tables = new Set(['users']);
+    await expect(
+      isMigrationAlreadyInSchema(qi, '20260711-007-integration-token-expires-at.js', tables),
+    ).resolves.toBe(false);
+    await expect(
+      isMigrationAlreadyInSchema(qi, '20260711-008-avatar-url-text.js', tables),
+    ).resolves.toBe(false);
+    await expect(
+      isMigrationAlreadyInSchema(qi, '20260710-004-health-value-text-to-text.js', tables),
+    ).resolves.toBe(false);
+  });
+
+  test('baseline applies 007 only after user_integrations.token_expires_at exists', async () => {
+    const { isMigrationAlreadyInSchema } = require('../server/config/runMigrations');
+    const qi = sequelize.getQueryInterface();
+    await qi.createTable('user_integrations', {
+      id: { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true },
+      user_id: { type: Sequelize.INTEGER },
+    });
+    const tables = new Set(['users', 'user_integrations']);
+    await expect(
+      isMigrationAlreadyInSchema(qi, '20260711-007-integration-token-expires-at.js', tables),
+    ).resolves.toBe(false);
+    await qi.addColumn('user_integrations', 'token_expires_at', { type: Sequelize.DATE, allowNull: true });
+    await expect(
+      isMigrationAlreadyInSchema(qi, '20260711-007-integration-token-expires-at.js', tables),
+    ).resolves.toBe(true);
+  });
 });
 

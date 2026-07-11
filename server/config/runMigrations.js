@@ -42,7 +42,8 @@ const isMigrationAlreadyInSchema = async (qi, file, tables) => {
       return (await hasColumn(qi, 'users', 'preferred_model')) && tables.has('user_memories');
     case '20260710-004-health-value-text-to-text.js':
       // Column type change — if value_text exists, treat as applied.
-      return hasColumn(qi, 'health_logs', 'value_text');
+      // Must await: a bare Promise is always truthy and would false-baseline.
+      return await hasColumn(qi, 'health_logs', 'value_text');
     case '20260711-005-add-user-integrations.js':
       return tables.has('user_integrations');
     case '20260711-006-weekly-reports-and-notifications.js':
@@ -50,10 +51,10 @@ const isMigrationAlreadyInSchema = async (qi, file, tables) => {
         && tables.has('user_notifications')
         && (await hasColumn(qi, 'users', 'report_notify_enabled'));
     case '20260711-007-integration-token-expires-at.js':
-      return hasColumn(qi, 'user_integrations', 'token_expires_at');
+      return await hasColumn(qi, 'user_integrations', 'token_expires_at');
     case '20260711-008-avatar-url-text.js':
       // Column type change — if avatar_url exists, treat as applied.
-      return hasColumn(qi, 'users', 'avatar_url');
+      return await hasColumn(qi, 'users', 'avatar_url');
     default:
       // Unknown newer migration: must run.
       return false;

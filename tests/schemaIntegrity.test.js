@@ -12,6 +12,7 @@ const MIGRATIONS = [
   '20260711-005-add-user-integrations.js',
   '20260711-006-weekly-reports-and-notifications.js',
   '20260711-007-integration-token-expires-at.js',
+  '20260711-008-avatar-url-text.js',
 ];
 
 const MODEL_TABLES = {

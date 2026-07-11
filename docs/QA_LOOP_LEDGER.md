@@ -37,11 +37,46 @@ npx jest --forceExit --runInBand   # full unit regression
 
 ---
 
+## Loop 2 — 2026-07-11 — **DB migrations / seed baseline**
+
+### Section
+Boot-time `runMigrations` baseline heuristics + schema integrity migration list
+
+### Tests run
+```
+npx jest tests/runMigrations.test.js tests/schemaIntegrity.test.js
+npx jest --forceExit --runInBand
+```
+
+### Findings (fixed)
+| Severity | Issue | Fix |
+|----------|--------|-----|
+| **High** | `isMigrationAlreadyInSchema` for 004/007/008 returned **unawaited Promises** (always truthy) → empty SequelizeMeta baselined migrations as applied **without columns** | `await hasColumn(...)` |
+| **Medium** | `schemaIntegrity` openMigratedDb list **omitted migration 008** (avatar TEXT) | include `20260711-008-avatar-url-text.js` |
+
+### Regression added
+- Baseline false when `token_expires_at` / avatar columns missing
+- Baseline true only after `token_expires_at` present
+- Schema suite runs full migration stack incl. 008
+
+### Remaining risk (DB section)
+- Seed still uses `sequelize.sync()` (not migration runner) — possible drift if models ahead of migrations; ops should prefer migrate-on-boot
+- Type-change baselining (004/008) only checks column *existence*, not MySQL type (accepted; alter is idempotent-ish)
+
+### Section status
+**GREEN** (baseline await bug fixed + tests).
+
+### Next loop candidate
+**Google Fit OAuth state / token encryption** or **health/finance IDOR + encryption at rest**.
+
+---
+
 ## Section scoreboard (campaign)
 
 | Section | Status | Notes |
 |---------|--------|--------|
-| Auth & session security | **GREEN** (this loop) | 3 fixes + tests |
+| Auth & session security | **GREEN** (loop 1) | 3 fixes |
+| DB/migrations/seed | **GREEN** (loop 2) | await baseline bug |
 | Health CRUD | pending deep | Live UC-04 passed historically |
 | Finance CRUD | pending deep | Live UC-05 |
 | Chat/NLP | pending deep | Live UC-06..09 |
@@ -52,5 +87,4 @@ npx jest --forceExit --runInBand   # full unit regression
 | Admin API UC-16 | pending deep | least-privilege live |
 | Memory | pending deep | |
 | FE SPA shells | pending deep | Playwright shells green |
-| DB/migrations/seed | pending deep | |
 | Perf hotspots | pending deep | conversation O(n²) marked ponytail |
