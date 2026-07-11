@@ -8,7 +8,7 @@ import { SkeletonCard } from '../components/ui/Skeleton';
 import { Card } from '../components/ui';
 import {
   Users, AlertTriangle, Activity, Clock, UserPlus, Shield,
-  Server, Zap, Search, ToggleLeft, ToggleRight,
+  Server, Zap, Search, ToggleLeft, ToggleRight, Database, FileText, Bell, Link2, Brain,
 } from 'lucide-react';
 
 function StatCard({ icon: Icon, label, value, subtext, color, loading }) {
@@ -75,11 +75,24 @@ export default function AdminPage() {
     total_users: d.users?.total ?? d.total_users ?? 0,
     active_users_24h: d.users?.active ?? d.active_users_24h ?? 0,
     new_users_7d: d.users?.new_this_week ?? d.new_users_7d ?? 0,
+    admins: d.users?.admins ?? 0,
     health_logs_24h: d.activity_24h?.health_logs ?? d.health_logs_24h ?? 0,
     finance_logs_24h: d.activity_24h?.finance_logs ?? d.finance_logs_24h ?? 0,
+    chat_24h: d.activity_24h?.chat_messages ?? 0,
     error_count_24h: d.system?.errors_24h ?? d.error_count_24h ?? 0,
     nlp_avg_processing_ms: d.system?.nlp_avg_ms ?? d.nlp_avg_processing_ms ?? 0,
     nlp_max_processing_ms: d.system?.nlp_max_ms ?? d.nlp_max_processing_ms ?? 0,
+    system_status: d.system?.status ?? 'unknown',
+    reports_total: d.product?.weekly_reports_total ?? 0,
+    reports_week: d.product?.weekly_reports_this_week ?? 0,
+    notifications_unread: d.product?.notifications_unread ?? 0,
+    integrations: d.product?.integrations_connected ?? 0,
+    redis_mode: d.runtime?.redis?.mode ?? d.runtime?.ephemeral_store ?? '—',
+    redis_ok: d.runtime?.redis?.ok,
+    commit: d.runtime?.commit || '—',
+    bert_status: d.runtime?.ai?.bert_status || '—',
+    openrouter_status: d.runtime?.ai?.openrouter_status || '—',
+    google_fit_configured: d.runtime?.ai?.google_fit_configured === true,
   };
 
   const filteredLogs = logFilter === 'all' ? logs : logs.filter((l) => l.log_type === logFilter);
@@ -128,6 +141,54 @@ export default function AdminPage() {
         <StatCard icon={Server} label={t('admin.healthFinanceLogs24h')} value={stats.health_logs_24h + stats.finance_logs_24h}
           subtext={t('admin.healthFinanceBreakdown', { health: stats.health_logs_24h, finance: stats.finance_logs_24h })}
           color="bg-purple-50 text-purple-500" loading={loading} />
+      </div>
+
+      {/* Runtime + product (UC-13/14/15 ops view) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8" data-testid="admin-runtime-grid">
+        <StatCard
+          icon={Database}
+          label={t('admin.redisMode')}
+          value={stats.redis_mode}
+          subtext={stats.redis_ok === false ? t('admin.redisDown') : t('admin.systemStatus', { status: stats.system_status })}
+          color="bg-cyan-50 text-cyan-600"
+          loading={loading}
+        />
+        <StatCard
+          icon={Brain}
+          label={t('admin.bertStatus')}
+          value={String(stats.bert_status)}
+          subtext={`OpenRouter: ${stats.openrouter_status}`}
+          color="bg-violet-50 text-violet-600"
+          loading={loading}
+        />
+        <StatCard
+          icon={FileText}
+          label={t('admin.reportsWeek')}
+          value={stats.reports_week}
+          subtext={t('admin.reportsTotal', { n: stats.reports_total })}
+          color="bg-emerald-50 text-emerald-600"
+          loading={loading}
+        />
+        <StatCard
+          icon={Bell}
+          label={t('admin.notificationsUnread')}
+          value={stats.notifications_unread}
+          subtext={t('admin.integrationsConnected', { n: stats.integrations })}
+          color="bg-rose-50 text-rose-600"
+          loading={loading}
+        />
+      </div>
+      <div className="mb-6 flex flex-wrap gap-3 text-xs text-navy-500">
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-navy-50">
+          <Link2 className="w-3 h-3" />
+          Google Fit: {stats.google_fit_configured ? t('admin.fitConfigured') : t('admin.fitMissing')}
+        </span>
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-navy-50">
+          commit {stats.commit}
+        </span>
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-navy-50">
+          {t('admin.chat24h', { n: stats.chat_24h })}
+        </span>
       </div>
 
       {/* Users + Logs */}

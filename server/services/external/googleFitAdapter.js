@@ -31,8 +31,14 @@ const DATA_SOURCES = {
 class GoogleFitAdapter extends HealthPlatformAdapter {
   constructor() {
     super('google_fit');
-    this.clientId = process.env.GOOGLE_CLIENT_ID;
-    this.clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    // Prefer dedicated Fit OAuth client; fall back to the first Google Sign-In
+    // web client id when GOOGLE_CLIENT_ID is unset (same Cloud project is common).
+    const authIds = String(process.env.GOOGLE_AUTH_CLIENT_IDS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    this.clientId = process.env.GOOGLE_CLIENT_ID || authIds[0] || '';
+    this.clientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
     this.tokenUrl = 'https://oauth2.googleapis.com/token';
     this.authUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
     this.apiBase = 'https://www.googleapis.com/fitness/v1/users/me';

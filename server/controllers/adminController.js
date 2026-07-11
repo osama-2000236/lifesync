@@ -10,8 +10,38 @@ const HealthLog = require('../models/HealthLog');
 const FinancialLog = require('../models/FinancialLog');
 const ChatLog = require('../models/ChatLog');
 const SystemLog = require('../models/SystemLog');
+const WeeklyReport = require('../models/WeeklyReport');
+const UserNotification = require('../models/UserNotification');
+const UserIntegration = require('../models/UserIntegration');
 const { sequelize } = require('../config/database');
 const { success, paginated, error } = require('../utils/responseHelper');
+const { redisStatus, redisEnabled } = require('../services/ephemeralStore');
+
+/**
+ * Secret-free AI stack snapshot for admins (never returns keys).
+ */
+const loadAiSnapshot = async () => {
+  try {
+    const { getAIProviderStatus } = require('../services/ai/providerClient');
+    const [chat, bert, openrouter] = await Promise.all([
+      getAIProviderStatus('chat'),
+      getAIProviderStatus('chat', 'bert_local'),
+      getAIProviderStatus('chat', 'openrouter'),
+    ]);
+    return {
+      chat_provider: chat.provider || null,
+      chat_status: chat.status || null,
+      bert_status: bert.status || null,
+      openrouter_status: openrouter.status || null,
+      google_fit_configured: Boolean(
+        (process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_AUTH_CLIENT_IDS)
+        && process.env.GOOGLE_CLIENT_SECRET,
+      ),
+    };
+  } catch (err) {
+    return { error: err.message || 'ai_status_unavailable' };
+  }
+};
 
 /**
  * GET /api/admin/dashboard
@@ -29,6 +59,7 @@ const getDashboard = async (req, res, next) => {
     const newUsersThisWeek = await User.count({
       where: { created_at: { [Op.gte]: weekAgo } },
     });
+    const adminUsers = await User.count({ where: { role: 'admin' } });
 
     // Activity stats (last 24h)
     const healthLogsToday = await HealthLog.count({
@@ -63,18 +94,60 @@ const getDashboard = async (req, res, next) => {
       raw: true,
     });
 
+    // Product surface counters (UC-13/14/15)
+    const [reportsTotal, reportsThisWeek, notificationsUnread, integrationsConnected] = await Promise.all([
+      WeeklyReport.count().catch(() => 0),
+      WeeklyReport.count({ where: { generated_at: { [Op.gte]: weekAgo } } }).catch(() => 0),
+      UserNotification.count({ where: { read_at: null } }).catch(() => 0),
+      UserIntegration.count().catch(() => 0),
+    ]);
+
+    const redis = await redisStatus();
+    const ai = await loadAiSnapshot();
+
+    const systemStatus = recentErrors > 10
+      ? 'degraded'
+      : (redis.configured && redis.ok === false ? 'degraded' : 'healthy');
+
     return success(res, {
-      users: { total: totalUsers, active: activeUsers, new_this_week: newUsersThisWeek },
+      users: {
+        total: totalUsers,
+        active: activeUsers,
+        new_this_week: newUsersThisWeek,
+        admins: adminUsers,
+      },
       activity_24h: {
         health_logs: healthLogsToday,
         finance_logs: financeLogsToday,
         chat_messages: chatMessagesToday,
       },
+      product: {
+        weekly_reports_total: reportsTotal,
+        weekly_reports_this_week: reportsThisWeek,
+        notifications_unread: notificationsUnread,
+        integrations_connected: integrationsConnected,
+      },
+      runtime: {
+        redis: {
+          configured: redis.configured,
+          ok: redis.ok,
+          mode: redis.configured ? 'redis' : 'memory',
+        },
+        ephemeral_store: redisEnabled() ? 'redis' : 'memory',
+        env: process.env.NODE_ENV || 'development',
+        commit: (
+          process.env.RAILWAY_GIT_COMMIT_SHA
+          || process.env.GIT_COMMIT_SHA
+          || process.env.SOURCE_VERSION
+          || ''
+        ).slice(0, 12) || null,
+        ai,
+      },
       system: {
         errors_24h: recentErrors,
         nlp_avg_ms: Math.round(avgNlpTime?.avg_ms || 0),
         nlp_max_ms: avgNlpTime?.max_ms || 0,
-        status: recentErrors > 10 ? 'degraded' : 'healthy',
+        status: systemStatus,
       },
     });
   } catch (err) {
@@ -138,17 +211,30 @@ const updateUserStatus = async (req, res, next) => {
 
     if (!user) return error(res, 'User not found.', 404);
     if (user.id === req.user.id) return error(res, 'Cannot modify your own status.', 400);
+    // Prevent lockout: only when deactivating an *currently active* admin.
+    if (user.role === 'admin' && user.is_active === true && is_active === false) {
+      const adminCount = await User.count({ where: { role: 'admin', is_active: true } });
+      if (adminCount <= 1) {
+        return error(res, 'Cannot deactivate the last active admin.', 400, 'LAST_ADMIN');
+      }
+    }
 
+    const before = user.is_active;
     await user.update({ is_active: Boolean(is_active) });
 
-    // Log admin action
+    // Log admin action (auditable before/after)
     await SystemLog.create({
       admin_id: req.user.id,
       log_type: 'audit',
       action: is_active ? 'user_activated' : 'user_deactivated',
       target_table: 'users',
       target_id: user.id,
-      details: { username: user.username },
+      details: {
+        username: user.username,
+        email: user.email,
+        before: { is_active: before },
+        after: { is_active: Boolean(is_active) },
+      },
       severity: 'info',
       ip_address: req.ip,
     });
