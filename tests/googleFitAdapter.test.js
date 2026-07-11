@@ -74,3 +74,31 @@ describe('GoogleFitAdapter configuration', () => {
     }
   });
 });
+
+describe('GoogleFitAdapter.disconnect revoke transport', () => {
+  test('sends token in form body, not query string (no log leak)', async () => {
+    jest.resetModules();
+    const post = jest.fn(async () => ({ data: {} }));
+    jest.doMock('axios', () => ({ post, get: jest.fn() }));
+    // Re-require adapter after axios mock
+    const GoogleFitAdapter = require('../server/services/external/googleFitAdapter');
+    const adapter = new GoogleFitAdapter();
+    await adapter.disconnect('ya29.secret-access-token');
+    expect(post).toHaveBeenCalledTimes(1);
+    const [url, body, opts] = post.mock.calls[0];
+    expect(url).toBe('https://oauth2.googleapis.com/revoke');
+    expect(String(url)).not.toMatch(/token=/);
+    expect(body).toBe('token=ya29.secret-access-token');
+    expect(opts.headers['Content-Type']).toMatch(/x-www-form-urlencoded/);
+  });
+
+  test('no-op when access token missing (still safe)', async () => {
+    jest.resetModules();
+    const post = jest.fn();
+    jest.doMock('axios', () => ({ post, get: jest.fn() }));
+    const GoogleFitAdapter = require('../server/services/external/googleFitAdapter');
+    const adapter = new GoogleFitAdapter();
+    await expect(adapter.disconnect(null)).resolves.toEqual({ success: true });
+    expect(post).not.toHaveBeenCalled();
+  });
+});

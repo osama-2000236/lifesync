@@ -71,20 +71,61 @@ npx jest --forceExit --runInBand
 
 ---
 
+## Loop 3 — 2026-07-11 — **Google Fit OAuth / token encryption (UC-15)**
+
+### Section
+OAuth state binding, token-at-rest AES, revoke transport, callback logging
+
+### Tests run
+```
+npx jest tests/googleFitAdapter.test.js tests/userIntegrationModel.test.js \
+  tests/externalOAuthState.test.js tests/googleFitAccessToken.test.js
+# 21 pass
+npx jest --forceExit --runInBand
+# 827 pass / 2 skip
+```
+
+### Findings (fixed)
+| Severity | Issue | Fix |
+|----------|--------|-----|
+| **High** | `disconnect` revoked via `?token=` **query string** (proxy/access-log leak) | POST form body + `x-www-form-urlencoded` |
+| **Low** | Callback catch logged raw `err.message` | code/name + message capped 120 chars |
+
+### Already solid (verified)
+- Server-issued single-use state nonce; platform-bound; no client userId
+- `UserIntegration` AES hooks for access/refresh tokens
+- Placeholder Fit secrets fail closed
+
+### Regression added
+- Revoke never puts token in URL
+- Double-encrypt guard + encrypt Google-style `ya29.` tokens
+
+### Remaining risk
+- Ops: live happy-path still needs real `GOOGLE_CLIENT_SECRET`
+- Concurrent refresh races (accepted)
+
+### Section status
+**GREEN** (code). Live full OAuth still secret-gated.
+
+### Next loop candidate
+**Health/finance IDOR + field encryption at rest** or **Chat/NLP safety**.
+
+---
+
 ## Section scoreboard (campaign)
 
 | Section | Status | Notes |
 |---------|--------|--------|
 | Auth & session security | **GREEN** (loop 1) | 3 fixes |
 | DB/migrations/seed | **GREEN** (loop 2) | await baseline bug |
-| Health CRUD | pending deep | Live UC-04 passed historically |
+| Google Fit UC-15 | **GREEN** (loop 3) | revoke leak + token hooks |
+| Health CRUD | pending deep | Live UC-04 historically |
 | Finance CRUD | pending deep | Live UC-05 |
 | Chat/NLP | pending deep | Live UC-06..09 |
 | Insights | pending deep | |
 | Reports UC-13 | pending deep | unit suite exists |
 | Notifications UC-14 | pending deep | |
-| Google Fit UC-15 | pending deep | secret ops gap |
 | Admin API UC-16 | pending deep | least-privilege live |
 | Memory | pending deep | |
 | FE SPA shells | pending deep | Playwright shells green |
-| Perf hotspots | pending deep | conversation O(n²) marked ponytail |
+| Perf hotspots | pending deep | conversation O(n²) ponytail |

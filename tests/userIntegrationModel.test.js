@@ -34,4 +34,24 @@ describe('UserIntegration token encryption hooks', () => {
     expect(inst._store.access_token).toBe('plain-access');
     expect(inst._store.refresh_token).toBe('plain-refresh');
   });
+
+  test('beforeUpdate does not double-encrypt already-ciphertext tokens', async () => {
+    const cipher = encrypt('plain-access');
+    const inst = fakeInstance({ access_token: cipher, refresh_token: encrypt('plain-refresh') });
+    await UserIntegration.runHooks('beforeUpdate', inst, {});
+    // Still the same ciphertext envelope (U2FsdGVk…), not nested encryption.
+    expect(inst._store.access_token).toBe(cipher);
+    expect(isEncrypted(inst._store.access_token)).toBe(true);
+  });
+
+  test('beforeUpdate encrypts plaintext Google-style tokens (ya29…)', async () => {
+    const inst = fakeInstance({
+      access_token: 'ya29.a0AfH6SMB-example-oauth-access',
+      refresh_token: '1//0example-refresh-token-value',
+    });
+    await UserIntegration.runHooks('beforeUpdate', inst, {});
+    expect(isEncrypted(inst._store.access_token)).toBe(true);
+    expect(isEncrypted(inst._store.refresh_token)).toBe(true);
+    expect(inst._store.access_token).not.toMatch(/^ya29\./);
+  });
 });

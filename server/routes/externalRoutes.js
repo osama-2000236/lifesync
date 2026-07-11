@@ -189,7 +189,8 @@ router.get('/callback/:platform', async (req, res, next) => {
 
     res.redirect(`${fe}/integrations?integration=${req.params.platform}&status=connected`);
   } catch (err) {
-    console.error('[external/callback]', err.message);
+    // Never log tokens/code; message only.
+    console.error('[external/callback]', err.code || err.name || 'Error', String(err.message || '').slice(0, 120));
     res.redirect(`${fe}/integrations?integration=${req.params.platform}&status=error&error=callback_failed`);
   }
 });

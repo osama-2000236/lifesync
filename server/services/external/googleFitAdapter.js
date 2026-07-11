@@ -194,10 +194,17 @@ class GoogleFitAdapter extends HealthPlatformAdapter {
   }
 
   /**
-   * Revoke Google Fit access
+   * Revoke Google Fit access.
+   * Token goes in the form body — never the URL (query strings hit access logs,
+   * reverse proxies, and browser history).
    */
   async disconnect(accessToken) {
-    await axios.post(`https://oauth2.googleapis.com/revoke?token=${accessToken}`);
+    if (!accessToken) return { success: true };
+    await axios.post(
+      'https://oauth2.googleapis.com/revoke',
+      new URLSearchParams({ token: String(accessToken) }).toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15_000 },
+    );
     return { success: true };
   }
 
