@@ -17,6 +17,12 @@ const { buildBertContext } = require('../services/ai/bertContextService');
 const { recordTurnMemories } = require('../services/ai/memoryService');
 const { resolveModel } = require('../services/ai/modelRuntimeManager');
 const { resolveSessionModel, assistantModelMeta } = require('../services/ai/sessionModelLock');
+const {
+  entitiesForPersistence,
+  isValidHealthEntity,
+  isValidFinanceEntity,
+  MIN_WRITE_CONFIDENCE,
+} = require('../services/ai/chatWriteSafety');
 const HealthLog = require('../models/HealthLog');
 const FinancialLog = require('../models/FinancialLog');
 const Category = require('../models/Category');
@@ -137,15 +143,18 @@ const resolveCategory = async (categoryName, domain, userId) => {
 const createHealthEntries = async (entities, userId) => {
   const entries = [];
   for (const entity of entities) {
-    if (entity.domain !== 'health') continue;
+    if (!isValidHealthEntity(entity)) continue;
+    const value = Number(entity.value);
     const category = await resolveCategory(entity.category, 'health', userId);
     const entry = await HealthLog.create({
       user_id: userId,
       type: entity.type,
-      value: entity.value,
+      value,
       value_text: entity.value_text || null,
       unit: entity.unit || null,
-      duration: entity.duration || null,
+      duration: entity.duration != null && Number.isFinite(Number(entity.duration))
+        ? parseInt(entity.duration, 10)
+        : null,
       notes: entity.activity || null,
       logged_at: new Date(),
       source: 'nlp',
@@ -159,13 +168,15 @@ const createHealthEntries = async (entities, userId) => {
 const createFinanceEntries = async (entities, userId) => {
   const entries = [];
   for (const entity of entities) {
-    if (entity.domain !== 'finance') continue;
+    if (!isValidFinanceEntity(entity)) continue;
+    const amount = Number(entity.amount);
     const category = await resolveCategory(entity.category, 'finance', userId);
+    const currency = String(entity.currency || 'USD').slice(0, 3).toUpperCase() || 'USD';
     const entry = await FinancialLog.create({
       user_id: userId,
       type: entity.type,
-      amount: entity.amount,
-      currency: entity.currency || 'USD',
+      amount,
+      currency,
       description: entity.description || entity.activity || null,
       logged_at: new Date(),
       source: 'nlp',
@@ -263,9 +274,10 @@ const handleGenerativeFailure = async ({
   let healthEntries = [];
   let financeEntries = [];
   let linkedDomainEntries = [];
-  if (Array.isArray(nlpResult.entities) && nlpResult.entities.length > 0) {
-    const healthEntities = nlpResult.entities.filter((e) => e.domain === 'health');
-    const financeEntities = nlpResult.entities.filter((e) => e.domain === 'finance');
+  const persistable = entitiesForPersistence(nlpResult);
+  if (persistable.length > 0) {
+    const healthEntities = persistable.filter((e) => e.domain === 'health');
+    const financeEntities = persistable.filter((e) => e.domain === 'finance');
     if (healthEntities.length > 0) healthEntries = await createHealthEntries(healthEntities, userId);
     if (financeEntities.length > 0) financeEntries = await createFinanceEntries(financeEntities, userId);
     if (nlpResult.is_cross_domain && healthEntries.length > 0 && financeEntries.length > 0) {
@@ -558,9 +570,10 @@ const processMessageStream = async (req, res) => {
     let financeEntries = [];
     let linkedDomainEntries = [];
 
-    if (nlpResult.entities.length > 0) {
-      const healthEntities = nlpResult.entities.filter((e) => e.domain === 'health');
-      const financeEntities = nlpResult.entities.filter((e) => e.domain === 'finance');
+    const persistable = entitiesForPersistence(nlpResult);
+    if (persistable.length > 0) {
+      const healthEntities = persistable.filter((e) => e.domain === 'health');
+      const financeEntities = persistable.filter((e) => e.domain === 'finance');
 
       if (healthEntities.length > 0) {
         healthEntries = await createHealthEntries(healthEntities, userId);
@@ -818,9 +831,10 @@ const processMessage = async (req, res, next) => {
     let financeEntries = [];
     let linkedDomainEntries = [];
 
-    if (nlpResult.entities.length > 0) {
-      const healthEntities = nlpResult.entities.filter((e) => e.domain === 'health');
-      const financeEntities = nlpResult.entities.filter((e) => e.domain === 'finance');
+    const persistable = entitiesForPersistence(nlpResult);
+    if (persistable.length > 0) {
+      const healthEntities = persistable.filter((e) => e.domain === 'health');
+      const financeEntities = persistable.filter((e) => e.domain === 'finance');
 
       if (healthEntities.length > 0) {
         healthEntries = await createHealthEntries(healthEntities, userId);
@@ -947,4 +961,6 @@ module.exports = {
   chatValidation,
   _pendingClarifications: pendingClarifications,
   _resolveAIErrorMessage: resolveAIErrorMessage,
+  _entitiesForPersistence: entitiesForPersistence,
+  _MIN_WRITE_CONFIDENCE: MIN_WRITE_CONFIDENCE,
 };

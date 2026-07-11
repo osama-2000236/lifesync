@@ -152,6 +152,45 @@ npx jest --forceExit --runInBand
 
 ---
 
+## Loop 5 — 2026-07-12 — **Chat/NLP write safety**
+
+### Section
+Chat controller persistence gate + entity validation (UC-06..09)
+
+### Tests run
+```
+npx jest tests/chatSafety.test.js tests/bertNlpService.test.js \
+  tests/arabicNlp.test.js tests/chatStream.test.js
+# 67 pass
+npx jest --forceExit --runInBand
+```
+
+### Findings (fixed)
+| Severity | Issue | Fix |
+|----------|--------|-----|
+| **High** | Controller wrote any `nlpResult.entities` when present; **no confidence / clarification re-check** on all write paths (stream, JSON, generative-failure) | `entitiesForPersistence()` — empty if clarifying or confidence &lt; 0.5 |
+| **Medium** | Health/finance creates accepted invalid types / NaN / amount ≤ 0 → DB errors or junk rows | `isValidHealthEntity` / `isValidFinanceEntity` before create |
+
+### Already solid (verified)
+- NLP `normalizeNLPResponse` clears entities when `needs_clarification`
+- BERT incomplete spend asks clarification with empty entities
+- Clarification branch returns early with empty `entities_logged`
+
+### Regression
+- `server/services/ai/chatWriteSafety.js` + `tests/chatSafety.test.js`
+
+### Remaining risk
+- Generative models can still invent entities at high confidence (model quality, not gate)
+- Goals (`_goal`) still persist without the 0.5 gate (separate path)
+
+### Section status
+**GREEN** (write-safety bar)
+
+### Next loop candidate
+**Admin API UC-16** or **Reports UC-13 / Notifications UC-14**.
+
+---
+
 ## Section scoreboard (campaign)
 
 | Section | Status | Notes |
@@ -161,7 +200,7 @@ npx jest --forceExit --runInBand
 | Google Fit UC-15 | **GREEN** (loop 3) | revoke leak |
 | Health CRUD | **GREEN** (loop 4) | IDOR + encrypted search |
 | Finance CRUD | **GREEN** (loop 4) | same |
-| Chat/NLP | pending deep | Live UC-06..09 |
+| Chat/NLP | **GREEN** (loop 5) | write gate + entity validate |
 | Insights | pending deep | |
 | Reports UC-13 | pending deep | unit suite exists |
 | Notifications UC-14 | pending deep | |
