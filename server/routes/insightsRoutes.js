@@ -36,7 +36,8 @@ router.get('/', authenticate, async (req, res, next) => {
 // Get stored insight history
 router.get('/history', authenticate, async (req, res, next) => {
   try {
-    const limit = parseInt(req.query.limit) || 5;
+    // Cap page size — history is for UI carousel, not bulk export.
+    const limit = Math.min(20, Math.max(1, parseInt(req.query.limit, 10) || 5));
     const insights = await getLatestInsights(req.user.id, limit);
     success(res, { insights }, 'Insight history');
   } catch (err) {
@@ -77,10 +78,14 @@ router.get('/gamification', authenticate, async (req, res, next) => {
   }
 });
 
-// Mark insight as read
+// Mark insight as read (ownership enforced inside markAsRead)
 router.put('/:id/read', authenticate, async (req, res, next) => {
   try {
-    const insight = await markAsRead(req.params.id, req.user.id);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id) || id < 1) {
+      return error(res, 'Invalid insight id.', 400, 'VALIDATION_ERROR');
+    }
+    const insight = await markAsRead(id, req.user.id);
     if (!insight) return error(res, 'Insight not found', 404);
     success(res, { insight }, 'Insight marked as read');
   } catch (err) {

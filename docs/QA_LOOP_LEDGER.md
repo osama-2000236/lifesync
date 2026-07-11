@@ -315,6 +315,45 @@ npx jest --forceExit --runInBand
 
 ---
 
+## Loop 9 — 2026-07-12 — **Insights dashboard / history**
+
+### Section
+Dashboard insights cache, history serialization, mark-as-read IDOR, model_runtime hygiene
+
+### Tests run
+```
+npx jest tests/dashboardInsightsService.test.js tests/idorControllers.test.js \
+  tests/insightEngine.test.js tests/insightEval.test.js
+# 71 pass
+npx jest --forceExit --runInBand
+```
+
+### Findings (fixed)
+| Severity | Issue | Fix |
+|----------|--------|-----|
+| **Medium** | `model_runtime` spread **provider error/apiKey** fields into client JSON | `sanitizeModelRuntime` allowlist |
+| **Medium** | `getLatestInsights` returned **raw Sequelize rows** (bulky/internal snapshot) | map via `serializeStoredInsight` |
+| **Low** | History `limit` unbounded | cap 1–20 |
+| **Low** | `markAsRead` accepted non-numeric ids | parseInt gate + route 400 |
+| **Low** | In-memory cache unbounded by user count | max 500 entries + expiry eviction |
+
+### Already solid
+- All insight queries scoped by `user_id`
+- POST generate rate-limited (`insightLimiter`)
+- Deterministic scores preserved when model falls back
+
+### Residual
+- Multi-instance cache not shared (per-process Map) — acceptable
+- Insights content quality depends on model + engine rules
+
+### Section status
+**GREEN**
+
+### Next loop candidate
+**FE SPA shells** or **Perf hotspots**.
+
+---
+
 ## Section scoreboard (campaign)
 
 | Section | Status | Notes |
@@ -329,6 +368,6 @@ npx jest --forceExit --runInBand
 | Reports UC-13 | **GREEN** (loop 7) | cron harden |
 | Notifications UC-14 | **GREEN** (loop 7) | same |
 | Memory | **GREEN** (loop 8) | assistant.* isolation |
-| Insights | pending deep | |
+| Insights | **GREEN** (loop 9) | model_runtime scrub |
 | FE SPA shells | pending deep | Playwright shells green |
 | Perf hotspots | pending deep | conversation O(n²) ponytail |

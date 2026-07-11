@@ -170,25 +170,31 @@ const getCurrentInsights = async (userId) => {
  * @param {number} limit - Number of recent insights to return
  */
 const getLatestInsights = async (userId, limit = 5) => {
-  return AISummary.findAll({
+  const safeLimit = Math.min(20, Math.max(1, parseInt(limit, 10) || 5));
+  const rows = await AISummary.findAll({
     where: { user_id: userId },
     order: [['generated_at', 'DESC']],
-    limit,
+    limit: safeLimit,
   });
+  // Never return raw Sequelize rows (metrics_snapshot may hold bulky internals).
+  return rows.map(serializeStoredInsight);
 };
 
 /**
  * Mark an insight as read
  */
 const markAsRead = async (insightId, userId) => {
+  const id = parseInt(insightId, 10);
+  if (!Number.isFinite(id) || id < 1) return null;
+
   const insight = await AISummary.findOne({
-    where: { id: insightId, user_id: userId },
+    where: { id, user_id: userId },
   });
 
   if (!insight) return null;
 
   await insight.update({ is_read: true });
-  return insight;
+  return serializeStoredInsight(insight);
 };
 
 module.exports = { generateAndStoreInsights, getCurrentInsights, getLatestInsights, markAsRead };

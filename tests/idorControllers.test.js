@@ -143,4 +143,13 @@ describe('insights markAsRead IDOR', () => {
     }));
     spy.mockRestore();
   });
+
+  test('markAsRead rejects non-numeric id without querying', async () => {
+    const AISummary = require('../server/models/AISummary');
+    const spy = jest.spyOn(AISummary, 'findOne').mockResolvedValue(null);
+    const { markAsRead } = require('../server/services/ai/insightsService');
+    expect(await markAsRead('abc', 1)).toBeNull();
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
 });

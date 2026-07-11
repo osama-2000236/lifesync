@@ -3,9 +3,24 @@ const { runInsightEngine } = require('./insightEngine');
 const { generateWeeklyInsights } = require('./nlpService');
 
 const cache = new Map();
+/** Prevent unbounded growth if many users hit a single process. */
+const MAX_CACHE_ENTRIES = 500;
 
 const cacheTtlMs = () => parseInt(process.env.AI_INSIGHTS_CACHE_TTL_MS, 10) || 15 * 60 * 1000;
 const fallbackTtlMs = () => Math.min(cacheTtlMs(), 60 * 1000);
+
+/** Client-safe model_runtime — never forward raw errors/keys from providers. */
+const sanitizeModelRuntime = (rt = {}) => {
+  if (!rt || typeof rt !== 'object') return { status: 'unknown' };
+  return {
+    status: rt.status || 'unknown',
+    provider: rt.provider || null,
+    model: rt.model || null,
+    operating_mode: rt.operating_mode || null,
+    cache_ttl_ms: rt.cache_ttl_ms != null ? rt.cache_ttl_ms : undefined,
+    generated_at: rt.generated_at || undefined,
+  };
+};
 
 const compactDeterministicInput = (insights) => ({
   period: insights.period,
@@ -52,7 +67,7 @@ const buildDashboardInsights = async (userId, { force = false } = {}) => {
     cross_domain_insights: modelReady && modelInsights.cross_domain_insights
       ? modelInsights.cross_domain_insights
       : deterministic.cross_domain_insights,
-    model_runtime: {
+    model_runtime: sanitizeModelRuntime({
       ...(modelInsights?._model_runtime || { status: 'fallback' }),
       operating_mode: modelReady
         ? 'local_model_narrative_with_deterministic_metrics'
@@ -61,8 +76,21 @@ const buildDashboardInsights = async (userId, { force = false } = {}) => {
           : 'deterministic_fallback',
       cache_ttl_ms: cacheTtlMs(),
       generated_at: new Date().toISOString(),
-    },
+    }),
   };
+
+  // Evict expired + oldest if over cap (simple FIFO via Map insertion order).
+  if (cache.size >= MAX_CACHE_ENTRIES) {
+    const now = Date.now();
+    for (const [k, v] of cache) {
+      if (v.expiresAt <= now) cache.delete(k);
+    }
+    while (cache.size >= MAX_CACHE_ENTRIES) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+  }
 
   cache.set(userId, {
     value: result,
@@ -101,4 +129,5 @@ module.exports = {
   buildDashboardInsights,
   persistDashboardInsights,
   _clearCache: () => cache.clear(),
+  _sanitizeModelRuntime: sanitizeModelRuntime,
 };

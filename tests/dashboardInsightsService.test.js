@@ -15,6 +15,7 @@ const {
   buildDashboardInsights,
   persistDashboardInsights,
   _clearCache,
+  _sanitizeModelRuntime,
 } = require('../server/services/ai/dashboardInsightsService');
 
 const deterministic = () => ({
@@ -76,6 +77,41 @@ describe('dashboardInsightsService', () => {
     expect(first.model_runtime.operating_mode).toBe('bert_classifier_with_deterministic_dashboard');
     expect(second).toBe(first);
     expect(runInsightEngine).toHaveBeenCalledTimes(1);
+  });
+
+  test('model_runtime never forwards provider error/secret fields to clients', async () => {
+    generateWeeklyInsights.mockResolvedValue({
+      _model_runtime: {
+        status: 'fallback',
+        error: 'ECONNREFUSED api_key=sk-secret-xyz',
+        apiKey: 'sk-should-not-leak',
+        provider: 'openrouter',
+      },
+    });
+    const result = await buildDashboardInsights(9);
+    expect(result.model_runtime.error).toBeUndefined();
+    expect(result.model_runtime.apiKey).toBeUndefined();
+    expect(JSON.stringify(result.model_runtime)).not.toMatch(/sk-|api_key|ECONNREFUSED/i);
+    expect(result.model_runtime.status).toBe('fallback');
+    expect(result.model_runtime.provider).toBe('openrouter');
+  });
+
+  test('sanitizeModelRuntime only keeps allowlisted keys', () => {
+    const clean = _sanitizeModelRuntime({
+      status: 'ready',
+      provider: 'x',
+      model: 'y',
+      error: 'nope',
+      headers: { Authorization: 'Bearer z' },
+    });
+    expect(clean).toEqual({
+      status: 'ready',
+      provider: 'x',
+      model: 'y',
+      operating_mode: null,
+      cache_ttl_ms: undefined,
+      generated_at: undefined,
+    });
   });
 
   test('caches dashboard inference and persists a forced generation', async () => {
