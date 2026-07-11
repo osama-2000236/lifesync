@@ -226,6 +226,9 @@ describe('seed idempotency', () => {
   test('default category findOrCreate does not duplicate on second pass', async () => {
     const db = require('../server/models');
     await db.sequelize.authenticate();
+    // Match seed.js: sync before findOrCreate. CI uses DB_STORAGE=:memory:
+    // with no prior migrate — without this, SELECT hits no such table: categories.
+    await db.sequelize.sync({ force: false });
     // Use unique names so we never collide with real seed data permanently
     const tag = `seed_test_${process.pid}`;
     const cat = {
