@@ -102,10 +102,23 @@ async function section(title, fn) {
   let userId = null;
 
   await section('Bootstrap — QA session', async () => {
-    const wrong = await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': `${QA_TOKEN}-WRONG` } });
-    expectStatus('UC-02 related: wrong QA token denied', wrong, 401);
+    // authLimiter is shared — full-suite re-runs can 429; backoff before hard-fail.
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let wrong = await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': `${QA_TOKEN}-WRONG` } });
+    for (let i = 0; i < 4 && wrong.status === 429; i += 1) {
+      wrn('Wrong QA token hit auth rate limit — backoff', `try ${i + 1}`);
+      await sleep(2000 * (i + 1));
+      wrong = await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': `${QA_TOKEN}-WRONG` } });
+    }
+    if (wrong.status === 429) wrn('UC-02 related: wrong QA token denied', 'HTTP 429 (authLimiter — re-run later)');
+    else expectStatus('UC-02 related: wrong QA token denied', wrong, 401);
 
-    const good = await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': QA_TOKEN } });
+    let good = await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': QA_TOKEN } });
+    for (let i = 0; i < 5 && good.status === 429; i += 1) {
+      wrn('QA login rate-limited — backoff', `try ${i + 1}`);
+      await sleep(2500 * (i + 1));
+      good = await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': QA_TOKEN } });
+    }
     if (!expectStatus('QA login', good, 200)) return;
     accessToken = good.json?.data?.accessToken;
     refreshToken = good.json?.data?.refreshToken;

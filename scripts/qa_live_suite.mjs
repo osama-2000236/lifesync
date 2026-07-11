@@ -172,7 +172,11 @@ async function section(title, fn) {
 
     // Google with a structurally-invalid credential should fail cleanly (signature), not 500.
     const gFake = await http('POST', `${BE}/api/auth/google`, { body: { credential: 'aaa.bbb.ccc' } });
-    expectStatus('Google login bad credential -> 401/400 (not 500)', gFake, [400, 401]);
+    if (gFake.status === 429) {
+      wrn('Google login bad credential rate-limited', 'HTTP 429 (authLimiter active — not a 500)');
+    } else {
+      expectStatus('Google login bad credential -> 401/400 (not 500)', gFake, [400, 401]);
+    }
   });
 
   // ───────────────────────── QA E2E login (dormant by default) ─────────────────────────
@@ -186,7 +190,12 @@ async function section(title, fn) {
       expectStatus('qa-login dormant (bogus header) -> 404', await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': 'whatever-bogus' } }), 404);
     } else {
       // Operator opted in: a wrong token is rejected (401) and the right one mints a session (200).
-      expectStatus('qa-login wrong token -> 401', await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': `${qaToken}-WRONG` } }), 401);
+      const wrong = await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': `${qaToken}-WRONG` } });
+      if (wrong.status === 429) {
+        wrn('qa-login wrong token rate-limited', 'HTTP 429 (authLimiter — re-run alone to assert 401)');
+      } else {
+        expectStatus('qa-login wrong token -> 401', wrong, 401);
+      }
       const good = await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': qaToken } });
       if (good.status === 429) {
         // Under a long live suite the auth limiter can trip; that is expected protection.
