@@ -354,6 +354,44 @@ npx jest --forceExit --runInBand
 
 ---
 
+## Loop 10 — 2026-07-12 — **FE SPA shells (security)**
+
+### Section
+Client routing gates, OAuth redirect open-redirect, VITE API base validation, Markdown XSS posture
+
+### Tests run
+```
+npx jest tests/runtimeConfig.test.js
+# 4 pass
+cd client && npx vitest run src/utils/safeNavigate.test.js src/components/chat/Markdown.test.jsx
+# 17 pass
+npx jest --forceExit --runInBand
+```
+
+### Findings (fixed)
+| Severity | Issue | Fix |
+|----------|--------|-----|
+| **High** | Fit connect assigned `window.location` to **any** API-returned URL (open redirect if API compromised / MITM payload) | `navigateToOAuthAuthorizeUrl` — https Google hosts only |
+| **Medium** | `VITE_API_URL` accepted `javascript:` / `//evil` | reject non-http(s)/non-absolute-path; fall back `/api` |
+
+### Already solid
+- ProtectedRoute / AdminRoute (role from profile, not client claim alone)
+- Markdown is element-based (no `dangerouslySetInnerHTML` on replies)
+- Refresh single-flight; auth entry endpoints skip refresh loop
+- External `target=_blank` uses `rel="noopener noreferrer"` on policy pages
+
+### Residual
+- Tokens in localStorage (SPA tradeoff; XSS still catastrophic — mitigated by no HTML injection in chat)
+- Admin UI polish out of scope; route gate only
+
+### Section status
+**GREEN** (security shell bar)
+
+### Next loop candidate
+**Perf hotspots** (last deep section) — then reassess campaign STOP.
+
+---
+
 ## Section scoreboard (campaign)
 
 | Section | Status | Notes |
@@ -369,5 +407,5 @@ npx jest --forceExit --runInBand
 | Notifications UC-14 | **GREEN** (loop 7) | same |
 | Memory | **GREEN** (loop 8) | assistant.* isolation |
 | Insights | **GREEN** (loop 9) | model_runtime scrub |
-| FE SPA shells | pending deep | Playwright shells green |
+| FE SPA shells | **GREEN** (loop 10) | OAuth open-redirect |
 | Perf hotspots | pending deep | conversation O(n²) ponytail |

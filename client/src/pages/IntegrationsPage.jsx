@@ -5,6 +5,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { dateLocale } from '../i18n';
 import { getApiErrorMessage } from '../utils/apiErrors';
 import { getPaginatedItems } from '../utils/paginatedResponse';
+import { navigateToOAuthAuthorizeUrl } from '../utils/safeNavigate';
 import { Card, Alert, Button } from '../components/ui';
 import {
   ArrowLeft, RefreshCw, Unlink, CheckCircle,
@@ -59,9 +60,9 @@ function GoogleFitPanel({ status, onRefreshStatus }) {
     setError('');
     try {
       const { data } = await externalAPI.connect('google_fit');
-      if (data.data?.url) {
-        window.location.href = data.data.url;
-      } else {
+      const url = data.data?.url;
+      // Never open-redirect: only https Google OAuth hosts.
+      if (!url || !navigateToOAuthAuthorizeUrl(url)) {
         setError(t('integrations.connectUrlMissing'));
       }
     } catch (err) {
