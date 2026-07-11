@@ -19,6 +19,8 @@
     "probe:external": "node scripts/probe-external-services.mjs",
     "smoke:api": "node scripts/smoke-api.mjs",
     "smoke:workers": "node scripts/smoke-workers.mjs",
+    "qa:live": "node scripts/qa_live_suite.mjs",
+    "qa:live:use-cases": "node scripts/qa_live_use_cases.mjs",
     "test:e2e:mysql": "jest --runInBand --runTestsByPath tests/e2e/mysql.e2e.test.js --forceExit --detectOpenHandles",
     "db:wait": "node scripts/wait-for-mysql.js",
     "seed": "node server/seeders/seed.js",

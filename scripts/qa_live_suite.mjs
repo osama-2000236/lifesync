@@ -78,6 +78,21 @@ async function section(title, fn) {
     } else {
       wrn('Health does not report build commit yet', 'add commit field (deploy pending)');
     }
+    // Redis / ephemeral store (production hardening)
+    if (h.json?.redis) {
+      if (h.json.redis.configured === true && h.json.redis.ok === true) {
+        ok('Redis configured + ping OK', `mode=${h.json.redis.mode}`);
+      } else if (h.json.redis.configured === false) {
+        wrn('Redis not configured (memory ephemeral)', JSON.stringify(h.json.redis));
+      } else {
+        bad('Redis configured but ping failed', JSON.stringify(h.json.redis));
+      }
+      if (h.json.ephemeral_store === 'redis' || h.json.ephemeral_store === 'memory') {
+        ok('ephemeral_store reported', h.json.ephemeral_store);
+      }
+    } else {
+      wrn('Health missing redis block (older deploy?)');
+    }
 
     const ai = await http('GET', `${BE}/api/ai/health`);
     expectStatus('GET /api/ai/health (public)', ai, 200);

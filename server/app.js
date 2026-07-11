@@ -127,7 +127,9 @@ app.use('/api/health-logs', healthRoutes);
 app.use('/api/finance', financeRoutes);
 app.use('/api/chat', chatLimiter, chatRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/insights', insightLimiter, insightsRoutes);
+// Insight *generation* is rate-limited inside insightsRoutes; reads/history use
+// the general API limiter only so a generate burst doesn't block the dashboard.
+app.use('/api/insights', insightsRoutes);
 app.use('/api/external', externalRoutes);
 app.use('/api/ai', generalLimiter, aiRoutes);
 app.use('/api/voice', generalLimiter, voiceRoutes);

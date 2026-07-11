@@ -10,6 +10,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
+const { insightLimiter } = require('../middleware/rateLimiter');
 const {
   buildDashboardInsights,
   persistDashboardInsights,
@@ -43,8 +44,8 @@ router.get('/history', authenticate, async (req, res, next) => {
   }
 });
 
-// Force generate + persist
-router.post('/generate', authenticate, async (req, res, next) => {
+// Force generate + persist (expensive — rate-limited separately from reads)
+router.post('/generate', authenticate, insightLimiter, async (req, res, next) => {
   try {
     const insights = await persistDashboardInsights(req.user.id);
     created(res, { insights }, 'Insights generated and stored');
