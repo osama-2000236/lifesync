@@ -72,9 +72,26 @@ test.describe('LifeSync UI journeys', () => {
     await expect(authenticatedPage.getByRole('button', { name: /Generate|download|PDF/i })).toBeVisible();
   });
 
-  test('TC-UI-011 @voice studio shell loads', async ({ authenticatedPage, appPage }) => {
+  // Policy: shell only — no microphone capture / speech-to-text exercise.
+  test('TC-UI-011 @voice studio shell loads (no mic/STT)', async ({ authenticatedPage, appPage }) => {
     await appPage.goTo('Voice');
     await expect(authenticatedPage).toHaveURL(/\/assistant/);
     await expect(authenticatedPage.getByText(/Voice chat|Talk|Dictate|listening/i).first()).toBeVisible();
+  });
+
+  test('TC-UI-012a @uc-shells public register + login (no session)', async ({ page }) => {
+    await page.goto('/register');
+    await expect(page).toHaveURL(/\/register/);
+    await page.evaluate(() => localStorage.clear());
+    await page.goto('/login');
+    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+  });
+
+  test('TC-UI-012b @uc-shells dashboard + chat (no admin UI)', async ({ authenticatedPage }) => {
+    await authenticatedPage.goto('/dashboard');
+    await expect(authenticatedPage).toHaveURL(/\/dashboard/);
+    await authenticatedPage.goto('/chat');
+    await expect(authenticatedPage).toHaveURL(/\/chat/);
+    // Hard rule: do not navigate /admin for full admin UI coverage
   });
 });

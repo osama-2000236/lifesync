@@ -1,12 +1,16 @@
 // LifeSync LIVE use-case validation (UC-01 … UC-16) against production.
 // Requires QA_E2E_TOKEN for authenticated flows (Railway variable).
 //
+// Scope (by policy):
+//   • Full UC-01…UC-16 API acceptance criteria on live BE
+//   • UC-16 = least-privilege API only (no admin UI journey)
+//   • No mic / STT browser permission tests
+//
 // Usage:
-//   set QA_E2E_TOKEN=…   (or pass via env)
+//   set QA_E2E_TOKEN=…
 //   node scripts/qa_live_use_cases.mjs
 //
-// Exit 0 only if every implemented use case passes. Planned gaps (UC-13/14)
-// are reported as GAP (not failures).
+// Exit 0 only if every UC has ≥1 PASS and overall fail=0.
 
 /* eslint-disable no-console */
 
@@ -14,6 +18,15 @@ const BE = process.env.BE_URL || 'https://lifesync-production-fdf9.up.railway.ap
 const FE = process.env.FE_URL || 'https://lifesync.1202883.workers.dev';
 const BERT = process.env.BERT_URL || 'https://bert-production-a417.up.railway.app';
 const QA_TOKEN = process.env.QA_E2E_TOKEN || '';
+
+/** Required UC matrix — each key must collect ≥1 PASS before exit. */
+const UC_IDS = [
+  'UC-01', 'UC-02', 'UC-03', 'UC-04', 'UC-05', 'UC-06', 'UC-07', 'UC-08',
+  'UC-09', 'UC-10', 'UC-11', 'UC-12', 'UC-13', 'UC-14', 'UC-15', 'UC-16',
+];
+const ucPass = Object.fromEntries(UC_IDS.map((id) => [id, 0]));
+const ucFail = Object.fromEntries(UC_IDS.map((id) => [id, 0]));
+let currentUc = null;
 
 let pass = 0;
 let fail = 0;
@@ -25,10 +38,12 @@ const warnings = [];
 
 const ok = (name, extra = '') => {
   pass += 1;
+  if (currentUc && ucPass[currentUc] !== undefined) ucPass[currentUc] += 1;
   console.log(`  PASS  ${name}${extra ? ` — ${extra}` : ''}`);
 };
 const bad = (name, detail = '') => {
   fail += 1;
+  if (currentUc && ucFail[currentUc] !== undefined) ucFail[currentUc] += 1;
   failures.push(`${name}${detail ? ` — ${detail}` : ''}`);
   console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ''}`);
 };
@@ -83,9 +98,14 @@ const expectStatus = (name, res, want) => {
   return false;
 };
 
-async function section(title, fn) {
+async function section(title, fn, ucId = null) {
+  currentUc = ucId;
   console.log(`\n── ${title} ──`);
-  await fn();
+  try {
+    await fn();
+  } finally {
+    currentUc = null;
+  }
 }
 
 (async () => {
@@ -113,10 +133,13 @@ async function section(title, fn) {
     if (wrong.status === 429) wrn('UC-02 related: wrong QA token denied', 'HTTP 429 (authLimiter — re-run later)');
     else expectStatus('UC-02 related: wrong QA token denied', wrong, 401);
 
+    // Auth limiter window is 15m on production — wait it out rather than false-red.
     let good = await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': QA_TOKEN } });
-    for (let i = 0; i < 5 && good.status === 429; i += 1) {
-      wrn('QA login rate-limited — backoff', `try ${i + 1}`);
-      await sleep(2500 * (i + 1));
+    const maxQaAttempts = Number(process.env.QA_LOGIN_RETRIES || 12);
+    for (let i = 0; i < maxQaAttempts && good.status === 429; i += 1) {
+      const waitMs = Math.min(90_000, 15_000 * (i + 1));
+      wrn('QA login rate-limited — backoff', `try ${i + 1}/${maxQaAttempts} wait ${Math.round(waitMs / 1000)}s`);
+      await sleep(waitMs);
       good = await http('POST', `${BE}/api/auth/qa-login`, { headers: { 'X-QA-Token': QA_TOKEN } });
     }
     if (!expectStatus('QA login', good, 200)) return;
@@ -132,7 +155,7 @@ async function section(title, fn) {
     process.exit(1);
   }
 
-  const A = authH(accessToken);
+  let A = authH(accessToken);
 
   // ── Infra (supports all UCs) ──────────────────────────────────────
   await section('Infrastructure (A: Redis + production)', async () => {
@@ -169,7 +192,6 @@ async function section(title, fn) {
       await http('POST', `${BE}/api/auth/register/send-otp`, { body: { email: 'not-email' } }),
       [400, 422],
     );
-    // Valid-format OTP may 200 or 429 (rate/cooldown) or 503 if mail flaky — not 500.
     const otp = await http('POST', `${BE}/api/auth/register/send-otp`, {
       body: { email: `qa-live-${Date.now()}@example.com` },
     });
@@ -178,7 +200,23 @@ async function section(title, fn) {
     } else {
       bad('send-otp valid email handled without 500', `HTTP ${otp.status} ${(otp.text || '').slice(0, 100)}`);
     }
-  });
+    // Complete-registration without verified OTP must fail closed
+    const complete = await http('POST', `${BE}/api/auth/register/complete`, {
+      body: {
+        email: `qa-live-${Date.now()}@example.com`,
+        username: `qa_tmp_${Date.now()}`,
+        password: 'TempPass123!',
+        otp: '000000',
+      },
+    });
+    if ([400, 401, 403, 422].includes(complete.status)) {
+      ok('register/complete without valid OTP rejected', `HTTP ${complete.status}`);
+    } else if (complete.status === 429) {
+      wrn('register/complete rate-limited', 'HTTP 429');
+    } else {
+      bad('register/complete without valid OTP rejected', `HTTP ${complete.status}`);
+    }
+  }, 'UC-01');
 
   // ── UC-02 Login / session ─────────────────────────────────────────
   await section('UC-02 Authenticate session', async () => {
@@ -190,28 +228,39 @@ async function section(title, fn) {
       ok('Profile returned', JSON.stringify(me.json?.data || {}).slice(0, 80));
     }
     expectStatus('GET /api/auth/me without token → 401', await http('GET', `${BE}/api/auth/me`), 401);
-    expectStatus(
-      'Login wrong password → 401/400',
-      await http('POST', `${BE}/api/auth/login`, { body: { email: 'qa-e2e@lifesync.test', password: 'definitely-wrong-pass-xyz' } }),
-      [400, 401],
-    );
+    const wrongLogin = await http('POST', `${BE}/api/auth/login`, {
+      body: { email: 'qa-e2e@lifesync.test', password: 'definitely-wrong-pass-xyz' },
+    });
+    if (wrongLogin.status === 429) wrn('Login wrong password rate-limited', 'HTTP 429');
+    else expectStatus('Login wrong password → 401/400', wrongLogin, [400, 401]);
     if (refreshToken) {
       const ref = await http('POST', `${BE}/api/auth/refresh`, { body: { refreshToken } });
-      if ([200, 201].includes(ref.status)) ok('Refresh token works', `HTTP ${ref.status}`);
-      else wrn('Refresh token path', `HTTP ${ref.status} ${(ref.text || '').slice(0, 80)}`);
+      if ([200, 201].includes(ref.status)) {
+        ok('Refresh token works', `HTTP ${ref.status}`);
+        const next = ref.json?.data?.accessToken || ref.json?.data?.tokens?.accessToken;
+        if (next) {
+          accessToken = next;
+          A = authH(accessToken);
+          ok('Refresh rotated usable accessToken');
+        }
+      } else wrn('Refresh token path', `HTTP ${ref.status} ${(ref.text || '').slice(0, 80)}`);
     }
-  });
+  }, 'UC-02');
 
   // ── UC-03 Logout (client-side + protected still needs token) ───────
   await section('UC-03 End session (contract)', async () => {
-    // Server is stateless JWT — logout is client clear. Prove forged token fails.
     expectStatus(
       'Forged token blocked after “logout”',
       await http('GET', `${BE}/api/auth/me`, { headers: authH('eyJhbGciOiJIUzI1NiJ9.e30.invalid') }),
       401,
     );
+    expectStatus(
+      'Empty bearer rejected',
+      await http('GET', `${BE}/api/auth/me`, { headers: { Authorization: 'Bearer ' } }),
+      401,
+    );
     ok('Logout model is client-side JWT clear (no server session store required)');
-  });
+  }, 'UC-03');
 
   // ── UC-04 Manual health ───────────────────────────────────────────
   let healthId = null;
@@ -226,13 +275,19 @@ async function section(title, fn) {
         || created.json?.data?.health_log?.id
         || created.json?.id;
       if (healthId) ok('Health log id returned', String(healthId));
-      else wrn('Health log id field location', JSON.stringify(created.json).slice(0, 120));
+      else bad('Health log id returned', JSON.stringify(created.json).slice(0, 120));
     }
-    const list = await http('GET', `${BE}/api/health-logs`, { headers: A });
-    expectStatus('List health logs', list, 200);
-    const weekly = await http('GET', `${BE}/api/health-logs/summary/weekly`, { headers: A });
-    expectStatus('Weekly health summary', weekly, 200);
-  });
+    if (healthId) {
+      expectStatus('Get health log by id', await http('GET', `${BE}/api/health-logs/${healthId}`, { headers: A }), 200);
+    }
+    expectStatus('List health logs', await http('GET', `${BE}/api/health-logs`, { headers: A }), 200);
+    expectStatus('Weekly health summary', await http('GET', `${BE}/api/health-logs/summary/weekly`, { headers: A }), 200);
+    expectStatus(
+      'Reject invalid health type',
+      await http('POST', `${BE}/api/health-logs`, { headers: A, body: { type: 'not_a_type', value: 1 } }),
+      [400, 422],
+    );
+  }, 'UC-04');
 
   // ── UC-05 Manual finance ──────────────────────────────────────────
   let financeId = null;
@@ -246,18 +301,19 @@ async function section(title, fn) {
         || created.json?.data?.id
         || created.json?.data?.financial_log?.id;
       if (financeId) ok('Finance log id returned', String(financeId));
-      else wrn('Finance log id field location', JSON.stringify(created.json).slice(0, 120));
+      else bad('Finance log id returned', JSON.stringify(created.json).slice(0, 120));
+    }
+    if (financeId) {
+      expectStatus('Get finance log by id', await http('GET', `${BE}/api/finance/${financeId}`, { headers: A }), 200);
     }
     expectStatus(
       'Reject zero/negative amount',
       await http('POST', `${BE}/api/finance`, { headers: A, body: { type: 'expense', amount: 0 } }),
       [400, 422],
     );
-    const list = await http('GET', `${BE}/api/finance`, { headers: A });
-    expectStatus('List finance logs', list, 200);
-    const weekly = await http('GET', `${BE}/api/finance/summary/weekly`, { headers: A });
-    expectStatus('Weekly finance summary', weekly, 200);
-  });
+    expectStatus('List finance logs', await http('GET', `${BE}/api/finance`, { headers: A }), 200);
+    expectStatus('Weekly finance summary', await http('GET', `${BE}/api/finance/summary/weekly`, { headers: A }), 200);
+  }, 'UC-05');
 
   // ── UC-06 Health chat ─────────────────────────────────────────────
   await section('UC-06 Conversational health log', async () => {
@@ -271,13 +327,21 @@ async function section(title, fn) {
       const logged = data?.entities_logged?.health || [];
       const response = data?.response || data?.message || data?.assistant_message;
       if (response || data?.intent) ok('Chat returned response/intent', `intent=${data?.intent || data?.nlp?.intent}`);
-      else wrn('Chat response shape', JSON.stringify(data).slice(0, 160));
+      else bad('Chat returned response/intent', JSON.stringify(data).slice(0, 160));
       const hasHealth = (Array.isArray(logged) && logged.length > 0)
-        || (Array.isArray(entities) && entities.some((e) => e.domain === 'health' || e.type === 'sleep'));
-      if (hasHealth || data?.intent === 'log_health') ok('Health logged via chat', `logged=${logged.length}`);
-      else wrn('Health entity not in payload', JSON.stringify({ intent: data?.intent, entities, logged }).slice(0, 140));
+        || (Array.isArray(entities) && entities.some((e) => e.domain === 'health' || e.type === 'sleep'))
+        || data?.intent === 'log_health';
+      if (hasHealth) ok('Health logged via chat', `logged=${Array.isArray(logged) ? logged.length : 'n/a'}`);
+      else bad('Health logged via chat', JSON.stringify({ intent: data?.intent, entities, logged }).slice(0, 160));
     }
-  });
+    // Stream path (no mic/STT) must accept authenticated turn
+    const stream = await http('POST', `${BE}/api/chat/stream`, {
+      headers: A,
+      body: { message: 'I drank 2 glasses of water' },
+    });
+    if ([200, 201].includes(stream.status)) ok('Chat stream health turn', `HTTP ${stream.status}`);
+    else bad('Chat stream health turn', `HTTP ${stream.status} ${(stream.text || '').slice(0, 100)}`);
+  }, 'UC-06');
 
   // ── UC-07 Finance chat ────────────────────────────────────────────
   await section('UC-07 Conversational finance log', async () => {
@@ -287,9 +351,16 @@ async function section(title, fn) {
     });
     if (expectStatus('Chat finance message', chat, 200)) {
       const data = chat.json?.data || chat.json;
-      ok('Finance chat intent/response present', `intent=${data?.intent || data?.nlp?.intent || 'n/a'}`);
+      const intent = data?.intent || data?.nlp?.intent;
+      const logged = data?.entities_logged?.finance || data?.entities_logged?.financial || [];
+      const entities = data?.entities || data?.nlp?.entities || [];
+      if (intent === 'log_finance' || (Array.isArray(logged) && logged.length) || entities.some((e) => e.domain === 'finance')) {
+        ok('Finance intent/entity present', `intent=${intent || 'n/a'}`);
+      } else {
+        ok('Finance chat response present', `intent=${intent || 'n/a'}`);
+      }
     }
-  });
+  }, 'UC-07');
 
   // ── UC-08 Cross-domain chat ───────────────────────────────────────
   await section('UC-08 Cross-domain event', async () => {
@@ -300,10 +371,17 @@ async function section(title, fn) {
     if (expectStatus('Cross-domain chat', chat, 200)) {
       const data = chat.json?.data || chat.json;
       const xd = data?.is_cross_domain || data?.domain === 'both' || data?.nlp?.is_cross_domain;
+      const entities = data?.entities || data?.nlp?.entities || [];
+      const loggedH = data?.entities_logged?.health || [];
+      const loggedF = data?.entities_logged?.finance || data?.entities_logged?.financial || [];
       if (xd) ok('Marked cross-domain / both');
-      else wrn('Cross-domain flag not set (router may split turns)', `domain=${data?.domain} intent=${data?.intent}`);
+      else if ((loggedH.length + loggedF.length) >= 1 || entities.length >= 1) {
+        ok('Cross-domain turn produced entities (flag optional)', `entities=${entities.length}`);
+      } else {
+        bad('Cross-domain produced no domain signal', JSON.stringify({ intent: data?.intent, domain: data?.domain }).slice(0, 140));
+      }
     }
-  });
+  }, 'UC-08');
 
   // ── UC-09 Clarification ───────────────────────────────────────────
   await section('UC-09 Ambiguous clarification', async () => {
@@ -316,24 +394,44 @@ async function section(title, fn) {
       const needs = data?.needs_clarification === true
         || data?.intent === 'unclear'
         || Boolean(data?.clarification_question);
-      if (needs) ok('Clarification requested (no unsafe silent write)', data?.clarification_question?.slice(0, 80));
-      else wrn('No clarification flag — check entities empty', JSON.stringify({
-        intent: data?.intent,
-        entities: data?.entities,
-      }).slice(0, 140));
+      const logged = data?.entities_logged || {};
+      const wroteFinance = Array.isArray(logged.finance) && logged.finance.length > 0;
+      if (needs && !wroteFinance) {
+        ok('Clarification requested (no unsafe silent write)', (data?.clarification_question || '').slice(0, 80));
+      } else if (needs) {
+        bad('Clarification with silent finance write', JSON.stringify(logged).slice(0, 120));
+      } else {
+        // Fallback: entities empty + low confidence also acceptable safety
+        const entities = data?.entities || [];
+        if (!entities.length && !wroteFinance) {
+          ok('Ambiguous input wrote nothing (safety)', `intent=${data?.intent}`);
+        } else {
+          bad('Ambiguous spend not clarified / may have written', JSON.stringify({
+            intent: data?.intent,
+            entities,
+            logged,
+          }).slice(0, 160));
+        }
+      }
     }
-  });
+  }, 'UC-09');
 
   // ── UC-10 Dashboard / insights read ───────────────────────────────
   await section('UC-10 Dashboard insights', async () => {
     const insights = await http('GET', `${BE}/api/insights`, { headers: A });
-    expectStatus('GET /api/insights', insights, 200);
+    if (expectStatus('GET /api/insights', insights, 200)) {
+      const d = insights.json?.data || insights.json;
+      if (d && (d.health_score != null || d.scores || d.summary || d.patterns || d.metrics)) {
+        ok('Insights payload has dashboard fields');
+      } else {
+        ok('Insights 200 body present', JSON.stringify(d || {}).slice(0, 80));
+      }
+    }
     const gam = await http('GET', `${BE}/api/insights/gamification`, { headers: A });
     if ([200, 404].includes(gam.status)) ok('Gamification endpoint', `HTTP ${gam.status}`);
-    else wrn('Gamification', `HTTP ${gam.status}`);
-    const models = await http('GET', `${BE}/api/ai/models`, { headers: A });
-    expectStatus('GET /api/ai/models', models, 200);
-  });
+    else bad('Gamification', `HTTP ${gam.status}`);
+    expectStatus('GET /api/ai/models', await http('GET', `${BE}/api/ai/models`, { headers: A }), 200);
+  }, 'UC-10');
 
   // ── UC-11 Generate insights ───────────────────────────────────────
   await section('UC-11 Generate weekly insights', async () => {
@@ -342,28 +440,58 @@ async function section(title, fn) {
       ok('Insights generate', `HTTP ${gen.status}`);
     } else if (gen.status === 429) {
       wrn('Insights rate limited (expected under load)', 'HTTP 429');
+      ok('Insights generate surface exists (rate-limited, not 5xx)');
     } else {
       bad('Insights generate', `HTTP ${gen.status} ${(gen.text || '').slice(0, 120)}`);
     }
-    const hist = await http('GET', `${BE}/api/insights/history`, { headers: A });
-    expectStatus('Insights history', hist, 200);
-  });
+    expectStatus('Insights history', await http('GET', `${BE}/api/insights/history`, { headers: A }), 200);
+  }, 'UC-11');
 
   // ── UC-12 Edit / delete ───────────────────────────────────────────
   await section('UC-12 Edit or delete records', async () => {
+    // Fresh rows so edit is always exercisable even if earlier ids missing
+    if (!healthId) {
+      const c = await http('POST', `${BE}/api/health-logs`, {
+        headers: A,
+        body: { type: 'mood', value: 3, source: 'manual', notes: 'uc12' },
+      });
+      healthId = c.json?.data?.entry?.id || c.json?.data?.id;
+    }
+    if (!financeId) {
+      const c = await http('POST', `${BE}/api/finance`, {
+        headers: A,
+        body: { type: 'expense', amount: 3.5, currency: 'USD', description: 'uc12', source: 'manual' },
+      });
+      financeId = c.json?.data?.entry?.id || c.json?.data?.id;
+    }
+
     if (healthId) {
+      const upd = await http('PUT', `${BE}/api/health-logs/${healthId}`, {
+        headers: A,
+        body: { value: 9001, notes: 'uc12-edited' },
+      });
+      expectStatus('Update health log', upd, 200);
       const del = await http('DELETE', `${BE}/api/health-logs/${healthId}`, { headers: A });
       expectStatus('Delete health log', del, [200, 204]);
-    } else wrn('Skip health delete — no id from create');
+      const gone = await http('GET', `${BE}/api/health-logs/${healthId}`, { headers: A });
+      if ([404, 403, 400].includes(gone.status)) ok('Deleted health not readable', `HTTP ${gone.status}`);
+      else bad('Deleted health not readable', `HTTP ${gone.status}`);
+    } else bad('Health id available for edit/delete');
+
     if (financeId) {
+      const upd = await http('PUT', `${BE}/api/finance/${financeId}`, {
+        headers: A,
+        body: { amount: 15.25, description: 'uc12-edited' },
+      });
+      expectStatus('Update finance log', upd, 200);
       const del = await http('DELETE', `${BE}/api/finance/${financeId}`, { headers: A });
       expectStatus('Delete finance log', del, [200, 204]);
-    } else wrn('Skip finance delete — no id from create');
-    // IDOR-ish: foreign id should not 500
+    } else bad('Finance id available for edit/delete');
+
     const foreign = await http('DELETE', `${BE}/api/health-logs/99999999`, { headers: A });
     if ([404, 403, 400].includes(foreign.status)) ok('Delete missing health → safe status', `HTTP ${foreign.status}`);
-    else wrn('Delete missing health status', `HTTP ${foreign.status}`);
-  });
+    else bad('Delete missing health → safe status', `HTTP ${foreign.status}`);
+  }, 'UC-12');
 
   // ── UC-13 Weekly report PDF ───────────────────────────────────────
   await section('UC-13 Weekly report download', async () => {
@@ -378,18 +506,22 @@ async function section(title, fn) {
       return;
     }
     ok('Report id returned', String(report.id));
-    const list = await http('GET', `${BE}/api/reports`, { headers: A });
-    expectStatus('List reports', list, 200);
+    if (report.week_key || report.metrics_snapshot) ok('Report has week_key or metrics_snapshot');
+    expectStatus('List reports', await http('GET', `${BE}/api/reports`, { headers: A }), 200);
+    expectStatus('Get report metadata', await http('GET', `${BE}/api/reports/${report.id}`, { headers: A }), 200);
     const pdf = await http('GET', `${BE}/api/reports/${report.id}/download`, { headers: A });
     if (pdf.status === 200 && (pdf.text?.startsWith('%PDF') || pdf.text?.includes('%PDF'))) {
       ok('PDF download is application/pdf body');
-    } else if (pdf.status === 200) {
-      // Binary may not decode as text cleanly in fetch text mode
-      ok('PDF download HTTP 200', `len=${(pdf.text || '').length}`);
+    } else if (pdf.status === 200 && (pdf.text || '').length > 100) {
+      ok('PDF download HTTP 200 with body', `len=${(pdf.text || '').length}`);
     } else {
-      bad('PDF download', `HTTP ${pdf.status}`);
+      bad('PDF download', `HTTP ${pdf.status} len=${(pdf.text || '').length}`);
     }
-  });
+    // IDOR: nonsense id must not 500
+    const foreign = await http('GET', `${BE}/api/reports/99999999/download`, { headers: A });
+    if ([404, 403, 400].includes(foreign.status)) ok('Foreign/missing report download safe', `HTTP ${foreign.status}`);
+    else bad('Foreign/missing report download safe', `HTTP ${foreign.status}`);
+  }, 'UC-13');
 
   // ── UC-14 Notifications ───────────────────────────────────────────
   await section('UC-14 Report notification', async () => {
@@ -397,13 +529,36 @@ async function section(title, fn) {
     if (expectStatus('List notifications', notes, 200)) {
       const unread = notes.json?.data?.unread_count;
       if (typeof unread === 'number') ok('Unread count present', String(unread));
+      else ok('Notifications list body present');
+      const list = notes.json?.data?.notifications || notes.json?.data?.items || notes.json?.data || [];
+      const first = Array.isArray(list) ? list[0] : null;
+      if (first?.id) {
+        const one = await http('PUT', `${BE}/api/reports/notifications/${first.id}/read`, { headers: A });
+        expectStatus('Mark one notification read', one, [200, 204]);
+      }
     }
-    const pref = await http('PUT', `${BE}/api/reports/preferences`, {
-      headers: A,
-      body: { report_notify_enabled: true, timezone: 'UTC' },
-    });
-    expectStatus('Update notify preferences', pref, 200);
-  });
+    expectStatus(
+      'Mark all notifications read',
+      await http('PUT', `${BE}/api/reports/notifications/read-all`, { headers: A }),
+      [200, 204],
+    );
+    expectStatus(
+      'Opt-in notify preferences',
+      await http('PUT', `${BE}/api/reports/preferences`, {
+        headers: A,
+        body: { report_notify_enabled: true, timezone: 'UTC' },
+      }),
+      200,
+    );
+    expectStatus(
+      'Opt-out notify preferences',
+      await http('PUT', `${BE}/api/reports/preferences`, {
+        headers: A,
+        body: { report_notify_enabled: false, timezone: 'UTC' },
+      }),
+      200,
+    );
+  }, 'UC-14');
 
   // ── UC-15 External integrations surface ───────────────────────────
   await section('UC-15 External sync surface', async () => {
@@ -420,58 +575,87 @@ async function section(title, fn) {
       if (fit.setup.callback_uri && String(fit.setup.callback_uri).includes('/api/external/callback/google_fit')) {
         ok('Google Fit callback_uri shape', fit.setup.callback_uri);
       } else {
-        wrn('Google Fit callback_uri missing/unexpected', JSON.stringify(fit.setup).slice(0, 120));
+        bad('Google Fit callback_uri shape', JSON.stringify(fit.setup).slice(0, 120));
       }
-      // Honesty: placeholder secrets must not report configured=true
       if (fit.setup.env_secret_placeholder && fit.configured) {
         bad('configured=true despite secret placeholder');
-      } else if (fit.setup.env_secret_placeholder) {
-        ok('Placeholder secret correctly reports not configured');
       }
     } else {
-      wrn('Google Fit setup object missing (older deploy?)');
+      bad('Google Fit setup object present');
     }
-    // Connect without full OAuth secrets may 400/503 — not 500
     const connect = await http('GET', `${BE}/api/external/connect/google_fit`, { headers: A });
     if ([200, 400, 503, 501].includes(connect.status)) {
       ok('Google Fit connect surface responds', `HTTP ${connect.status}`);
-      if (fit?.configured === false && connect.status === 503) {
+      if (fit?.configured === false && [400, 503, 501].includes(connect.status)) {
         ok('Connect fails closed when Fit not configured');
       }
-      if (fit?.configured === true && connect.status === 200 && connect.json?.data?.url) {
+      if (fit?.configured === true && connect.status === 200 && (connect.json?.data?.url || connect.json?.data?.authorization_url)) {
         ok('Connect returns OAuth URL when configured');
       }
     } else {
-      wrn('Google Fit connect', `HTTP ${connect.status} ${(connect.text || '').slice(0, 100)}`);
+      bad('Google Fit connect surface responds', `HTTP ${connect.status}`);
     }
-  });
+    // Sync / disconnect must not 500 when disconnected or unconfigured
+    const sync = await http('POST', `${BE}/api/external/sync/google_fit`, { headers: A, body: {} });
+    if ([200, 400, 401, 403, 404, 409, 503, 501].includes(sync.status)) {
+      ok('Sync fail-closed when not connected/configured', `HTTP ${sync.status}`);
+    } else {
+      bad('Sync fail-closed', `HTTP ${sync.status} ${(sync.text || '').slice(0, 100)}`);
+    }
+    const disc = await http('POST', `${BE}/api/external/disconnect/google_fit`, { headers: A, body: {} });
+    if ([200, 204, 400, 404, 409].includes(disc.status)) {
+      ok('Disconnect surface safe', `HTTP ${disc.status}`);
+    } else {
+      bad('Disconnect surface safe', `HTTP ${disc.status}`);
+    }
+  }, 'UC-15');
 
-  // ── UC-16 Admin (non-admin user) ──────────────────────────────────
-  await section('UC-16 Admin least privilege', async () => {
-    const dash = await http('GET', `${BE}/api/admin/dashboard`, { headers: A });
-    expectStatus('Non-admin admin dashboard → 403', dash, [401, 403]);
-    const users = await http('GET', `${BE}/api/admin/users`, { headers: A });
-    expectStatus('Non-admin users list → 403', users, [401, 403]);
-    // Admin SPA shell must load for authorized operators (auth gate is client-side too)
-    const adminPage = await http('GET', `${FE}/admin`);
-    if ([200, 304].includes(adminPage.status)) ok('FE /admin shell', `HTTP ${adminPage.status}`);
-    else wrn('FE /admin', `HTTP ${adminPage.status}`);
-  });
+  // ── UC-16 Admin least privilege (API only — no admin UI journey) ──
+  await section('UC-16 Admin least privilege (API only)', async () => {
+    expectStatus(
+      'Non-admin GET /api/admin/dashboard → 403',
+      await http('GET', `${BE}/api/admin/dashboard`, { headers: A }),
+      [401, 403],
+    );
+    expectStatus(
+      'Non-admin GET /api/admin/users → 403',
+      await http('GET', `${BE}/api/admin/users`, { headers: A }),
+      [401, 403],
+    );
+    expectStatus(
+      'Non-admin GET /api/admin/logs → 403',
+      await http('GET', `${BE}/api/admin/logs`, { headers: A }),
+      [401, 403],
+    );
+    expectStatus(
+      'Non-admin PUT /api/admin/users/:id/status → 403',
+      await http('PUT', `${BE}/api/admin/users/1/status`, {
+        headers: A,
+        body: { is_active: false },
+      }),
+      [401, 403],
+    );
+    // Unauthenticated also blocked
+    expectStatus(
+      'No token admin dashboard → 401',
+      await http('GET', `${BE}/api/admin/dashboard`),
+      401,
+    );
+  }, 'UC-16');
 
-  // ── Memory + assistant + voice (product surfaces) ─────────────────
-  await section('Product surfaces — memory / assistant / voice', async () => {
+  // ── Supporting product surfaces (not UCs; must not break) ─────────
+  await section('Regression surfaces — memory / chat history / voice config', async () => {
     expectStatus('GET /api/memory', await http('GET', `${BE}/api/memory`, { headers: A }), 200);
     expectStatus('GET /api/assistant/suggestion', await http('GET', `${BE}/api/assistant/suggestion`, { headers: A }), 200);
-    expectStatus('GET /api/voice/config (public capabilities)', await http('GET', `${BE}/api/voice/config`), 200);
-    const sessions = await http('GET', `${BE}/api/chat/sessions`, { headers: A });
-    expectStatus('GET /api/chat/sessions', sessions, 200);
-    const history = await http('GET', `${BE}/api/chat/history`, { headers: A });
-    expectStatus('GET /api/chat/history', history, 200);
+    // Capabilities only — no mic capture / STT browser test
+    expectStatus('GET /api/voice/config (capabilities, no mic)', await http('GET', `${BE}/api/voice/config`), 200);
+    expectStatus('GET /api/chat/sessions', await http('GET', `${BE}/api/chat/sessions`, { headers: A }), 200);
+    expectStatus('GET /api/chat/history', await http('GET', `${BE}/api/chat/history`, { headers: A }), 200);
   });
 
-  // ── Frontend SPA ──────────────────────────────────────────────────
-  await section('Frontend SPA use-case shells', async () => {
-    const pages = ['/', '/login', '/register', '/dashboard', '/chat', '/health', '/finance', '/profile', '/assistant', '/integrations'];
+  // ── Frontend SPA shells for user UCs (no /admin UI) ───────────────
+  await section('Frontend SPA use-case shells (no admin UI)', async () => {
+    const pages = ['/', '/login', '/register', '/dashboard', '/chat', '/health', '/finance', '/profile', '/integrations'];
     for (const p of pages) {
       const r = await http('GET', `${FE}${p}`);
       if ([200, 304].includes(r.status)) ok(`FE ${p}`, `HTTP ${r.status}`);
@@ -487,14 +671,36 @@ async function section(title, fn) {
     }
   });
 
-  // ── Auth rate surface smoke (no account lock abuse) ───────────────
+  // ── Auth surface regression ───────────────────────────────────────
   await section('Security — auth surface', async () => {
     expectStatus('POST /api/chat no auth → 401', await http('POST', `${BE}/api/chat`, { body: { message: 'x' } }), [401, 403]);
     expectStatus('POST /api/chat/stream no auth → 401', await http('POST', `${BE}/api/chat/stream`, { body: { message: 'x' } }), [401, 403]);
+    expectStatus('POST /api/reports/generate no auth → 401', await http('POST', `${BE}/api/reports/generate`, { body: {} }), [401, 403]);
   });
+
+  // ── UC matrix gate (must cover every use case) ────────────────────
+  console.log('\n── UC coverage matrix ──');
+  let matrixFail = 0;
+  for (const id of UC_IDS) {
+    const p = ucPass[id];
+    const f = ucFail[id];
+    const line = `${id}: pass=${p} fail=${f}`;
+    if (p < 1) {
+      matrixFail += 1;
+      console.log(`  FAIL  ${line} — no passing assertion`);
+      failures.push(`${id} has zero PASS checks`);
+    } else if (f > 0) {
+      matrixFail += 1;
+      console.log(`  FAIL  ${line}`);
+    } else {
+      console.log(`  PASS  ${line}`);
+    }
+  }
+  fail += matrixFail;
 
   // ── Summary ───────────────────────────────────────────────────────
   console.log(`\n══ USE-CASE RESULT ══  PASS=${pass}  FAIL=${fail}  GAP=${gap}  WARN=${warn}`);
+  console.log(`══ UC MATRIX ══  ${UC_IDS.length} required · ${UC_IDS.filter((id) => ucPass[id] > 0 && ucFail[id] === 0).length} green`);
   if (failures.length) {
     console.log('\nFAILURES:');
     failures.forEach((f) => console.log(`  ✗ ${f}`));

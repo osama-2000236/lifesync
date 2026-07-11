@@ -1,77 +1,69 @@
-# Live E2E full coverage report
+# Live E2E full use-case coverage + regression
 
-_Date: 2026-07-11 · targets: production BE + CF Workers FE + BERT_
+_Date: 2026-07-11 · policy: **all UC-01…16** · **no admin UI journey** · **no mic/STT**_
 
-| Target | URL | Commit / note |
-|--------|-----|----------------|
-| API | `https://lifesync-production-fdf9.up.railway.app` | `3ac61649c7b4` |
-| FE | `https://lifesync.1202883.workers.dev` | asset `index-AbHU-bux.js` |
+| Target | URL | Live commit |
+|--------|-----|-------------|
+| API | `https://lifesync-production-fdf9.up.railway.app` | `d65ca8f` (suite run) |
+| FE | `https://lifesync.1202883.workers.dev` | Workers SPA |
 | BERT | `https://bert-production-a417.up.railway.app` | ready |
 
-## Suites (first clean pass — green)
-
-| Suite | Command | Result |
-|-------|---------|--------|
-| Infra / security / BERT / FE smoke | `npm run qa:live` | **PASS 60 / FAIL 0** |
-| UC-01 … UC-16 + product surfaces | `npm run qa:live:use-cases` | **PASS 82 / FAIL 0 / GAP 0** |
-| Playwright browser (live FE) | `QA_BASE_URL=… QA_E2E_TOKEN=… npx playwright test tests/qa/ui.spec.ts` | **11 / 11 PASS** (after harness fixes) |
-| Workers smoke | `node scripts/smoke-workers.mjs` | **OK** |
-| Google origin wiring | `tests/qa/google-auth-origin.spec.ts` | **PASS** |
-
-### UC matrix (live API)
-
-| UC | Result | Notes |
-|----|--------|-------|
-| 01 Register contract | PASS | send-otp 503 without 500 acceptable |
-| 02 Auth/session | PASS | QA bot + refresh |
-| 03 Logout contract | PASS | JWT client clear |
-| 04 Manual health | PASS | CRUD create/list/summary |
-| 05 Manual finance | PASS | + reject amount 0 |
-| 06 Health chat | PASS | log_health + entity |
-| 07 Finance chat | PASS | log_finance |
-| 08 Cross-domain | PASS | both |
-| 09 Clarification | PASS | no silent write |
-| 10 Dashboard insights | PASS | |
-| 11 Generate insights | PASS | |
-| 12 Edit/delete | PASS | |
-| 13 Weekly PDF | PASS | application/pdf body |
-| 14 Notifications | PASS | |
-| 15 Google Fit | PASS (fail-closed) | `configured=false`, missing `client_secret` |
-| 16 Admin LP | PASS | non-admin 403 |
-
-### Playwright UI (live)
-
-TC-UI-001…011: landing, auth redirects, dashboard, health/finance, chat send, mobile nav, logout, profile/integrations, weekly report card, voice shell.
-
-## Fixes applied this session (test harness — product already live)
-
-1. **Stale UI selectors** vs i18n (`Chat` not `Assistant`, dashboard copy, placeholders).
-2. **Live auth**: `QA_E2E_TOKEN` → `qa-login` + localStorage (QA bot has random password).
-3. **Session cache + 429 backoff** so serial UI tests don’t trip `authLimiter`.
-4. Live scripts treat auth **429 as warn/backoff**, not false product failure.
-
-## Not true 100% (honest gaps)
-
-| Gap | Why |
-|-----|-----|
-| Google Fit happy-path OAuth | Needs operator `GOOGLE_CLIENT_SECRET` + Console redirect |
-| Real OTP email delivery E2E | Avoid spam; contract-only |
-| Playwright `api.spec.ts` password login | Needs `TEST_USER_*`; covered by `qa:live:use-cases` instead |
-| Admin UI as admin | QA bot is non-admin (403 proven) |
-| Jest line coverage | Unit suite separate; not live E2E |
-| Mic/STT browser permissions | Cannot auto-grant OS mic in CI headless fully |
-
-## Re-run after auth cooldown (~15 min if 429)
+## Commands (mandatory regression)
 
 ```bash
-export QA_E2E_TOKEN=…   # from Railway
+# 1) Unit/integration — nothing broken
+npm run test:regression:unit
+# 815+ tests expected green (2 skipped)
+
+# 2) Live UC-01…16 matrix (requires QA_E2E_TOKEN)
+export QA_E2E_TOKEN=…   # Railway
 export BE_URL=https://lifesync-production-fdf9.up.railway.app
 export FE_URL=https://lifesync.1202883.workers.dev
-export QA_BASE_URL=$FE_URL
-export QA_API_URL=$BE_URL
-export EXPECT_COMMIT=3ac6164
+npm run test:regression:uc
 
-npm run qa:live
-npm run qa:live:use-cases
-npx playwright test tests/qa/ui.spec.ts
+# 3) Live browser shells (no mic, no admin UI)
+export QA_BASE_URL=$FE_URL QA_API_URL=$BE_URL
+npm run test:regression:ui
 ```
+
+## Results (this session)
+
+| Gate | Result |
+|------|--------|
+| Jest unit regression (`DB_DIALECT=sqlite`) | **815 pass / 2 skip / 0 fail** |
+| Live UC matrix (`qa_live_use_cases.mjs`) | **PASS 103 / FAIL 0 · 16/16 UC green** |
+| Playwright UI live | **13/13 PASS** |
+| UC evidence matrix unit | **19/19 PASS** |
+
+### Live UC matrix (each UC ≥1 PASS, 0 FAIL)
+
+| UC | Focus | Live checks |
+|----|--------|-------------|
+| UC-01 | Register contract | invalid OTP email, send-otp no 500, complete without OTP rejected |
+| UC-02 | Session | me, wrong password, refresh rotation |
+| UC-03 | Logout contract | forged/empty bearer 401 |
+| UC-04 | Manual health | create/get/list/summary + invalid type |
+| UC-05 | Manual finance | create/get/list/summary + amount 0 |
+| UC-06 | Health chat | intent+entity + **stream** (text only) |
+| UC-07 | Finance chat | log_finance |
+| UC-08 | Cross-domain | both flag |
+| UC-09 | Clarification | no silent write |
+| UC-10 | Dashboard insights | GET insights + gamification + models |
+| UC-11 | Generate insights | generate + history |
+| UC-12 | Edit/delete | **PUT** health/finance + DELETE + 404 |
+| UC-13 | Weekly PDF | generate, list, get, **%PDF**, foreign 404 |
+| UC-14 | Notifications | list, mark one, mark all, opt-in/**opt-out** |
+| UC-15 | External Fit | status/setup, connect fail-closed, sync/disconnect safe |
+| UC-16 | Admin **API only** | dashboard/users/logs/status all **403** for non-admin; no token 401 |
+
+## Explicitly out of scope (by request)
+
+- Full **admin UI** operator journeys (API least-privilege only)
+- Browser **mic / STT** (voice page shell only; `/api/voice/config` capabilities)
+
+## Fixes this session (harness)
+
+1. Expanded live UC suite with edit, notification mark/opt-out, Fit sync/disconnect, stream chat, UC matrix gate
+2. UC evidence regression test `tests/uc_matrix_regression.test.js`
+3. Playwright: no admin UI / no mic; fixed session collision on public shells
+4. `npm run test:regression*` scripts
