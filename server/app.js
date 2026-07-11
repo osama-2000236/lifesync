@@ -28,7 +28,7 @@ const assistantRoutes = require('./routes/assistantRoutes');
 const memoryRoutes = require('./routes/memoryRoutes');
 
 // Import granular rate limiters
-const { chatLimiter, insightLimiter, generalLimiter } = require('./middleware/rateLimiter');
+const { chatLimiter, generalLimiter } = require('./middleware/rateLimiter');
 
 // ============================================
 // Initialize Express
