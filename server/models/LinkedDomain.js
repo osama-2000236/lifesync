@@ -53,6 +53,21 @@ const LinkedDomain = sequelize.define('linked_domains', {
     { fields: ['financial_log_id'] },
     { fields: ['health_log_id', 'financial_log_id'], unique: true },
   ],
+  hooks: {
+    // Sequelize runs afterFind only on the queried model — eager-loaded
+    // healthLog/financialLog instances skip their own models' decrypt hooks,
+    // so a LinkedDomain include leaked raw AES ciphertext into prompt context.
+    // decryptFields is a no-op on already-plaintext values (isEncrypted guard).
+    afterFind: (results) => {
+      const { decryptFields } = require('../utils/encryption');
+      if (!results) return;
+      const rows = Array.isArray(results) ? results : [results];
+      for (const row of rows) {
+        if (row?.healthLog?.getDataValue) decryptFields(row.healthLog, ['notes', 'value_text']);
+        if (row?.financialLog?.getDataValue) decryptFields(row.financialLog, ['description']);
+      }
+    },
+  },
 });
 
 module.exports = LinkedDomain;
