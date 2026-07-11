@@ -486,6 +486,41 @@ const toProviderError = (err, providerLabel) => {
   return out;
 };
 
+// ─── OpenRouter server-side fallback + usage telemetry ──────────────────────
+// `models: [primary, backup]` lets OpenRouter serve the backup slug in the
+// SAME request when the primary pool 429s/5xxes — no extra round-trip. Free
+// primaries only ever chain to a free backup (a free pick must never silently
+// bill); the response's `model` field reports which slug actually served and
+// callers surface that truth in diagnostics.
+const openRouterModels = (primary) => {
+  const p = String(primary || '');
+  if (!p) return null;
+  const free = p.includes(':free');
+  const backup = process.env.OPENROUTER_FALLBACK_MODEL?.trim()
+    || (free ? 'google/gemma-4-26b-a4b-it:free' : 'meta-llama/llama-3.3-70b-instruct');
+  if (backup === p) return null;
+  if (free && !backup.includes(':free')) return null; // never free→paid
+  return [p, backup];
+};
+
+// One structured log line per successful OpenRouter call: token counts plus
+// cost when the account reports it. Telemetry must never break a chat turn.
+const logOpenRouterUsage = (requestedModel, data) => {
+  try {
+    const usage = data?.usage;
+    if (!usage) return;
+    console.log(JSON.stringify({
+      evt: 'openrouter_usage',
+      model: data?.model || requestedModel,
+      requested_model: requestedModel,
+      prompt_tokens: usage.prompt_tokens ?? null,
+      completion_tokens: usage.completion_tokens ?? null,
+      total_tokens: usage.total_tokens ?? null,
+      ...(usage.cost != null ? { cost: usage.cost } : {}),
+    }));
+  } catch { /* telemetry never throws into chat */ }
+};
+
 const generateChat = async ({ system, messages, temperature = 0.4, maxTokens = 600, providerOverride, model } = {}) => {
   const provider = providerOverride ? normalizeProvider(providerOverride) : getProvider('chat');
   if (provider === 'bert_local') throw new Error('bert_local is a classifier, not a conversational generator.');
@@ -537,9 +572,11 @@ const generateChat = async ({ system, messages, temperature = 0.4, maxTokens = 6
     // Free OpenRouter pools flap — a 60s hang per attempt × retry passes made
     // voice unusable. Same short budget philosophy as the free stream timeout.
     const freeCall = provider === 'openrouter' && String(settings.model || '').includes(':free');
+    const orModels = provider === 'openrouter' ? openRouterModels(settings.model) : null;
     try {
       const response = await axios.post(settings.endpoint, {
         model: settings.model,
+        ...(orModels ? { models: orModels } : {}),
         messages: msgs,
         temperature,
         max_tokens: maxTokens,
@@ -552,7 +589,11 @@ const generateChat = async ({ system, messages, temperature = 0.4, maxTokens = 6
             : 60000,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}`, ...(settings.extraHeaders || {}) },
       });
-      return { provider, model: settings.model, text: extractOpenAIText(response.data, provider) };
+      if (provider === 'openrouter') logOpenRouterUsage(settings.model, response.data);
+      // Honest binding: with a fallback chain the served slug can differ from
+      // the requested one — report what actually answered.
+      const servedModel = (provider === 'openrouter' && response.data?.model) ? response.data.model : settings.model;
+      return { provider, model: servedModel, text: extractOpenAIText(response.data, provider) };
     } catch (err) {
       throw toProviderError(err, provider);
     }
@@ -607,10 +648,12 @@ const generateChatStream = async ({
       ? (parseInt(process.env.CHAT_STREAM_FREE_TIMEOUT_MS, 10) || 20_000)
       : 60000;
 
+  const orModels = provider === 'openrouter' ? openRouterModels(settings.model) : null;
   let response;
   try {
     response = await axios.post(settings.endpoint, {
       model: settings.model,
+      ...(orModels ? { models: orModels } : {}),
       messages: msgs,
       temperature,
       max_tokens: maxTokens,
@@ -627,6 +670,8 @@ const generateChatStream = async ({
 
   let full = '';
   let buf = '';
+  let servedModel = null; // chunks carry the slug that actually serves
+  let streamUsage = null; // final chunk may carry usage totals
   await new Promise((resolve, reject) => {
     // Stall watchdog: axios' `timeout` only covers time-to-headers for
     // responseType:stream. A free pool that accepts the request and then goes
@@ -659,6 +704,8 @@ const generateChatStream = async ({
         if (!payload || payload === '[DONE]') continue;
         try {
           const json = JSON.parse(payload);
+          if (json?.model) servedModel = json.model;
+          if (json?.usage) streamUsage = json.usage;
           const delta = json?.choices?.[0]?.delta?.content || '';
           if (delta) { full += delta; onDelta?.(delta); }
         } catch { /* ignore partial/malformed SSE chunk */ }
@@ -677,7 +724,10 @@ const generateChatStream = async ({
     if (signal?.aborted) throw new Error(`Streamed request to ${provider} was aborted`);
     throw new Error(`Empty streamed response from ${provider}`);
   }
-  return { provider, model: settings.model, text: full };
+  if (provider === 'openrouter' && streamUsage) {
+    logOpenRouterUsage(settings.model, { model: servedModel, usage: streamUsage });
+  }
+  return { provider, model: (provider === 'openrouter' && servedModel) || settings.model, text: full };
 };
 
 /** Classify one message with the local BERT sequence-classification runtime. */
@@ -1124,4 +1174,6 @@ module.exports = {
   _parseModelTagOutput: parseModelTagOutput,
   _resolveCustomHFModelName: resolveCustomHFModelName,
   _isStrictCustomHFMode: isStrictCustomHFMode,
+  _openRouterModels: openRouterModels,
+  _logOpenRouterUsage: logOpenRouterUsage,
 };

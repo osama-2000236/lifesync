@@ -22,6 +22,7 @@ const {
   _buildSystemPrompt,
   _modelCandidates,
   _isRetryableError,
+  _capContextBudget,
 } = require('../server/services/ai/conversationService');
 
 const RATE_LIMIT = new Error('Provider returned error: 429 rate-limited upstream');
@@ -234,5 +235,37 @@ describe('generateAssistantReplyStream free voice path', () => {
     expect(out.error).toBeTruthy();
     expect(generateChat).not.toHaveBeenCalled();
     expect(generateChatStream).not.toHaveBeenCalled();
+  });
+});
+
+describe('context char budget (cap before any cloud call)', () => {
+  test('oversized context shrinks under the cap: oldest history first, memory untouched', () => {
+    process.env.CHAT_CONTEXT_CHAR_BUDGET = '5000';
+    try {
+      const context = {
+        memory: { summary: 'name is Osama; vegetarian', count: 2 },
+        conversation: Array.from({ length: 100 }, (_, i) => ({
+          role: i % 2 ? 'assistant' : 'user',
+          content: `turn-${i} ${'x'.repeat(200)}`,
+        })),
+      };
+      const capped = _capContextBudget(context);
+      expect(JSON.stringify(capped).length).toBeLessThanOrEqual(5000);
+      // Memory is the product — never dropped to make room.
+      expect(capped.memory.summary).toBe('name is Osama; vegetarian');
+      // Newest turns survive; oldest were dropped.
+      expect(capped.conversation[capped.conversation.length - 1].content).toContain('turn-99');
+      expect(capped.conversation.length).toBeGreaterThanOrEqual(4);
+      expect(capped.conversation.length).toBeLessThan(100);
+      // Caller's context object is not mutated.
+      expect(context.conversation).toHaveLength(100);
+    } finally {
+      delete process.env.CHAT_CONTEXT_CHAR_BUDGET;
+    }
+  });
+
+  test('context under the budget passes through untouched (same reference)', () => {
+    const ctx = { conversation: [{ role: 'user', content: 'hi' }], memory: { summary: 's' } };
+    expect(_capContextBudget(ctx)).toBe(ctx);
   });
 });

@@ -295,6 +295,31 @@ const stripReasoning = (raw) => {
   return t;
 };
 
+// Cap the injected context before any cloud call (~6k tokens ≈ 24k chars).
+// Oldest history is dropped first; memory.summary is never touched —
+// remembering the user is the product, stale small talk is not.
+// ponytail: re-stringify per trim is O(n²) on ~100KB worst case — fine; make
+// it incremental only if a profiler ever cares.
+const contextCharBudget = () => parseInt(process.env.CHAT_CONTEXT_CHAR_BUDGET, 10) || 24_000;
+const MIN_HISTORY_TURNS = 4;
+const capContextBudget = (context = {}) => {
+  const budget = contextCharBudget();
+  if (JSON.stringify(context).length <= budget) return context;
+  const capped = { ...context, conversation: [...(context.conversation || [])] };
+  while (capped.conversation.length > MIN_HISTORY_TURNS && JSON.stringify(capped).length > budget) {
+    capped.conversation.shift();
+  }
+  // Rare: still over with minimal history — thin the dense row arrays toward
+  // their newest entries. Memory is never dropped.
+  for (const key of ['recent_messages', 'recent_health_entries', 'recent_finance_entries', 'linked_domains']) {
+    if (JSON.stringify(capped).length <= budget) break;
+    if (!Array.isArray(capped[key]) || capped[key].length <= 6) continue;
+    // recent_messages is oldest→newest; the row arrays are newest-first.
+    capped[key] = key === 'recent_messages' ? capped[key].slice(-6) : capped[key].slice(0, 6);
+  }
+  return capped;
+};
+
 /** Map prior turns + the current message into a provider-agnostic messages array.
  *  History is already windowed by buildBertContext (standard/deep/max up to 120).
  *  Hard-cap 120 — do NOT re-shrink or voice/chat max harness loses turns. */
@@ -318,6 +343,7 @@ const buildMessages = (conversation = [], currentMessage, locale = null) => {
  * deterministic reply so a missing API key / offline model never breaks chat).
  */
 const generateAssistantReply = async ({ provider, model, context = {}, loggedEntities = [], message, locale = null, ambiguity = null }) => {
+  context = capContextBudget(context);
   const messages = buildMessages(context.conversation, message, locale);
   // Always the user-picked slug only (no cross-model hop).
   const candidates = provider === 'openrouter' ? modelCandidates(model) : [model];
@@ -447,6 +473,7 @@ const tryNonStreamFallback = async ({
 const generateAssistantReplyStream = async ({
   provider, model, context = {}, loggedEntities = [], message, locale = null, ambiguity = null, onDelta, signal,
 }) => {
+  context = capContextBudget(context);
   const messages = buildMessages(context.conversation, message, locale);
   const candidates = provider === 'openrouter' ? modelCandidates(model) : [model];
   const passes = provider === 'openrouter' ? freePoolPasses() : 1;
@@ -526,6 +553,7 @@ module.exports = {
   _buildLanguageDirective: buildLanguageDirective,
   _modelCandidates: modelCandidates,
   _buildDataGaps: buildDataGaps,
+  _capContextBudget: capContextBudget,
   _genParamsForModel: genParamsForModel,
   _MAX_THINK_BUFFER: MAX_THINK_BUFFER,
 };
