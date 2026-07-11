@@ -33,9 +33,9 @@
 | 10 Dashboard insights | PASS |
 | 11 Generate insights | PASS |
 | 12 Edit/delete | PASS |
-| 13 Report download | GAP (documented) |
-| 14 Notifications | GAP (documented) |
-| 15 External surface | PASS |
-| 16 Admin privilege | PASS |
+| 13 Report download | PASS (implemented + live) |
+| 14 Notifications | PASS (implemented + live) |
+| 15 External sync | HARDENED (OAuth/sync path; Google Console credentials required for full E2E) |
+| 16 Admin privilege | PARTIAL (metrics + toggle) |
 
-Final use-case suite: PASS=70 FAIL=0 GAP=2 WARN=0
+Final use-case suite (post UC-13/14): PASS=77 FAIL=0 GAP=0

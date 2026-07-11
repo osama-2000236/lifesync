@@ -11,6 +11,7 @@ const MIGRATIONS = [
   '20260710-004-health-value-text-to-text.js',
   '20260711-005-add-user-integrations.js',
   '20260711-006-weekly-reports-and-notifications.js',
+  '20260711-007-integration-token-expires-at.js',
 ];
 
 const MODEL_TABLES = {

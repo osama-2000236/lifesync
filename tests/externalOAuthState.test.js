@@ -57,23 +57,30 @@ const app = express();
 app.use(express.json());
 app.use('/api/external', externalRoutes);
 
+const expectOAuthErrorRedirect = (res, statusFlag) => {
+  // Callback is browser-facing: always 302 to the SPA with a status flag.
+  expect(res.status).toBe(302);
+  expect(res.headers.location).toMatch(/\/integrations\?/);
+  expect(res.headers.location).toContain(`status=${statusFlag}`);
+};
+
 describe('OAuth callback state binding', () => {
   test('client-supplied identity in state is rejected (the old JSON contract)', async () => {
     const res = await request(app)
       .get('/api/external/callback/google_fit')
       .query({ code: 'auth-code', state: JSON.stringify({ userId: 999, platform: 'google_fit' }) });
-    expect(res.status).toBe(400);
+    expectOAuthErrorRedirect(res, 'error');
   });
 
   test('unknown / missing state is rejected', async () => {
     const forged = await request(app)
       .get('/api/external/callback/google_fit')
       .query({ code: 'auth-code', state: 'not-a-known-nonce' });
-    expect(forged.status).toBe(400);
+    expectOAuthErrorRedirect(forged, 'error');
     const missing = await request(app)
       .get('/api/external/callback/google_fit')
       .query({ code: 'auth-code' });
-    expect(missing.status).toBe(400);
+    expectOAuthErrorRedirect(missing, 'error');
   });
 
   test('connect issues a nonce; callback accepts it once and only once', async () => {
@@ -90,13 +97,14 @@ describe('OAuth callback state binding', () => {
     const cb = await request(app)
       .get('/api/external/callback/google_fit')
       .query({ code: 'auth-code', state });
-    expect(cb.status).toBe(302); // success redirect to dashboard
+    expect(cb.status).toBe(302);
+    expect(cb.headers.location).toContain('status=connected');
 
-    // Replay of a consumed nonce must fail (single-use).
+    // Replay of a consumed nonce must fail (single-use) — SPA error redirect.
     const replay = await request(app)
       .get('/api/external/callback/google_fit')
       .query({ code: 'auth-code', state });
-    expect(replay.status).toBe(400);
+    expectOAuthErrorRedirect(replay, 'error');
   });
 
   test('nonce is bound to the platform it was issued for', async () => {
@@ -105,7 +113,7 @@ describe('OAuth callback state binding', () => {
     const res = await request(app)
       .get('/api/external/callback/apple_health')
       .query({ code: 'auth-code', state });
-    expect(res.status).toBe(400);
+    expectOAuthErrorRedirect(res, 'error');
   });
 
   test('callback binds tokens to the connect initiator: sync works after the real flow', async () => {

@@ -158,8 +158,20 @@ const startServer = async () => {
     // Test MySQL connection
     await testConnection();
 
-    // Sync database (creates tables if they don't exist)
     const db = require('./models');
+
+    // Apply pending SQL migrations first (source of truth for production schema).
+    // Disable with SKIP_MIGRATIONS=1 for emergency boots.
+    if (!['1', 'true', 'yes', 'on'].includes(String(process.env.SKIP_MIGRATIONS || '').toLowerCase())) {
+      const { runMigrations } = require('./config/runMigrations');
+      const { applied, skipped } = await runMigrations(db.sequelize);
+      console.log(`✅ Migrations: ${applied.length} applied, ${skipped.length} already done.`);
+    } else {
+      console.warn('⚠️  SKIP_MIGRATIONS set — pending migrations not applied.');
+    }
+
+    // Lightweight model sync: create any missing tables only. Prefer migrations
+    // for column changes; DB_ALTER=true is an emergency escape hatch.
     await db.sequelize.sync({ alter: process.env.DB_ALTER === 'true' });
     console.log('✅ Database tables synchronized (alter: ' + (process.env.DB_ALTER === 'true') + ').');
 

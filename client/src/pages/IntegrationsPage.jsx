@@ -35,10 +35,12 @@ function GoogleFitPanel({ status, onRefreshStatus }) {
   const { t, locale } = useSettings();
   const connected = status?.connected;
   const connectedAt = status?.connectedAt;
+  const configured = status?.configured !== false;
+  const needsReconnect = status?.needs_reconnect;
   const [syncing, setSyncing] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
-  const [selectedTypes, setSelectedTypes] = useState(['steps', 'sleep']);
+  const [selectedTypes, setSelectedTypes] = useState(['steps', 'sleep', 'heart_rate']);
   const [days, setDays] = useState(7);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
@@ -126,8 +128,14 @@ function GoogleFitPanel({ status, onRefreshStatus }) {
 
         {error && <Alert tone="error" onDismiss={() => setError('')}>{error}</Alert>}
         {ok && <Alert tone="success" onDismiss={() => setOk('')}>{ok}</Alert>}
+        {!configured && (
+          <Alert tone="warning">{t('integrations.googleFitNotConfigured')}</Alert>
+        )}
+        {needsReconnect && (
+          <Alert tone="warning">{t('integrations.needsReconnect')}</Alert>
+        )}
 
-        {!connected ? (
+        {!connected || needsReconnect ? (
           <div className="space-y-4">
             <div className="p-4 rounded-xl bg-navy-50 border border-navy-100 flex gap-3">
               <Info className="w-4 h-4 text-navy-400 flex-shrink-0 mt-0.5" />
@@ -139,10 +147,12 @@ function GoogleFitPanel({ status, onRefreshStatus }) {
               variant="danger"
               className="w-full"
               loading={connecting}
+              disabled={!configured}
               leftIcon={connecting ? undefined : Heart}
               onClick={handleConnect}
+              data-testid="google-fit-connect"
             >
-              {t('integrations.connectGoogleFit')}
+              {needsReconnect ? t('integrations.reconnectGoogleFit') : t('integrations.connectGoogleFit')}
             </Button>
           </div>
         ) : (
@@ -465,6 +475,7 @@ export default function IntegrationsPage() {
   const navigate = useNavigate();
   const [status, setStatus] = useState(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
+  const [oauthBanner, setOauthBanner] = useState(null); // { tone, text }
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -485,11 +496,17 @@ export default function IntegrationsPage() {
     const params = new URLSearchParams(window.location.search);
     const integration = params.get('integration');
     const integrationStatus = params.get('status');
-    if (integration && integrationStatus === 'connected') {
+    if (!integration || !integrationStatus) return;
+    if (integrationStatus === 'connected') {
+      setOauthBanner({ tone: 'success', text: t('integrations.oauthConnected') });
       fetchStatus();
-      window.history.replaceState({}, '', window.location.pathname);
+    } else if (integrationStatus === 'denied') {
+      setOauthBanner({ tone: 'warning', text: t('integrations.oauthDenied') });
+    } else if (integrationStatus === 'error') {
+      setOauthBanner({ tone: 'error', text: t('integrations.oauthError') });
     }
-  }, [fetchStatus]);
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [fetchStatus, t]);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -511,6 +528,11 @@ export default function IntegrationsPage() {
       </div>
 
       <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+        {oauthBanner && (
+          <Alert tone={oauthBanner.tone} onDismiss={() => setOauthBanner(null)}>
+            {oauthBanner.text}
+          </Alert>
+        )}
         {!loadingStatus && status && (
           <div className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-navy-100">
             <Zap className="w-5 h-5 text-emerald-500 flex-shrink-0" />

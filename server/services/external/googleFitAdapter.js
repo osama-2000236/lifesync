@@ -49,7 +49,29 @@ class GoogleFitAdapter extends HealthPlatformAdapter {
    *   unauthenticated, so state is the only account-binding proof.
    * @param {string} redirectUri - Must match Google Console config
    */
+  /**
+   * True when OAuth client credentials are present.
+   * Does not prove Google Console redirect URIs are correct.
+   */
+  isConfigured() {
+    return Boolean(this.clientId && this.clientSecret);
+  }
+
+  assertConfigured() {
+    if (!this.isConfigured()) {
+      const err = new Error(
+        'Google Fit is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET '
+        + 'on the server, and register the callback URL in Google Cloud Console.',
+      );
+      err.statusCode = 503;
+      err.code = 'GOOGLE_FIT_NOT_CONFIGURED';
+      err.isOperational = true;
+      throw err;
+    }
+  }
+
   getAuthorizationUrl(state, redirectUri) {
+    this.assertConfigured();
     const params = new URLSearchParams({
       client_id: this.clientId,
       redirect_uri: redirectUri,
@@ -67,6 +89,7 @@ class GoogleFitAdapter extends HealthPlatformAdapter {
    * Exchange authorization code for access + refresh tokens
    */
   async handleCallback(code, redirectUri) {
+    this.assertConfigured();
     const { data } = await axios.post(this.tokenUrl, {
       code,
       client_id: this.clientId,
@@ -75,10 +98,12 @@ class GoogleFitAdapter extends HealthPlatformAdapter {
       grant_type: 'authorization_code',
     });
 
+    const expiresIn = data.expires_in || 3600;
     return {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
-      expiresIn: data.expires_in,
+      expiresIn,
+      tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
       tokenType: data.token_type,
       scope: data.scope,
     };
@@ -88,6 +113,14 @@ class GoogleFitAdapter extends HealthPlatformAdapter {
    * Refresh expired access token
    */
   async refreshToken(refreshToken) {
+    this.assertConfigured();
+    if (!refreshToken) {
+      const err = new Error('No refresh token stored. Please reconnect Google Fit.');
+      err.statusCode = 401;
+      err.code = 'GOOGLE_FIT_RECONNECT';
+      err.isOperational = true;
+      throw err;
+    }
     const { data } = await axios.post(this.tokenUrl, {
       refresh_token: refreshToken,
       client_id: this.clientId,
@@ -95,9 +128,13 @@ class GoogleFitAdapter extends HealthPlatformAdapter {
       grant_type: 'refresh_token',
     });
 
+    const expiresIn = data.expires_in || 3600;
     return {
       accessToken: data.access_token,
-      expiresIn: data.expires_in,
+      expiresIn,
+      tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
+      // Google usually omits refresh_token on refresh.
+      refreshToken: data.refresh_token || refreshToken,
     };
   }
 

@@ -1,6 +1,6 @@
 // server/routes/externalRoutes.js
 // ============================================
-// External Health Platform Integration Routes (UR15)
+// External Health Platform Integration Routes (UR15 / UC-15)
 //
 // GET  /api/external/connect/:platform    → Get OAuth URL
 // GET  /api/external/callback/:platform   → OAuth callback
@@ -10,29 +10,40 @@
 // ============================================
 
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const HealthLog = require('../models/HealthLog');
+const { UserIntegration } = require('../models');
 const { success, error } = require('../utils/responseHelper');
+const { createStore } = require('../services/ephemeralStore');
+const { frontendUrl, apiPublicUrl } = require('../utils/frontendUrl');
 
 const GoogleFitAdapter = require('../services/external/googleFitAdapter');
 const AppleHealthAdapter = require('../services/external/appleHealthAdapter');
 
-// Adapter registry
 const adapters = {
   google_fit: new GoogleFitAdapter(),
   apple_health: new AppleHealthAdapter(),
 };
 
+const DEFAULT_GOOGLE_TYPES = ['steps', 'sleep', 'heart_rate', 'calories'];
+
 function getAdapter(platform) {
   const adapter = adapters[platform];
-  if (!adapter) throw new Error(`Unsupported platform: ${platform}. Supported: ${Object.keys(adapters).join(', ')}`);
+  if (!adapter) {
+    const err = new Error(`Unsupported platform: ${platform}. Supported: ${Object.keys(adapters).join(', ')}`);
+    err.statusCode = 400;
+    err.code = 'UNSUPPORTED_PLATFORM';
+    err.isOperational = true;
+    throw err;
+  }
   return adapter;
 }
 
-// Durable per-user tokens (user_integrations, AES-encrypted at rest by model
-// hooks). The old in-memory Map disconnected every user on each deploy.
-const { UserIntegration } = require('../models');
+const callbackRedirectUri = (platform) => (
+  `${apiPublicUrl()}/api/external/callback/${platform}`
+);
 
 const getTokens = async (userId, platform) => {
   const row = await UserIntegration.findOne({ where: { user_id: userId, platform } });
@@ -41,33 +52,72 @@ const getTokens = async (userId, platform) => {
     accessToken: row.access_token,
     refreshToken: row.refresh_token,
     expiresIn: row.expires_in,
+    tokenExpiresAt: row.token_expires_at,
     connectedAt: row.connected_at,
   };
 };
 
-const saveTokens = async (userId, platform, { accessToken, refreshToken, expiresIn }) => {
+const saveTokens = async (userId, platform, {
+  accessToken, refreshToken, expiresIn, tokenExpiresAt,
+}) => {
   const existing = await UserIntegration.findOne({ where: { user_id: userId, platform } });
   const fields = {
     access_token: accessToken || null,
-    // Providers omit the refresh token on re-auth/refresh — keep the stored one.
     refresh_token: refreshToken || existing?.refresh_token || null,
     expires_in: expiresIn || existing?.expires_in || null,
-    connected_at: new Date(),
+    token_expires_at: tokenExpiresAt
+      || (expiresIn ? new Date(Date.now() + expiresIn * 1000) : existing?.token_expires_at || null),
+    connected_at: existing?.connected_at || new Date(),
   };
+  // First connect stamps connected_at now; refresh keeps original connected_at.
+  if (!existing) fields.connected_at = new Date();
   if (existing) await existing.update(fields);
   else await UserIntegration.create({ user_id: userId, platform, ...fields });
 };
 
 const deleteTokens = (userId, platform) => UserIntegration.destroy({ where: { user_id: userId, platform } });
 
-// Pending OAuth states: opaque nonce → { userId, platform, expiresAt }.
-// Shared via ephemeralStore (Redis when configured) so multi-instance deploys
-// and restarts mid-OAuth don't break the callback. Tokens remain durable in
-// UserIntegration above. The callback arrives unauthenticated (provider
-// redirect), so this nonce is the ONLY binding to an account — server-issued,
-// single-use, and expiring. Never accept identity data from the state itself.
-const crypto = require('crypto');
-const { createStore } = require('../services/ephemeralStore');
+const accessTokenStillValid = (stored) => {
+  if (!stored?.accessToken) return false;
+  if (stored.tokenExpiresAt) {
+    // Refresh 2 minutes before wall-clock expiry.
+    return new Date(stored.tokenExpiresAt).getTime() - Date.now() > 120_000;
+  }
+  // Legacy rows: fall back to connected_at + expires_in.
+  if (stored.connectedAt && stored.expiresIn) {
+    const deadline = new Date(stored.connectedAt).getTime() + stored.expiresIn * 1000;
+    return deadline - Date.now() > 120_000;
+  }
+  return Boolean(stored.accessToken);
+};
+
+/** Ensure a usable access token; refresh if needed. */
+const ensureAccessToken = async (userId, platform, adapter) => {
+  const stored = await getTokens(userId, platform);
+  if (!stored) {
+    return { error: 'NOT_CONNECTED', status: 401, message: 'Platform not connected. Please connect first.' };
+  }
+  if (accessTokenStillValid(stored)) {
+    return { accessToken: stored.accessToken, stored };
+  }
+  if (!stored.refreshToken) {
+    return { error: 'RECONNECT', status: 401, message: 'Token expired. Please reconnect.' };
+  }
+  try {
+    const refreshed = await adapter.refreshToken(stored.refreshToken);
+    await saveTokens(userId, platform, {
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken || stored.refreshToken,
+      expiresIn: refreshed.expiresIn,
+      tokenExpiresAt: refreshed.tokenExpiresAt,
+    });
+    return { accessToken: refreshed.accessToken, stored, refreshed: true };
+  } catch {
+    return { error: 'RECONNECT', status: 401, message: 'Token expired. Please reconnect.' };
+  }
+};
+
+// Pending OAuth states (Redis when configured)
 const pendingStates = createStore('oauth_state');
 const STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -85,7 +135,7 @@ const consumeState = async (nonce, platform) => {
   if (!nonce) return null;
   const entry = await pendingStates.get(nonce);
   if (!entry) return null;
-  await pendingStates.del(nonce); // single-use, even when checks below fail
+  await pendingStates.del(nonce);
   if (entry.expiresAt <= Date.now() || entry.platform !== platform) return null;
   return entry;
 };
@@ -94,42 +144,53 @@ const consumeState = async (nonce, platform) => {
 router.get('/connect/:platform', authenticate, async (req, res, next) => {
   try {
     const adapter = getAdapter(req.params.platform);
-    const redirectUri = `${process.env.APP_URL || 'http://localhost:5000'}/api/external/callback/${req.params.platform}`;
+    const redirectUri = callbackRedirectUri(req.params.platform);
     const state = await issueState(req.user.id, req.params.platform);
     const result = adapter.getAuthorizationUrl(state, redirectUri);
 
     if (typeof result === 'string') {
-      success(res, { url: result, platform: req.params.platform }, 'Authorization URL generated');
+      success(res, {
+        url: result,
+        platform: req.params.platform,
+        redirect_uri: redirectUri,
+      }, 'Authorization URL generated');
     } else {
-      // Apple HealthKit returns instructions instead of URL
       success(res, result, 'Native authorization required');
     }
   } catch (err) {
+    if (err.statusCode && err.isOperational) {
+      return error(res, err.message, err.statusCode, err.code || 'EXTERNAL_ERROR');
+    }
     next(err);
   }
 });
 
 // ─── OAuth Callback (Google Fit) ───
 router.get('/callback/:platform', async (req, res, next) => {
+  const fe = frontendUrl();
   try {
-    const { code, state } = req.query;
-    if (!code) return error(res, 'Missing authorization code', 400);
+    const { code, state, error: oauthError } = req.query;
+    if (oauthError) {
+      return res.redirect(`${fe}/integrations?integration=${req.params.platform}&status=denied&error=${encodeURIComponent(String(oauthError))}`);
+    }
+    if (!code) {
+      return res.redirect(`${fe}/integrations?integration=${req.params.platform}&status=error&error=missing_code`);
+    }
 
-    // Resolve the account from our own pending-state record — before spending
-    // the authorization code on a token exchange.
     const pending = await consumeState(String(state || ''), req.params.platform);
-    if (!pending) return error(res, 'Invalid or expired state parameter', 400);
+    if (!pending) {
+      return res.redirect(`${fe}/integrations?integration=${req.params.platform}&status=error&error=invalid_state`);
+    }
 
     const adapter = getAdapter(req.params.platform);
-    const redirectUri = `${process.env.APP_URL || 'http://localhost:5000'}/api/external/callback/${req.params.platform}`;
+    const redirectUri = callbackRedirectUri(req.params.platform);
     const tokens = await adapter.handleCallback(code, redirectUri);
-
     await saveTokens(pending.userId, req.params.platform, tokens);
 
-    // Redirect to frontend success page
-    res.redirect(`${process.env.CORS_ORIGIN || 'http://localhost:5173'}/dashboard?integration=${req.params.platform}&status=connected`);
+    res.redirect(`${fe}/integrations?integration=${req.params.platform}&status=connected`);
   } catch (err) {
-    next(err);
+    console.error('[external/callback]', err.message);
+    res.redirect(`${fe}/integrations?integration=${req.params.platform}&status=error&error=callback_failed`);
   }
 });
 
@@ -138,52 +199,50 @@ router.post('/sync/:platform', authenticate, async (req, res, next) => {
   try {
     const adapter = getAdapter(req.params.platform);
     const userId = req.user.id;
-    const { dataTypes = ['steps', 'calories'], days = 7, payload } = req.body;
+    const {
+      dataTypes = DEFAULT_GOOGLE_TYPES,
+      days = 7,
+      payload,
+    } = req.body || {};
 
+    const dayCount = Math.min(90, Math.max(1, parseInt(days, 10) || 7));
     const endDate = new Date();
-    const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
+    const startDate = new Date(endDate.getTime() - dayCount * 24 * 60 * 60 * 1000);
 
     let allEntries = [];
 
     if (req.params.platform === 'apple_health' && payload) {
-      // Apple Health: receive pre-fetched data from mobile app
       const normalized = await adapter.fetchData(null, null, payload);
       allEntries = adapter.mapToHealthLog(normalized, userId);
     } else {
-      // Google Fit: fetch via API using stored tokens
-      const stored = await getTokens(userId, req.params.platform);
-      if (!stored) return error(res, 'Platform not connected. Please connect first.', 401);
-
-      let { accessToken } = stored;
-
-      // Refresh if needed (tokens expire in 1 hour)
-      const connectedTime = new Date(stored.connectedAt).getTime();
-      const elapsed = Date.now() - connectedTime;
-      if (elapsed > (stored.expiresIn || 3600) * 1000 * 0.9) {
-        try {
-          const refreshed = await adapter.refreshToken(stored.refreshToken);
-          accessToken = refreshed.accessToken;
-          await saveTokens(userId, req.params.platform, {
-            accessToken,
-            refreshToken: stored.refreshToken,
-            expiresIn: stored.expiresIn,
-          });
-        } catch (refreshErr) {
-          return error(res, 'Token expired. Please reconnect.', 401);
-        }
+      const ensured = await ensureAccessToken(userId, req.params.platform, adapter);
+      if (ensured.error) {
+        return error(res, ensured.message, ensured.status, ensured.error);
       }
 
-      for (const type of dataTypes) {
-        const rawData = await adapter.fetchData(accessToken, type, startDate, endDate);
-        const mapped = adapter.mapToHealthLog(rawData, userId);
-        allEntries.push(...mapped);
+      const types = Array.isArray(dataTypes) && dataTypes.length
+        ? dataTypes
+        : DEFAULT_GOOGLE_TYPES;
+
+      const errors = [];
+      for (const type of types) {
+        try {
+          const rawData = await adapter.fetchData(ensured.accessToken, type, startDate, endDate);
+          const mapped = adapter.mapToHealthLog(rawData, userId);
+          allEntries.push(...mapped);
+        } catch (typeErr) {
+          errors.push({ type, message: typeErr.message });
+        }
+      }
+      if (!allEntries.length && errors.length) {
+        return error(res, `Sync failed: ${errors.map((e) => e.type).join(', ')}`, 502, 'SYNC_PARTIAL_FAIL');
       }
     }
 
-    // Bulk insert, skipping duplicates (same user + type + date)
+    // Dedupe by user + type + day + source (idempotent re-sync).
     let createdCount = 0;
     for (const entry of allEntries) {
-      const [_, wasCreated] = await HealthLog.findOrCreate({
+      const [, wasCreated] = await HealthLog.findOrCreate({
         where: {
           user_id: entry.user_id,
           type: entry.type,
@@ -192,7 +251,7 @@ router.post('/sync/:platform', authenticate, async (req, res, next) => {
         },
         defaults: entry,
       });
-      if (wasCreated) createdCount++;
+      if (wasCreated) createdCount += 1;
     }
 
     success(res, {
@@ -200,8 +259,12 @@ router.post('/sync/:platform', authenticate, async (req, res, next) => {
       new_entries: createdCount,
       duplicates_skipped: allEntries.length - createdCount,
       platform: req.params.platform,
+      window_days: dayCount,
     }, `Synced ${createdCount} new entries from ${req.params.platform}`);
   } catch (err) {
+    if (err.statusCode && err.isOperational) {
+      return error(res, err.message, err.statusCode, err.code || 'EXTERNAL_ERROR');
+    }
     next(err);
   }
 });
@@ -231,15 +294,38 @@ router.get('/status', authenticate, async (req, res, next) => {
     const platforms = {};
     for (const key of Object.keys(adapters)) {
       const stored = byPlatform.get(key);
+      const adapter = adapters[key];
+      const configured = typeof adapter.isConfigured === 'function'
+        ? adapter.isConfigured()
+        : true;
+      const tokenValid = stored
+        ? accessTokenStillValid({
+          accessToken: stored.access_token,
+          refreshToken: stored.refresh_token,
+          expiresIn: stored.expires_in,
+          tokenExpiresAt: stored.token_expires_at,
+          connectedAt: stored.connected_at,
+        })
+        : false;
       platforms[key] = {
         connected: !!stored,
         connectedAt: stored?.connected_at || null,
+        configured,
+        needs_reconnect: Boolean(stored && !tokenValid && !stored.refresh_token),
+        // refresh available means client can still try sync (server will refresh)
+        can_sync: Boolean(stored && (tokenValid || stored.refresh_token)),
       };
     }
-    success(res, { platforms }, 'Integration status');
+    success(res, {
+      platforms,
+      callback_base: apiPublicUrl(),
+    }, 'Integration status');
   } catch (err) {
     next(err);
   }
 });
 
 module.exports = router;
+// Test hooks
+module.exports._accessTokenStillValid = accessTokenStillValid;
+module.exports._ensureAccessToken = ensureAccessToken;

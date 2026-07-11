@@ -41,6 +41,11 @@ const UserIntegration = sequelize.define('user_integrations', {
     allowNull: true,
     comment: 'Provider-reported access-token lifetime in seconds.',
   },
+  token_expires_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Absolute UTC time when access_token is expected to expire.',
+  },
   connected_at: {
     type: DataTypes.DATE,
     allowNull: false,
