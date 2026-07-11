@@ -233,6 +233,49 @@ npx jest --forceExit --runInBand
 
 ---
 
+## Loop 7 — 2026-07-12 — **Reports UC-13 + Notifications UC-14**
+
+### Section
+PDF lifecycle, ownership, cron auth, notification IDOR
+
+### Tests run
+```
+npx jest tests/reportRoutes.test.js tests/reportService.test.js \
+  tests/notificationService.test.js tests/uc13_uc14_requirements.test.js \
+  tests/pdfReportBuilder.test.js
+# 26 pass
+npx jest --forceExit --runInBand
+```
+
+### Findings (fixed)
+| Severity | Issue | Fix |
+|----------|--------|-----|
+| **Medium** | Cron secret compared with `!==` (timing leak) | `crypto.timingSafeEqual` |
+| **Medium** | Cron success returned **full report + notification** payloads (emails/scores) | Operational summary only |
+| **Low** | PDF filename used raw `week_key` (Content-Disposition injection risk) | sanitize to `[A-Za-z0-9._-]` |
+
+### Already solid
+- Download/get scoped by `user_id` (404 foreign)
+- Notify requires persisted report id; opt-out; dedupe per report
+- Cron dormant without secret; wrong secret 401
+- PDF built from frozen snapshot (no corrupt partial file on fail path)
+
+### Regression
+- Cron response shape has no report/notification bodies
+- Foreign notification mark → 404
+
+### Remaining risk
+- Email delivery depends on provider keys (ops)
+- Scheduler is single-process hourly (multi-instance may double-run; job is idempotent)
+
+### Section status
+**GREEN** (UC-13 + UC-14)
+
+### Next loop candidate
+**Memory** or **Insights** or **FE SPA shells**.
+
+---
+
 ## Section scoreboard (campaign)
 
 | Section | Status | Notes |
@@ -244,9 +287,9 @@ npx jest --forceExit --runInBand
 | Finance CRUD | **GREEN** (loop 4) | same |
 | Chat/NLP | **GREEN** (loop 5) | write gate |
 | Admin API UC-16 | **GREEN** (loop 6) | firebase_uid leak |
+| Reports UC-13 | **GREEN** (loop 7) | cron harden |
+| Notifications UC-14 | **GREEN** (loop 7) | same |
 | Insights | pending deep | |
-| Reports UC-13 | pending deep | unit suite exists |
-| Notifications UC-14 | pending deep | |
 | Memory | pending deep | |
 | FE SPA shells | pending deep | Playwright shells green |
 | Perf hotspots | pending deep | conversation O(n²) ponytail |

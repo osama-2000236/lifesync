@@ -176,4 +176,56 @@ describe('report routes (integration)', () => {
       .expect(401);
     delete process.env.REPORT_CRON_SECRET;
   });
+
+  test('SR: cron success returns operational summary only (no report bodies)', async () => {
+    process.env.REPORT_CRON_SECRET = 'cron-test-secret-ok';
+    const res = await request(app)
+      .post('/api/reports/cron/weekly')
+      .set('X-Report-Cron-Secret', 'cron-test-secret-ok')
+      .expect(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toMatchObject({
+      week_key: expect.any(String),
+      processed: expect.any(Number),
+      ok: expect.any(Number),
+      failed: expect.any(Number),
+    });
+    const blob = JSON.stringify(res.body.data);
+    expect(blob).not.toMatch(/@test\.com|metrics_snapshot|notification\.body|summary/i);
+    if (Array.isArray(res.body.data.results)) {
+      for (const r of res.body.data.results) {
+        expect(r).toHaveProperty('user_id');
+        expect(r).toHaveProperty('ok');
+        expect(r.report).toBeUndefined();
+        expect(r.notification).toBeUndefined();
+      }
+    }
+    delete process.env.REPORT_CRON_SECRET;
+  });
+
+  test('UC-14: cannot mark another users notification read', async () => {
+    await request(app)
+      .post('/api/reports/generate')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ notify: true })
+      .expect(201);
+    const notes = await request(app)
+      .get('/api/reports/notifications')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const nid = notes.body.data.notifications[0].id;
+
+    const other = await User.create({
+      username: 'other_n',
+      email: 'othern@test.com',
+      hashed_password: 'Password1!',
+      verified_email: true,
+      is_active: true,
+    });
+    const otherTok = generateTokenPair(other).accessToken;
+    await request(app)
+      .put(`/api/reports/notifications/${nid}/read`)
+      .set('Authorization', `Bearer ${otherTok}`)
+      .expect(404);
+  });
 });

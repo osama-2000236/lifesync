@@ -138,7 +138,9 @@ const downloadReportPdf = async (reportId, userId) => {
     user_name: user?.name || null,
     user_email: user?.email || null,
   });
-  const filename = `lifesync-week-${plain.week_key || reportId}.pdf`;
+  // Content-Disposition safe: strip quotes/path chars from week_key.
+  const safeKey = String(plain.week_key || reportId).replace(/[^A-Za-z0-9._-]/g, '_');
+  const filename = `lifesync-week-${safeKey}.pdf`;
   return { buffer, filename, report: toPublicReport(row) };
 };
 

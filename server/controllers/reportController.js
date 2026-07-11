@@ -1,6 +1,7 @@
 // server/controllers/reportController.js
 // UC-13 weekly PDF reports + UC-14 notification preference hooks.
 
+const crypto = require('crypto');
 const { body, param, query } = require('express-validator');
 const {
   generateWeeklyReport,
@@ -17,6 +18,13 @@ const {
 } = require('../services/notificationService');
 const User = require('../models/User');
 const { success, created, error } = require('../utils/responseHelper');
+
+const timingSafeEqualStr = (a, b) => {
+  const ab = Buffer.from(String(a || ''));
+  const bb = Buffer.from(String(b || ''));
+  if (ab.length === 0 || ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+};
 
 const generateValidation = [];
 
@@ -142,11 +150,26 @@ const runCronHandler = async (req, res, next) => {
       return error(res, 'Not found.', 404, 'NOT_FOUND');
     }
     const presented = req.headers['x-report-cron-secret'];
-    if (!presented || presented !== expected) {
+    if (!timingSafeEqualStr(presented, expected)) {
       return error(res, 'Access denied.', 401, 'CRON_FORBIDDEN');
     }
     const batch = await runWeeklyReportJob();
-    return success(res, batch, 'Weekly report job finished');
+    // Never return full report/notification payloads (emails, scores) on the cron
+    // channel — only operational counters.
+    return success(res, {
+      week_key: batch.week_key,
+      processed: batch.processed,
+      ok: (batch.results || []).filter((r) => r.ok).length,
+      failed: (batch.results || []).filter((r) => !r.ok).length,
+      results: (batch.results || []).map((r) => ({
+        user_id: r.user_id,
+        ok: r.ok,
+        created: Boolean(r.created),
+        report_id: r.report?.id || null,
+        notify_skipped: Boolean(r.notification?.skipped),
+        error: r.ok ? undefined : 'failed',
+      })),
+    }, 'Weekly report job finished');
   } catch (err) {
     next(err);
   }
