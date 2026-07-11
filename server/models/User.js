@@ -76,6 +76,18 @@ const User = sequelize.define('users', {
     defaultValue: 'bert_local',
     comment: 'Model the user picked at signup / in settings. The chat + dashboard run on this single model.',
   },
+  report_notify_enabled: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+    comment: 'UC-14: email + in-app notification when a weekly report is ready',
+  },
+  timezone: {
+    type: DataTypes.STRING(64),
+    allowNull: false,
+    defaultValue: 'UTC',
+    comment: 'IANA timezone for weekly report scheduling (e.g. Asia/Hebron)',
+  },
 }, {
   tableName: 'users',
   timestamps: true,

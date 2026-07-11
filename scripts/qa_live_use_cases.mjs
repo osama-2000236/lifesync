@@ -352,12 +352,44 @@ async function section(title, fn) {
     else wrn('Delete missing health status', `HTTP ${foreign.status}`);
   });
 
-  // ── UC-13 / UC-14 Planned gaps ────────────────────────────────────
+  // ── UC-13 Weekly report PDF ───────────────────────────────────────
   await section('UC-13 Weekly report download', async () => {
-    gapNote('UC-13 PDF/CSV weekly report download', 'Not implemented (documented product gap)');
+    const gen = await http('POST', `${BE}/api/reports/generate`, {
+      headers: A,
+      body: { notify: true },
+    });
+    if (!expectStatus('Generate weekly report', gen, [200, 201])) return;
+    const report = gen.json?.data?.report;
+    if (!report?.id) {
+      bad('Report id returned');
+      return;
+    }
+    ok('Report id returned', String(report.id));
+    const list = await http('GET', `${BE}/api/reports`, { headers: A });
+    expectStatus('List reports', list, 200);
+    const pdf = await http('GET', `${BE}/api/reports/${report.id}/download`, { headers: A });
+    if (pdf.status === 200 && (pdf.text?.startsWith('%PDF') || pdf.text?.includes('%PDF'))) {
+      ok('PDF download is application/pdf body');
+    } else if (pdf.status === 200) {
+      // Binary may not decode as text cleanly in fetch text mode
+      ok('PDF download HTTP 200', `len=${(pdf.text || '').length}`);
+    } else {
+      bad('PDF download', `HTTP ${pdf.status}`);
+    }
   });
+
+  // ── UC-14 Notifications ───────────────────────────────────────────
   await section('UC-14 Report notification', async () => {
-    gapNote('UC-14 Scheduled report notification', 'Not implemented (documented product gap)');
+    const notes = await http('GET', `${BE}/api/reports/notifications`, { headers: A });
+    if (expectStatus('List notifications', notes, 200)) {
+      const unread = notes.json?.data?.unread_count;
+      if (typeof unread === 'number') ok('Unread count present', String(unread));
+    }
+    const pref = await http('PUT', `${BE}/api/reports/preferences`, {
+      headers: A,
+      body: { report_notify_enabled: true, timezone: 'UTC' },
+    });
+    expectStatus('Update notify preferences', pref, 200);
   });
 
   // ── UC-15 External integrations surface ───────────────────────────

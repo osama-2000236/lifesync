@@ -26,6 +26,7 @@ const aiRoutes = require('./routes/aiRoutes');
 const voiceRoutes = require('./routes/voiceRoutes');
 const assistantRoutes = require('./routes/assistantRoutes');
 const memoryRoutes = require('./routes/memoryRoutes');
+const reportRoutes = require('./routes/reportRoutes');
 
 // Import granular rate limiters
 const { chatLimiter, generalLimiter } = require('./middleware/rateLimiter');
@@ -135,6 +136,7 @@ app.use('/api/ai', generalLimiter, aiRoutes);
 app.use('/api/voice', generalLimiter, voiceRoutes);
 app.use('/api/assistant', generalLimiter, assistantRoutes);
 app.use('/api/memory', generalLimiter, memoryRoutes);
+app.use('/api/reports', generalLimiter, reportRoutes);
 
 // ============================================
 // Error Handling
@@ -163,6 +165,14 @@ const startServer = async () => {
 
     // Initialize Firebase (non-blocking)
     initializeFirebase();
+
+    // UC-14 weekly report + notification scheduler (hourly; opt out with REPORT_SCHEDULER=0)
+    try {
+      const { startReportScheduler } = require('./services/reportScheduler');
+      startReportScheduler();
+    } catch (schedErr) {
+      console.warn('[reportScheduler] failed to start:', schedErr.message);
+    }
 
     // Start listening
     app.listen(PORT, () => {

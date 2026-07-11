@@ -14,6 +14,7 @@ const chartSkeleton = <div className="h-64 skeleton rounded-xl" />;
 import InsightCards from '../components/dashboard/InsightCards';
 import SecondMindCard from '../components/dashboard/SecondMindCard';
 import StreakCard from '../components/dashboard/StreakCard';
+import WeeklyReportCard from '../components/dashboard/WeeklyReportCard';
 import CorrelationPanel from '../components/dashboard/CorrelationPanel';
 import CrossDomainTimeline from '../components/dashboard/CrossDomainTimeline';
 import { SkeletonCard } from '../components/ui/Skeleton';
@@ -240,6 +241,10 @@ export default function DashboardPage() {
           {greeting()}, {user?.name || user?.username} 👋
         </h1>
         <p className="text-navy-500 mt-1">{t('dash.subtitle')}</p>
+      </div>
+
+      <div className="mb-6">
+        <WeeklyReportCard />
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

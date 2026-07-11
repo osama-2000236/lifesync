@@ -9,6 +9,8 @@ const MIGRATIONS = [
   '20260410-002-add-status-to-chat-logs.js',
   '20260620-003-add-user-memory-and-preferred-model.js',
   '20260710-004-health-value-text-to-text.js',
+  '20260711-005-add-user-integrations.js',
+  '20260711-006-weekly-reports-and-notifications.js',
 ];
 
 const MODEL_TABLES = {
@@ -22,6 +24,9 @@ const MODEL_TABLES = {
   user_goals: () => require('../server/models/UserGoal'),
   system_logs: () => require('../server/models/SystemLog'),
   user_memories: () => require('../server/models/UserMemory'),
+  user_integrations: () => require('../server/models/UserIntegration'),
+  weekly_reports: () => require('../server/models/WeeklyReport'),
+  user_notifications: () => require('../server/models/UserNotification'),
 };
 
 const attrToColumn = (name, attr) => {

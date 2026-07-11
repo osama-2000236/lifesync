@@ -14,6 +14,7 @@ import {
 } from '../utils/avatarStorage';
 import { MODEL_OPTIONS } from '../config/models';
 import MemorySection from '../components/profile/MemorySection';
+import NotificationsSection from '../components/profile/NotificationsSection';
 import { Card, Alert, Button, FormField, Input } from '../components/ui';
 import {
   User, Mail, Lock, Trash2, Save, Loader2, Eye, EyeOff,
@@ -678,6 +679,7 @@ export default function ProfilePage() {
         <ProfileInfoSection user={currentUser} onUpdate={handleUpdate} />
         <AssistantModelSection user={currentUser} onUpdate={handleUpdate} />
         <MemorySection />
+        <NotificationsSection />
         <EmailChangeSection user={currentUser} isGoogleUser={isGoogleUser} onUpdate={handleUpdate} />
         <ChangePasswordSection isGoogleUser={isGoogleUser} />
         <DangerZoneSection onDeleteAccount={handleDeleteAccount} />

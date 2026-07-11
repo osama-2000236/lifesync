@@ -33,6 +33,9 @@ describe('route auth surface (integration, no token)', () => {
     ['delete', '/api/memory'],
     ['post', '/api/voice/speak'],
     ['get', '/api/auth/me'],
+    ['get', '/api/reports'],
+    ['post', '/api/reports/generate'],
+    ['get', '/api/reports/notifications'],
   ])('%s %s → 401 without token', async (method, path) => {
     const res = await request(app)[method](path).send({});
     expect(res.status).toBe(401);

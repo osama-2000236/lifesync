@@ -16,6 +16,8 @@ const LinkedDomain = require('./LinkedDomain');
 const SystemLog = require('./SystemLog');
 const UserMemory = require('./UserMemory');
 const UserIntegration = require('./UserIntegration');
+const WeeklyReport = require('./WeeklyReport');
+const UserNotification = require('./UserNotification');
 
 // Association FK options must match migration / column onDelete so Sequelize
 // cascade helpers and schema docs stay aligned with the real DB constraints.
@@ -36,6 +38,8 @@ User.hasMany(UserGoal, { foreignKey: 'user_id', as: 'goals', ...CASCADE });
 User.hasMany(SystemLog, { foreignKey: 'admin_id', as: 'adminLogs', ...SET_NULL });
 User.hasMany(UserMemory, { foreignKey: 'user_id', as: 'memories', ...CASCADE });
 User.hasMany(UserIntegration, { foreignKey: 'user_id', as: 'integrations', ...CASCADE });
+User.hasMany(WeeklyReport, { foreignKey: 'user_id', as: 'weeklyReports', ...CASCADE });
+User.hasMany(UserNotification, { foreignKey: 'user_id', as: 'notifications', ...CASCADE });
 
 // --- HealthLog Associations ---
 HealthLog.belongsTo(User, { foreignKey: 'user_id', as: 'user', ...CASCADE });
@@ -74,6 +78,10 @@ UserMemory.belongsTo(User, { foreignKey: 'user_id', as: 'user', ...CASCADE });
 // --- UserIntegration Associations ---
 UserIntegration.belongsTo(User, { foreignKey: 'user_id', as: 'user', ...CASCADE });
 
+// --- WeeklyReport / Notification ---
+WeeklyReport.belongsTo(User, { foreignKey: 'user_id', as: 'user', ...CASCADE });
+UserNotification.belongsTo(User, { foreignKey: 'user_id', as: 'user', ...CASCADE });
+
 // ============================================
 // Export all models
 // ============================================
@@ -90,6 +98,8 @@ const db = {
   SystemLog,
   UserMemory,
   UserIntegration,
+  WeeklyReport,
+  UserNotification,
 };
 
 module.exports = db;

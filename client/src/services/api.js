@@ -304,4 +304,17 @@ export const externalAPI = {
   getStatus: () => api.get('/external/status'),
 };
 
+// ─── Weekly reports (UC-13) + notifications (UC-14) ───
+export const reportsAPI = {
+  list: () => api.get('/reports'),
+  generate: (notify = true) => api.post('/reports/generate', { notify }),
+  get: (id) => api.get(`/reports/${id}`),
+  // Binary PDF — caller creates an object URL / triggers download.
+  download: (id) => api.get(`/reports/${id}/download`, { responseType: 'blob' }),
+  listNotifications: (params) => api.get('/reports/notifications', { params }),
+  markNotificationRead: (id) => api.put(`/reports/notifications/${id}/read`),
+  markAllNotificationsRead: () => api.put('/reports/notifications/read-all'),
+  updatePreferences: (payload) => api.put('/reports/preferences', payload),
+};
+
 export default api;
