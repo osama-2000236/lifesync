@@ -380,7 +380,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
         if (vadTimerRef.current) { clearInterval(vadTimerRef.current); vadTimerRef.current = null; }
       }
     }, 100);
-  }, [locale, setPhase, stopCloudTurn]);
+  }, [setPhase, stopCloudTurn]);
   useEffect(() => { startCloudTurnRef.current = startCloudTurn; }, [startCloudTurn]);
 
   // ─── Recognition ───
@@ -467,7 +467,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     recRef.current = rec;
     setPhase('listening');
     try { rec.start(); } catch { /* ignore */ }
-  }, [locale, setPhase]);
+  }, [setPhase]);
 
   // Engine dispatcher: every "resume listening" goes through here.
   const startListening = useCallback(() => {
@@ -516,7 +516,7 @@ export function useVoiceAssistant({ locale = 'en', onUtterance, onBargeIn } = {}
     };
     bargeRecRef.current = rec;
     try { rec.start(); } catch { /* ignore */ }
-  }, [locale, stopBargeListener, startListening, stopCloudAudio]);
+  }, [stopBargeListener, startListening, stopCloudAudio]);
 
   // Speaks the queue sequentially; resumes listening once it's drained AND the
   // caller has signaled no more chunks are coming (finishSpeechStream). Recurses

@@ -49,4 +49,11 @@ export default [
       globals: globals.node,
     },
   },
+  {
+    // Vitest test files run in Node: `global` and friends are real there.
+    files: ['**/*.test.{js,jsx}', 'src/test/**'],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
+    },
+  },
 ];

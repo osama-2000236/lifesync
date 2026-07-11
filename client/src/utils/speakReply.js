@@ -56,7 +56,7 @@ export const speakReply = async (text, { locale = 'en' } = {}) => {
   if (needCloud && cloudTtsKnown !== false) {
     try {
       for (const chunk of chunkForSpeech(clean)) {
-        // eslint-disable-next-line no-await-in-loop -- sequential audio chunks
+         
         await playCloudChunk(chunk, lang);
       }
       cloudTtsKnown = true;

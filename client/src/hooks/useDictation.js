@@ -121,7 +121,7 @@ export function useDictation({ locale = 'en', onText } = {}) {
       setState('idle');
       setError('transcribe_failed');
     }
-  }, [locale, emit, releaseStream]);
+  }, [emit, releaseStream]);
 
   const startCloud = useCallback(async () => {
     if (!canRecord()) { setError('unsupported'); return; }

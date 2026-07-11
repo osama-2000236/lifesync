@@ -27,6 +27,7 @@ export default function NotificationsSection() {
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleNotify = async () => {
