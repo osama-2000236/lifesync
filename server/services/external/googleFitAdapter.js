@@ -44,10 +44,12 @@ class GoogleFitAdapter extends HealthPlatformAdapter {
 
   /**
    * Generate Google OAuth consent URL
-   * @param {number} userId - Stored in state param for callback
+   * @param {string} state - Opaque server-issued nonce; the route layer binds
+   *   it to the initiating user. Never identity data — the callback is
+   *   unauthenticated, so state is the only account-binding proof.
    * @param {string} redirectUri - Must match Google Console config
    */
-  getAuthorizationUrl(userId, redirectUri) {
+  getAuthorizationUrl(state, redirectUri) {
     const params = new URLSearchParams({
       client_id: this.clientId,
       redirect_uri: redirectUri,
@@ -55,7 +57,7 @@ class GoogleFitAdapter extends HealthPlatformAdapter {
       scope: SCOPES.join(' '),
       access_type: 'offline',
       prompt: 'consent',
-      state: JSON.stringify({ userId, platform: 'google_fit' }),
+      state: String(state),
     });
 
     return `${this.authUrl}?${params.toString()}`;

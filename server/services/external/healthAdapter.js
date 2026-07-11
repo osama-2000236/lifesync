@@ -18,8 +18,8 @@ class HealthPlatformAdapter {
     this.name = name;
   }
 
-  /** Generate OAuth authorization URL */
-  getAuthorizationUrl(userId, redirectUri) {
+  /** Generate OAuth authorization URL (state = opaque server-issued nonce) */
+  getAuthorizationUrl(state, redirectUri) {
     throw new Error('getAuthorizationUrl() must be implemented');
   }
 

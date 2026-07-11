@@ -33,12 +33,39 @@ function getAdapter(platform) {
 // In-memory token store (production: use DB table `user_integrations`)
 const tokenStore = new Map();
 
+// Pending OAuth states: opaque nonce → { userId, platform, expiresAt }.
+// The callback arrives unauthenticated (provider redirect), so this nonce is
+// the ONLY thing binding it to an account — it must be server-issued,
+// single-use, and expiring. Never accept identity data from the state itself.
+const crypto = require('crypto');
+const pendingStates = new Map();
+const STATE_TTL_MS = 10 * 60 * 1000;
+
+const issueState = (userId, platform) => {
+  // Lazy sweep so abandoned flows don't accumulate.
+  for (const [nonce, entry] of pendingStates) {
+    if (entry.expiresAt <= Date.now()) pendingStates.delete(nonce);
+  }
+  const nonce = crypto.randomBytes(24).toString('base64url');
+  pendingStates.set(nonce, { userId, platform, expiresAt: Date.now() + STATE_TTL_MS });
+  return nonce;
+};
+
+const consumeState = (nonce, platform) => {
+  const entry = pendingStates.get(nonce);
+  if (!entry) return null;
+  pendingStates.delete(nonce); // single-use, even when checks below fail
+  if (entry.expiresAt <= Date.now() || entry.platform !== platform) return null;
+  return entry;
+};
+
 // ─── Get OAuth Authorization URL ───
 router.get('/connect/:platform', authenticate, async (req, res, next) => {
   try {
     const adapter = getAdapter(req.params.platform);
     const redirectUri = `${process.env.APP_URL || 'http://localhost:5000'}/api/external/callback/${req.params.platform}`;
-    const result = adapter.getAuthorizationUrl(req.user.id, redirectUri);
+    const state = issueState(req.user.id, req.params.platform);
+    const result = adapter.getAuthorizationUrl(state, redirectUri);
 
     if (typeof result === 'string') {
       success(res, { url: result, platform: req.params.platform }, 'Authorization URL generated');
@@ -57,16 +84,17 @@ router.get('/callback/:platform', async (req, res, next) => {
     const { code, state } = req.query;
     if (!code) return error(res, 'Missing authorization code', 400);
 
+    // Resolve the account from our own pending-state record — before spending
+    // the authorization code on a token exchange.
+    const pending = consumeState(String(state || ''), req.params.platform);
+    if (!pending) return error(res, 'Invalid or expired state parameter', 400);
+
     const adapter = getAdapter(req.params.platform);
     const redirectUri = `${process.env.APP_URL || 'http://localhost:5000'}/api/external/callback/${req.params.platform}`;
     const tokens = await adapter.handleCallback(code, redirectUri);
 
-    // Parse user ID from state
-    const { userId } = JSON.parse(state || '{}');
-    if (!userId) return error(res, 'Invalid state parameter', 400);
-
     // Store tokens (production: persist to DB)
-    tokenStore.set(`${userId}:${req.params.platform}`, {
+    tokenStore.set(`${pending.userId}:${req.params.platform}`, {
       ...tokens,
       connectedAt: new Date().toISOString(),
     });
