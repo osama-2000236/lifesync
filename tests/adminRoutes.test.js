@@ -107,6 +107,9 @@ describe('admin routes (UC-16)', () => {
   });
 
   test('users search returns matching accounts', async () => {
+    // Ensure OAuth uid exists on a row — must never appear in API JSON.
+    await regular.update({ firebase_uid: 'google-oauth-uid-should-not-leak' });
+
     const list = await request(app)
       .get('/api/admin/users')
       .query({ search: 'plain', limit: 10 })
@@ -117,6 +120,62 @@ describe('admin routes (UC-16)', () => {
     expect(Array.isArray(list.body.data)).toBe(true);
     expect(list.body.data.some((u) => u.username === 'plain_user')).toBe(true);
     expect(list.body.pagination).toBeDefined();
+    for (const u of list.body.data) {
+      expect(u.hashed_password).toBeUndefined();
+      expect(u.firebase_uid).toBeUndefined();
+      expect(u.auth_provider).toBeDefined();
+    }
+    expect(JSON.stringify(list.body)).not.toMatch(/google-oauth-uid|hashed_password/i);
+  });
+
+  test('dashboard AI snapshot never includes secret-like keys', async () => {
+    const res = await request(app)
+      .get('/api/admin/dashboard')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    const blob = JSON.stringify(res.body.data.runtime.ai || {});
+    expect(blob).not.toMatch(/api[_-]?key|sk-|GOCSPX-|BEGIN PRIVATE/i);
+  });
+
+  test('invalid user id on status update is 400', async () => {
+    const res = await request(app)
+      .put('/api/admin/users/not-a-number/status')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ is_active: false })
+      .expect(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  test('sole admin cannot self-deactivate; second admin can be deactivated', async () => {
+    // Sole active admin → self-deactivate blocked (own-account rule).
+    const self = await request(app)
+      .put(`/api/admin/users/${admin.id}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ is_active: false })
+      .expect(400);
+    expect(self.body.success).toBe(false);
+
+    const second = await User.create({
+      username: 'admin_peer',
+      email: 'admin_peer@test.com',
+      hashed_password: 'Password1!',
+      verified_email: true,
+      is_active: true,
+      role: 'admin',
+    });
+    // Two active admins → deactivating the peer is allowed.
+    await request(app)
+      .put(`/api/admin/users/${second.id}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ is_active: false })
+      .expect(200);
+    const reloaded = await User.findByPk(second.id);
+    expect(reloaded.is_active).toBe(false);
+    // Deactivated admin token is rejected at authenticate (is_active).
+    await request(app)
+      .get('/api/admin/dashboard')
+      .set('Authorization', `Bearer ${generateTokenPair(second).accessToken}`)
+      .expect(403);
   });
 
   test('cannot deactivate own account; can deactivate regular user + audit log', async () => {

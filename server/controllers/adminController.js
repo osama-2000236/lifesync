@@ -42,8 +42,9 @@ const loadAiSnapshot = async () => {
         }
       })(),
     };
-  } catch (err) {
-    return { error: err.message || 'ai_status_unavailable' };
+  } catch {
+    // Never surface stack/provider dump to admin clients.
+    return { error: 'ai_status_unavailable' };
   }
 };
 
@@ -184,13 +185,16 @@ const getUsers = async (req, res, next) => {
 
     const { count, rows } = await User.findAndCountAll({
       where,
-      attributes: { exclude: ['hashed_password'] },
+      // Exclude secrets at SQL layer; still map through toSafeJSON so firebase_uid
+      // never reaches the client (exclude-only left OAuth provider ids exposed).
+      attributes: { exclude: ['hashed_password', 'firebase_uid'] },
       order: [['created_at', 'DESC']],
       limit,
       offset,
     });
 
-    return paginated(res, rows, {
+    const safeRows = rows.map((u) => (typeof u.toSafeJSON === 'function' ? u.toSafeJSON() : u));
+    return paginated(res, safeRows, {
       page,
       limit,
       total: count,
@@ -211,7 +215,11 @@ const updateUserStatus = async (req, res, next) => {
     if (typeof is_active !== 'boolean') {
       return error(res, 'is_active must be a boolean.', 400);
     }
-    const user = await User.findByPk(req.params.id);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id) || id < 1) {
+      return error(res, 'Invalid user id.', 400);
+    }
+    const user = await User.findByPk(id);
 
     if (!user) return error(res, 'User not found.', 404);
     if (user.id === req.user.id) return error(res, 'Cannot modify your own status.', 400);

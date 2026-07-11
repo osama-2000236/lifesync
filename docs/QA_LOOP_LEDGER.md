@@ -191,6 +191,48 @@ npx jest --forceExit --runInBand
 
 ---
 
+## Loop 6 — 2026-07-12 — **Admin API UC-16**
+
+### Section
+Least privilege, user list sanitization, status updates (no admin UI)
+
+### Tests run
+```
+npx jest tests/adminRoutes.test.js
+# 8 pass
+npx jest --forceExit --runInBand
+```
+
+### Findings (fixed)
+| Severity | Issue | Fix |
+|----------|--------|-----|
+| **Medium** | `GET /users` excluded only `hashed_password` — **`firebase_uid` still returned** | SQL exclude + `toSafeJSON()` map |
+| **Low** | `PUT .../status` accepted non-numeric `:id` | `parseInt` + 400 |
+| **Low** | AI snapshot catch leaked `err.message` | generic `ai_status_unavailable` |
+
+### Already solid
+- `authenticate` + `adminOnly` on all admin routes
+- Cannot modify own status; last-admin guard present
+- Dashboard aggregates only (no journal bodies)
+- Deactivated admin JWT → 403 at authenticate
+
+### Regression
+- List never contains `firebase_uid` / `hashed_password`
+- Dashboard AI JSON has no secret-like patterns
+- Invalid id 400; peer admin deactivation + deactivated token 403
+
+### Remaining risk
+- Admin can still read other users' emails (by design for ops)
+- No role-change API (good); privilege escalation via DB only
+
+### Section status
+**GREEN** (API-only UC-16)
+
+### Next loop candidate
+**Reports UC-13 / Notifications UC-14** or **Memory** or **Insights**.
+
+---
+
 ## Section scoreboard (campaign)
 
 | Section | Status | Notes |
@@ -200,11 +242,11 @@ npx jest --forceExit --runInBand
 | Google Fit UC-15 | **GREEN** (loop 3) | revoke leak |
 | Health CRUD | **GREEN** (loop 4) | IDOR + encrypted search |
 | Finance CRUD | **GREEN** (loop 4) | same |
-| Chat/NLP | **GREEN** (loop 5) | write gate + entity validate |
+| Chat/NLP | **GREEN** (loop 5) | write gate |
+| Admin API UC-16 | **GREEN** (loop 6) | firebase_uid leak |
 | Insights | pending deep | |
 | Reports UC-13 | pending deep | unit suite exists |
 | Notifications UC-14 | pending deep | |
-| Admin API UC-16 | pending deep | least-privilege live |
 | Memory | pending deep | |
 | FE SPA shells | pending deep | Playwright shells green |
 | Perf hotspots | pending deep | conversation O(n²) ponytail |
