@@ -171,20 +171,34 @@ const extractMemoryCandidates = (message) => {
   return out;
 };
 
+/** Stable mem_key only: no spaces/injection; chat path cannot mint assistant.* bookkeeping. */
+const sanitizeMemKey = (key, { allowAssistantKeys = false } = {}) => {
+  const raw = String(key || '').trim().slice(0, 120);
+  if (!raw) return '';
+  if (!allowAssistantKeys && raw.startsWith('assistant.')) return '';
+  // Keep dotted namespaces (vehicle.car, pref.coffee); drop other punctuation.
+  const safe = raw.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 120);
+  if (!safe || (!allowAssistantKeys && safe.startsWith('assistant.'))) return '';
+  return safe;
+};
+
 /**
  * Upsert candidate facts for a user. Reinforces existing facts
  * (times_seen / salience / last_seen_at) instead of duplicating.
+ * @param {{ allowAssistantKeys?: boolean }} opts - system paths may write assistant.* keys
  */
-const recordMemories = async (userId, candidates) => {
+const recordMemories = async (userId, candidates, opts = {}) => {
   if (!userId || !Array.isArray(candidates) || candidates.length === 0) return [];
   if (!(await isTableReady())) return [];
+  const allowAssistantKeys = Boolean(opts.allowAssistantKeys);
   const saved = [];
   let knownCount = null;
   for (const cand of candidates) {
     try {
       const value = sanitizeMemoryValue(cand.value);
-      if (!value || !cand.mem_key) continue;
-      const existing = await UserMemory.findOne({ where: { user_id: userId, mem_key: cand.mem_key } });
+      const mem_key = sanitizeMemKey(cand.mem_key, { allowAssistantKeys });
+      if (!value || !mem_key) continue;
+      const existing = await UserMemory.findOne({ where: { user_id: userId, mem_key } });
       if (existing) {
         await existing.update({
           value,
@@ -201,7 +215,7 @@ const recordMemories = async (userId, candidates) => {
         if (knownCount >= MAX_MEMORIES_PER_USER) continue; // upsert-only once at cap
         const created = await UserMemory.create({
           user_id: userId,
-          mem_key: String(cand.mem_key).slice(0, 120),
+          mem_key,
           category: cand.category || 'other',
           value,
           confidence: cand.confidence ?? 0.7,
@@ -239,7 +253,10 @@ const recordTurnMemories = async (userId, message, nlpResult = null) => {
 
 /** Directly store/refresh a single fact (used by routine resolution, system writes). */
 const rememberFact = async (userId, mem_key, value, { category = 'routine', confidence = 0.85, salience = 3 } = {}) => {
-  return recordMemories(userId, [{ mem_key, category, value, confidence, salience }]);
+  // Interview/system bookkeeping may use assistant.* keys; chat extraction cannot.
+  return recordMemories(userId, [{ mem_key, category, value, confidence, salience }], {
+    allowAssistantKeys: true,
+  });
 };
 
 /** Top memories for context injection, highest salience first. */
@@ -281,11 +298,13 @@ const listMemories = async (userId) => {
   return rows.map((r) => (r.get ? r.get({ plain: true }) : r));
 };
 
-/** User-corrected fact: source 'user', full confidence, ranked to the top. */
+/** User-corrected fact: source 'user', full confidence, ranked to the top.
+ *  @returns {object|null} row, or `{ error: 'invalid_value' }` when sanitize empties input
+ */
 const updateMemory = async (userId, id, value) => {
   if (!userId || !(await isTableReady())) return null;
   const safe = sanitizeMemoryValue(value);
-  if (!safe) return null;
+  if (!safe) return { error: 'invalid_value' };
   const row = await UserMemory.findOne({ where: { id, user_id: userId, mem_key: NOT_ASSISTANT } });
   if (!row) return null;
   await row.update({
@@ -343,5 +362,6 @@ module.exports = {
   buildMemoryContext,
   _resetTableProbe: () => { _tableReady = null; },
   _sanitizeMemoryValue: sanitizeMemoryValue,
+  _sanitizeMemKey: sanitizeMemKey,
   _MAX_MEMORIES_PER_USER: MAX_MEMORIES_PER_USER,
 };

@@ -36,6 +36,9 @@ const list = async (req, res, next) => {
 const update = async (req, res, next) => {
   try {
     const memory = await updateMemory(req.user.id, req.params.id, req.body.value);
+    if (memory && memory.error === 'invalid_value') {
+      return error(res, 'Value rejected after sanitization.', 400, 'INVALID_VALUE');
+    }
     if (!memory) return error(res, 'Memory not found', 404);
     success(res, { memory }, 'Memory updated');
   } catch (err) {

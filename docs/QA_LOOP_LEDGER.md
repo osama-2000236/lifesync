@@ -276,6 +276,45 @@ npx jest --forceExit --runInBand
 
 ---
 
+## Loop 8 — 2026-07-12 — **Memory control plane**
+
+### Section
+User memory list/edit/delete + chat write path isolation from `assistant.*`
+
+### Tests run
+```
+npx jest tests/memoryService.test.js tests/memoryRoutes.test.js
+# 27 pass
+npx jest --forceExit --runInBand
+```
+
+### Findings (fixed)
+| Severity | Issue | Fix |
+|----------|--------|-----|
+| **Medium** | Chat/`_memory_writes` path could mint **`assistant.*` keys** (interview bookkeeping pollution / cooldown wipe risk) | `sanitizeMemKey` blocks `assistant.*` unless `allowAssistantKeys` (rememberFact only) |
+| **Low** | Update with scrubbed-empty value returned **404** (looks like IDOR miss) | `{ error: 'invalid_value' }` → HTTP **400** |
+
+### Already solid
+- List/update/delete/clear all scope `user_id` + exclude `assistant.%`
+- Prompt injection scrub on values
+- Cap 48 memories / user; route auth required
+
+### Regression
+- chat cannot create `assistant.dismiss.*`; rememberFact can
+- sanitize-empty update → 400 INVALID_VALUE
+
+### Remaining risk
+- Rule extraction false positives (high precision by design)
+- Memory values not field-encrypted at rest (less sensitive than OAuth tokens; PII still in DB)
+
+### Section status
+**GREEN**
+
+### Next loop candidate
+**Insights** or **FE SPA shells** or **Perf hotspots**.
+
+---
+
 ## Section scoreboard (campaign)
 
 | Section | Status | Notes |
@@ -289,7 +328,7 @@ npx jest --forceExit --runInBand
 | Admin API UC-16 | **GREEN** (loop 6) | firebase_uid leak |
 | Reports UC-13 | **GREEN** (loop 7) | cron harden |
 | Notifications UC-14 | **GREEN** (loop 7) | same |
+| Memory | **GREEN** (loop 8) | assistant.* isolation |
 | Insights | pending deep | |
-| Memory | pending deep | |
 | FE SPA shells | pending deep | Playwright shells green |
 | Perf hotspots | pending deep | conversation O(n²) ponytail |

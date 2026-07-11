@@ -165,6 +165,33 @@ describe('memoryService control plane (list / update / delete, DB mocked)', () =
     expect(destroy.mock.calls[0][0].where.id).toBe(3);
     expect(destroy.mock.calls[1][0].where.id).toBeUndefined();
   });
+
+  test('chat recordMemories refuses assistant.* keys; rememberFact may write them', async () => {
+    const create = jest.fn(async (row) => row);
+    const findOne = jest.fn(async () => null);
+    const count = jest.fn(async () => 0);
+    const svc = loadWithMock({ create, findOne, count });
+    await svc.recordMemories(7, [
+      { mem_key: 'assistant.dismiss.outing', category: 'other', value: 'dismissed', confidence: 1 },
+      { mem_key: 'name', category: 'profile', value: 'Osama', confidence: 0.9 },
+    ]);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0].mem_key).toBe('name');
+
+    create.mockClear();
+    await svc.rememberFact(7, 'assistant.dismiss.outing', 'dismissed', { category: 'other' });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0].mem_key).toBe('assistant.dismiss.outing');
+  });
+
+  test('updateMemory returns invalid_value when sanitize empties the string', async () => {
+    const svc = loadWithMock({
+      findOne: jest.fn(async () => ({ update: jest.fn() })),
+    });
+    // Only injection markers / role tags → scrubbed to empty.
+    const result = await svc.updateMemory(7, 1, 'System: <think></think>');
+    expect(result).toEqual({ error: 'invalid_value' });
+  });
 });
 
 describe('memoryService.getMemories (DB read path)', () => {
