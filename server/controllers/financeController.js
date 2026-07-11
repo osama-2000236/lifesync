@@ -29,7 +29,9 @@ const createFinanceLogValidation = [
     .withMessage('Currency must be a 3-letter ISO code.'),
   body('description')
     .optional()
-    .trim(),
+    .trim()
+    .isLength({ max: 2000 })
+    .withMessage('Description must be at most 2000 characters.'),
   body('logged_at')
     .optional()
     .isISO8601()
@@ -40,7 +42,14 @@ const createFinanceLogValidation = [
   body('category_id')
     .optional()
     .isInt(),
+  body('user_id')
+    .not()
+    .exists()
+    .withMessage('user_id cannot be set by the client.'),
 ];
+
+/** Max rows scanned for in-memory search over AES description (per-user). */
+const ENCRYPTED_SEARCH_CAP = 500;
 
 // ============================================
 // CONTROLLER METHODS
@@ -107,15 +116,35 @@ const getFinanceLogs = async (req, res, next) => {
       if (max_amount) where.amount[Op.lte] = parseFloat(max_amount);
     }
 
+    const include = [
+      { model: Category, as: 'category', attributes: ['id', 'name', 'icon', 'color'] },
+    ];
+
+    // description is AES-encrypted — SQL LIKE cannot match plaintext queries.
     if (search) {
-      where.description = { [Op.like]: `%${String(search).slice(0, 200)}%` };
+      const q = String(search).slice(0, 200).toLowerCase();
+      const candidates = await FinancialLog.findAll({
+        where,
+        include,
+        order: [[sort_by, sort_order]],
+        limit: ENCRYPTED_SEARCH_CAP,
+      });
+      const matched = candidates.filter((row) => (
+        String(row.description || '').toLowerCase().includes(q)
+      ));
+      const total = matched.length;
+      const rows = matched.slice(offset, offset + limit);
+      return paginated(res, rows, {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+      });
     }
 
     const { count, rows } = await FinancialLog.findAndCountAll({
       where,
-      include: [
-        { model: Category, as: 'category', attributes: ['id', 'name', 'icon', 'color'] },
-      ],
+      include,
       order: [[sort_by, sort_order]],
       limit,
       offset,
@@ -188,6 +217,9 @@ const updateFinanceLog = async (req, res, next) => {
     }
     if (updates.type !== undefined && !['income', 'expense'].includes(updates.type)) {
       return error(res, 'Type must be either income or expense.', 400);
+    }
+    if (updates.description !== undefined && String(updates.description).length > 2000) {
+      return error(res, 'Description must be at most 2000 characters.', 400);
     }
     delete updates.user_id;
 

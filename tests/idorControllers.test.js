@@ -105,6 +105,31 @@ describe('IDOR — health/finance scoped by req.user.id', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(entry.update).not.toHaveBeenCalled();
   });
+
+  test('updateHealthLog rejects invalid type and ignores user_id hijack', async () => {
+    const entry = { update: jest.fn(async (u) => u), id: 2 };
+    HealthLog.findOne.mockResolvedValue(entry);
+    const res = mockRes();
+    await updateHealthLog({
+      user: { id: 3 },
+      params: { id: '2' },
+      body: { type: 'not_a_real_type', user_id: 999 },
+    }, res, () => {});
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(entry.update).not.toHaveBeenCalled();
+  });
+
+  test('encrypted-field list search uses findAll (not SQL LIKE on ciphertext)', async () => {
+    HealthLog.findAll = jest.fn().mockResolvedValue([]);
+    await getHealthLogs({
+      user: { id: 11 },
+      query: { search: 'chicken' },
+    }, mockRes(), () => {});
+    expect(HealthLog.findAll).toHaveBeenCalled();
+    const args = HealthLog.findAll.mock.calls[0][0];
+    expect(args.where.user_id).toBe(11);
+    expect(args.where[require('sequelize').Op.or]).toBeUndefined();
+  });
 });
 
 describe('insights markAsRead IDOR', () => {

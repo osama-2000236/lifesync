@@ -112,15 +112,55 @@ npx jest --forceExit --runInBand
 
 ---
 
+## Loop 4 — 2026-07-11 — **Health/finance IDOR + encrypted search**
+
+### Section
+CRUD ownership scoping + AES field search (notes/description/value_text)
+
+### Tests run
+```
+npx jest tests/encryptedSearch.test.js tests/idorControllers.test.js
+npx jest --forceExit --runInBand
+```
+
+### Findings (fixed)
+| Severity | Issue | Fix |
+|----------|--------|-----|
+| **High** | List `search` used SQL `LIKE` on **AES ciphertext** → search never matched real text | In-memory filter on decrypted fields, owner-scoped, cap 500 |
+| **Medium** | Health `update` accepted any `type` string | Enum whitelist |
+| **Low** | Notes/description unbounded length | max 2000 on create/update validation |
+
+### Already solid (verified)
+- get/update/delete always `where: { id, user_id }`
+- List always forces `user_id: req.user.id`
+- Sort injection sanitized; amount/value bounds on update
+- Numeric amount/value stay plaintext for aggregation (documented TDE)
+
+### Regression added
+- `encryptedSearch.test.js`: ciphertext at rest + plaintext search + cross-user isolation
+- IDOR: invalid type rejected; search path uses findAll without Op.or LIKE
+
+### Remaining risk
+- Encrypted search capped at 500 recent matching filter rows (not full-table FTS) — upgrade when users exceed that
+- Amounts/values not field-encrypted (SQL aggregate tradeoff)
+
+### Section status
+**GREEN** (Health + Finance deep for IDOR/search/encryption behavior)
+
+### Next loop candidate
+**Chat/NLP safety** (clarification, no silent write) or **Admin API UC-16**.
+
+---
+
 ## Section scoreboard (campaign)
 
 | Section | Status | Notes |
 |---------|--------|--------|
 | Auth & session security | **GREEN** (loop 1) | 3 fixes |
 | DB/migrations/seed | **GREEN** (loop 2) | await baseline bug |
-| Google Fit UC-15 | **GREEN** (loop 3) | revoke leak + token hooks |
-| Health CRUD | pending deep | Live UC-04 historically |
-| Finance CRUD | pending deep | Live UC-05 |
+| Google Fit UC-15 | **GREEN** (loop 3) | revoke leak |
+| Health CRUD | **GREEN** (loop 4) | IDOR + encrypted search |
+| Finance CRUD | **GREEN** (loop 4) | same |
 | Chat/NLP | pending deep | Live UC-06..09 |
 | Insights | pending deep | |
 | Reports UC-13 | pending deep | unit suite exists |

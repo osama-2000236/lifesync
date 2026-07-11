@@ -37,7 +37,9 @@ const createHealthLogValidation = [
     .withMessage('Duration must be a positive integer (minutes).'),
   body('notes')
     .optional()
-    .trim(),
+    .trim()
+    .isLength({ max: 2000 })
+    .withMessage('Notes must be at most 2000 characters.'),
   body('logged_at')
     .optional()
     .isISO8601()
@@ -48,7 +50,14 @@ const createHealthLogValidation = [
   body('category_id')
     .optional()
     .isInt(),
+  body('user_id')
+    .not()
+    .exists()
+    .withMessage('user_id cannot be set by the client.'),
 ];
+
+/** Max rows scanned for in-memory search over AES fields (per-user). */
+const ENCRYPTED_SEARCH_CAP = 500;
 
 // ============================================
 // CONTROLLER METHODS
@@ -122,19 +131,40 @@ const getHealthLogs = async (req, res, next) => {
       if (start_date) where.logged_at[Op.gte] = new Date(start_date);
       if (end_date) where.logged_at[Op.lte] = new Date(end_date);
     }
+
+    const include = [
+      { model: Category, as: 'category', attributes: ['id', 'name', 'icon', 'color'] },
+    ];
+
+    // notes / value_text are AES-encrypted at rest — SQL LIKE only matches
+    // ciphertext and always fails for real queries. Filter decrypted text in
+    // process for this user only (bounded scan).
     if (search) {
-      const q = String(search).slice(0, 200);
-      where[Op.or] = [
-        { notes: { [Op.like]: `%${q}%` } },
-        { value_text: { [Op.like]: `%${q}%` } },
-      ];
+      const q = String(search).slice(0, 200).toLowerCase();
+      const candidates = await HealthLog.findAll({
+        where,
+        include,
+        order: [[sort_by, sort_order]],
+        limit: ENCRYPTED_SEARCH_CAP,
+      });
+      const matched = candidates.filter((row) => {
+        const notes = String(row.notes || '').toLowerCase();
+        const vt = String(row.value_text || '').toLowerCase();
+        return notes.includes(q) || vt.includes(q);
+      });
+      const total = matched.length;
+      const rows = matched.slice(offset, offset + limit);
+      return paginated(res, rows, {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+      });
     }
 
     const { count, rows } = await HealthLog.findAndCountAll({
       where,
-      include: [
-        { model: Category, as: 'category', attributes: ['id', 'name', 'icon', 'color'] },
-      ],
+      include,
       order: [[sort_by, sort_order]],
       limit,
       offset,
@@ -198,11 +228,23 @@ const updateHealthLog = async (req, res, next) => {
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
+    if (updates.type !== undefined) {
+      const allowed = ['steps', 'sleep', 'mood', 'nutrition', 'water', 'exercise', 'heart_rate'];
+      if (!allowed.includes(updates.type)) {
+        return error(res, 'Type must be one of: steps, sleep, mood, nutrition, water, exercise, heart_rate.', 400);
+      }
+    }
     if (updates.value !== undefined && !Number.isFinite(Number(updates.value))) {
       return error(res, 'Value must be a number.', 400);
     }
     if (updates.duration !== undefined && (parseInt(updates.duration, 10) < 0 || Number.isNaN(parseInt(updates.duration, 10)))) {
       return error(res, 'Duration must be a non-negative integer.', 400);
+    }
+    if (updates.notes !== undefined && String(updates.notes).length > 2000) {
+      return error(res, 'Notes must be at most 2000 characters.', 400);
+    }
+    if (updates.value_text !== undefined && String(updates.value_text).length > 2000) {
+      return error(res, 'value_text must be at most 2000 characters.', 400);
     }
     // Never allow ownership reassignment via body.
     delete updates.user_id;
