@@ -330,38 +330,44 @@ This project is close to a strong student/demo app, but it is not yet production
 
 ### Blocking issues to fix in code/config
 
-1. Custom rate limiters trigger IPv6 validation warnings from `express-rate-limit`.
-   This should be fixed before production so rate limiting is correct and clean.
+1. ~~Custom rate limiters / IPv6 / per-process counters.~~ **Fixed** —
+   `ipKeyGenerator` for IPv6-safe keys; when `REDIS_URL` is set, each limiter
+   uses a dedicated `RedisRateLimitStore` so hit counters are shared across
+   instances. Without Redis, in-process MemoryStore remains (local/dev).
 
-2. OTP state is stored in memory.
-   Restarting the server or scaling to multiple instances will break registration flows.
+2. ~~OTP / clarification / interview / OAuth state in memory.~~ **Fixed** —
+   all go through `server/services/ephemeralStore.js` (Redis when configured,
+   memory otherwise). OTP writes fail closed if Redis is configured but down.
 
-3. Chat clarification state is stored in memory.
-   Restarting the server or scaling horizontally will lose active clarification sessions.
+3. ~~Encryption / seed / demo OTP.~~ **Fixed for production** — dedicated
+   `ENCRYPTION_KEY`, seed refuses known default admin password, `OTP_DEMO_MODE`
+   blocked at boot, production boot guard in `server/config/productionEnv.js`.
 
-4. The encryption helper currently uses `JWT_SECRET` instead of `ENCRYPTION_KEY`.
-   That couples two unrelated secrets and makes key rotation harder.
+4. Google Fit still needs **operator** OAuth setup on Google Cloud (callback URL,
+   consent screen, approved origins). Code-side token store + state nonces are
+   durable; the Cloud Console work is environment-specific.
 
-5. The seed script creates a default admin with a known password.
-   That is acceptable for local development only and must be removed or overridden for real deployment.
+### Code-side production tooling
 
-6. Google Fit still requires production OAuth configuration on the Google Cloud side.
-   The app needs a real callback URL, consent screen URLs, and approved origins before that integration is launch-ready.
+| Command | Purpose |
+|---------|---------|
+| `npm run preflight:production` | Backend secrets + mail provider checks (no server boot) |
+| `npm run preflight:release-env` | Frontend Vite / Google client ID checks |
+| `npm run smoke:api -- https://host` | Live `/api/health` (+ AI health warn) |
+| `npm run smoke:workers` | Live frontend route smoke |
 
-### Missing production infrastructure
+`/api/health` reports `redis.configured` / `redis.ok` / `ephemeral_store` mode
+(no secrets). Errors log as structured JSON lines (status, path, code).
 
-1. Managed MySQL with backups and restore strategy
-2. Managed Redis for OTP and clarification/session state
-3. Real SMTP provider for OTP delivery
-4. Secret management for API keys and JWT secrets
-5. HTTPS, DNS, and environment-specific CORS settings
-6. Centralized logs, uptime monitoring, and error tracking
+### Still operator / infra (not pure code)
 
-### Missing launch readiness items
-
-1. Google Cloud consent-screen setup using the live homepage, privacy, and terms URLs
-2. Production incident logging and alerting
-3. Load testing and basic security review
+1. Managed MySQL with backups and restore strategy  
+2. Managed Redis in the host env (`REDIS_URL`)  
+3. Real email provider keys on the host  
+4. Secret management for API keys and JWT secrets  
+5. HTTPS, DNS, and environment-specific CORS  
+6. Centralized log aggregation / uptime product (app emits structured logs)  
+7. Load testing and periodic security review
 
 ## Recommended Production Architecture
 

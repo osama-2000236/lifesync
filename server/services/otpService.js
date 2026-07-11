@@ -8,17 +8,20 @@
 
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const { createStore } = require('./ephemeralStore');
 require('dotenv').config();
 
 // ============================================
-// In-memory OTP store (production: use Redis)
-// Structure: { email: { code, expiresAt, attempts, verified } }
+// OTP store — shared/durable via ephemeralStore (Redis in prod, memory in
+// dev/test). Restart and multi-instance no longer lose a pending OTP.
+// Structure: { email: { code, expiresAt, attempts, verified, createdAt } }
 // ============================================
-const otpStore = new Map();
+const otpStore = createStore('otp');
 
 // Configuration
 const OTP_LENGTH = 6;
 const OTP_EXPIRY_MINUTES = 10;
+const OTP_EXPIRY_MS = OTP_EXPIRY_MINUTES * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const COOLDOWN_SECONDS = 60; // Minimum seconds between OTP sends
 const SMTP_TIMEOUT_MS = parseInt(process.env.SMTP_TIMEOUT_MS || '10000', 10);
@@ -42,11 +45,11 @@ const generateOTP = () => {
  * @param {string} email - The email to send OTP to
  * @returns {{ success: boolean, message: string, expiresIn?: number }}
  */
-const createOTP = (email) => {
+const createOTP = async (email) => {
   const normalizedEmail = email.toLowerCase().trim();
 
   // Check cooldown
-  const existing = otpStore.get(normalizedEmail);
+  const existing = await otpStore.get(normalizedEmail);
   if (existing) {
     const secondsSinceCreated = (Date.now() - (existing.createdAt || 0)) / 1000;
     if (secondsSinceCreated < COOLDOWN_SECONDS) {
@@ -62,13 +65,13 @@ const createOTP = (email) => {
   const code = generateOTP();
   const now = Date.now();
 
-  otpStore.set(normalizedEmail, {
+  await otpStore.set(normalizedEmail, {
     code,
     createdAt: now,
-    expiresAt: now + OTP_EXPIRY_MINUTES * 60 * 1000,
+    expiresAt: now + OTP_EXPIRY_MS,
     attempts: 0,
     verified: false,
-  });
+  }, OTP_EXPIRY_MS);
 
   return {
     success: true,
@@ -84,9 +87,9 @@ const createOTP = (email) => {
  * @param {string} code - The OTP to verify
  * @returns {{ success: boolean, message: string }}
  */
-const verifyOTP = (email, code) => {
+const verifyOTP = async (email, code) => {
   const normalizedEmail = email.toLowerCase().trim();
-  const record = otpStore.get(normalizedEmail);
+  const record = await otpStore.get(normalizedEmail);
 
   if (!record) {
     return {
@@ -98,7 +101,7 @@ const verifyOTP = (email, code) => {
 
   // Check expiry
   if (Date.now() > record.expiresAt) {
-    otpStore.delete(normalizedEmail);
+    await otpStore.del(normalizedEmail);
     return {
       success: false,
       message: 'Verification code has expired. Please request a new one.',
@@ -108,7 +111,7 @@ const verifyOTP = (email, code) => {
 
   // Check max attempts
   if (record.attempts >= MAX_ATTEMPTS) {
-    otpStore.delete(normalizedEmail);
+    await otpStore.del(normalizedEmail);
     return {
       success: false,
       message: 'Too many failed attempts. Please request a new code.',
@@ -141,14 +144,14 @@ const verifyOTP = (email, code) => {
   if (!match) {
     const remaining = MAX_ATTEMPTS - record.attempts;
     if (record.attempts >= MAX_ATTEMPTS) {
-      otpStore.delete(normalizedEmail);
+      await otpStore.del(normalizedEmail);
       return {
         success: false,
         message: 'Too many failed attempts. Please request a new code.',
         code: 'OTP_MAX_ATTEMPTS',
       };
     }
-    otpStore.set(normalizedEmail, record);
+    await otpStore.set(normalizedEmail, record, OTP_EXPIRY_MS);
     return {
       success: false,
       message: `Invalid code. ${remaining} attempt(s) remaining.`,
@@ -160,7 +163,7 @@ const verifyOTP = (email, code) => {
   // re-checked after this; completeRegistration uses isEmailVerified + consume.
   record.verified = true;
   record.code = null; // prevent offline re-use of the raw code after verify
-  otpStore.set(normalizedEmail, record);
+  await otpStore.set(normalizedEmail, record, OTP_EXPIRY_MS);
 
   return {
     success: true,
@@ -173,13 +176,13 @@ const verifyOTP = (email, code) => {
  * @param {string} email
  * @returns {boolean}
  */
-const isEmailVerified = (email) => {
+const isEmailVerified = async (email) => {
   const normalizedEmail = email.toLowerCase().trim();
-  const record = otpStore.get(normalizedEmail);
+  const record = await otpStore.get(normalizedEmail);
 
   if (!record) return false;
   if (Date.now() > record.expiresAt) {
-    otpStore.delete(normalizedEmail);
+    await otpStore.del(normalizedEmail);
     return false;
   }
 
@@ -190,8 +193,8 @@ const isEmailVerified = (email) => {
  * Consume (remove) a verified OTP after registration completes
  * @param {string} email
  */
-const consumeOTP = (email) => {
-  otpStore.delete(email.toLowerCase().trim());
+const consumeOTP = async (email) => {
+  await otpStore.del(email.toLowerCase().trim());
 };
 
 // ============================================

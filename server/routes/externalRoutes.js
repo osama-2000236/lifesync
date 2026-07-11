@@ -61,29 +61,31 @@ const saveTokens = async (userId, platform, { accessToken, refreshToken, expires
 const deleteTokens = (userId, platform) => UserIntegration.destroy({ where: { user_id: userId, platform } });
 
 // Pending OAuth states: opaque nonce → { userId, platform, expiresAt }.
-// ponytail: stays in-memory — 10-minute single-use nonces; a restart mid-flow
-// just means clicking Connect again. Tokens are the durable part above.
-// The callback arrives unauthenticated (provider redirect), so this nonce is
-// the ONLY thing binding it to an account — it must be server-issued,
+// Shared via ephemeralStore (Redis when configured) so multi-instance deploys
+// and restarts mid-OAuth don't break the callback. Tokens remain durable in
+// UserIntegration above. The callback arrives unauthenticated (provider
+// redirect), so this nonce is the ONLY binding to an account — server-issued,
 // single-use, and expiring. Never accept identity data from the state itself.
 const crypto = require('crypto');
-const pendingStates = new Map();
+const { createStore } = require('../services/ephemeralStore');
+const pendingStates = createStore('oauth_state');
 const STATE_TTL_MS = 10 * 60 * 1000;
 
-const issueState = (userId, platform) => {
-  // Lazy sweep so abandoned flows don't accumulate.
-  for (const [nonce, entry] of pendingStates) {
-    if (entry.expiresAt <= Date.now()) pendingStates.delete(nonce);
-  }
+const issueState = async (userId, platform) => {
   const nonce = crypto.randomBytes(24).toString('base64url');
-  pendingStates.set(nonce, { userId, platform, expiresAt: Date.now() + STATE_TTL_MS });
+  await pendingStates.set(nonce, {
+    userId,
+    platform,
+    expiresAt: Date.now() + STATE_TTL_MS,
+  }, STATE_TTL_MS);
   return nonce;
 };
 
-const consumeState = (nonce, platform) => {
-  const entry = pendingStates.get(nonce);
+const consumeState = async (nonce, platform) => {
+  if (!nonce) return null;
+  const entry = await pendingStates.get(nonce);
   if (!entry) return null;
-  pendingStates.delete(nonce); // single-use, even when checks below fail
+  await pendingStates.del(nonce); // single-use, even when checks below fail
   if (entry.expiresAt <= Date.now() || entry.platform !== platform) return null;
   return entry;
 };
@@ -93,7 +95,7 @@ router.get('/connect/:platform', authenticate, async (req, res, next) => {
   try {
     const adapter = getAdapter(req.params.platform);
     const redirectUri = `${process.env.APP_URL || 'http://localhost:5000'}/api/external/callback/${req.params.platform}`;
-    const state = issueState(req.user.id, req.params.platform);
+    const state = await issueState(req.user.id, req.params.platform);
     const result = adapter.getAuthorizationUrl(state, redirectUri);
 
     if (typeof result === 'string') {
@@ -115,7 +117,7 @@ router.get('/callback/:platform', async (req, res, next) => {
 
     // Resolve the account from our own pending-state record — before spending
     // the authorization code on a token exchange.
-    const pending = consumeState(String(state || ''), req.params.platform);
+    const pending = await consumeState(String(state || ''), req.params.platform);
     if (!pending) return error(res, 'Invalid or expired state parameter', 400);
 
     const adapter = getAdapter(req.params.platform);

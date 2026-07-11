@@ -4,32 +4,24 @@
 // ============================================
 // Thin HTTP layer over crossDomainInterviewService. It owns the short-lived,
 // per-user interview state (which question we're on + the ids logged so far) so
-// the final step can create the cross-domain link and generate advice. State is
-// in-memory with a TTL, mirroring the chatController clarification pattern; the
-// facts themselves are written to the DB immediately (durable, dashboard-visible).
+// the final step can create the cross-domain link and generate advice. State
+// lives in the shared ephemeralStore (Redis in prod, memory in dev/test) with a
+// TTL, mirroring the chatController clarification pattern; the facts themselves
+// are written to the DB immediately (durable, dashboard-visible).
 // ============================================
 
 const { body } = require('express-validator');
 const interview = require('../services/ai/crossDomainInterviewService');
+const { createStore } = require('../services/ephemeralStore');
 const { success, error } = require('../utils/responseHelper');
 
 // ────────────────────────────────────────────
-// In-memory interview state (per user)
+// Interview state (per user) — shared/durable via ephemeralStore. The store's
+// TTL evicts stale sessions (no local sweep timer); the logged facts are in the
+// DB immediately, so only the "which step + ids so far" cursor lives here.
 // ────────────────────────────────────────────
-const activeInterviews = new Map();
+const activeInterviews = createStore('interview');
 const INTERVIEW_TTL_MS = 10 * 60 * 1000;
-
-// Evict interview state older than the TTL. Pure over `activeInterviews` so it
-// can be unit-tested without waiting on the timer.
-const evictStale = (now = Date.now()) => {
-  for (const [userId, state] of activeInterviews) {
-    if (now - state.createdAt > INTERVIEW_TTL_MS) activeInterviews.delete(userId);
-  }
-};
-
-// unref() so the timer never keeps the process (or Jest) alive.
-const sweepInterval = setInterval(evictStale, 60_000);
-sweepInterval.unref();
 
 const langOf = (req) => (req.body?.lang === 'ar' ? 'ar' : 'en');
 
@@ -75,7 +67,7 @@ const startInterview = async (req, res, next) => {
 
     if (!consent) {
       await interview.recordDismissal(req.user.id, topic);
-      activeInterviews.delete(req.user.id);
+      await activeInterviews.del(req.user.id);
       return success(res, { dismissed: true, topic }, 'Interview dismissed');
     }
 
@@ -91,13 +83,13 @@ const startInterview = async (req, res, next) => {
       }, 'Interview not needed today');
     }
 
-    activeInterviews.set(req.user.id, {
+    await activeInterviews.set(req.user.id, {
       topic,
       step: startStep,
       healthIds: [],
       financeIds: [],
       createdAt: Date.now(),
-    });
+    }, INTERVIEW_TTL_MS);
 
     const question = interview.nextQuestion(topic, startStep, lang);
     return success(res, {
@@ -120,7 +112,7 @@ const answerInterview = async (req, res, next) => {
     const lang = langOf(req);
     const { step, answer } = req.body;
 
-    const state = activeInterviews.get(userId);
+    const state = await activeInterviews.get(userId);
     if (!state) {
       return error(res, 'No active interview. Start one first.', 409, 'NO_ACTIVE_INTERVIEW');
     }
@@ -149,6 +141,8 @@ const answerInterview = async (req, res, next) => {
     const nextQ = nextStep < total ? interview.nextQuestion(state.topic, nextStep, lang) : null;
     if (nextQ) {
       state.createdAt = Date.now(); // keep the session warm
+      // Persist the advanced cursor — Redis does not share the in-process object.
+      await activeInterviews.set(userId, state, INTERVIEW_TTL_MS);
       return success(res, { done: false, logged, question: nextQ }, 'Answer logged');
     }
 
@@ -158,7 +152,7 @@ const answerInterview = async (req, res, next) => {
       financeIds: state.financeIds,
       sourceMessage: `Voice interview: ${state.topic}`,
     }, lang);
-    activeInterviews.delete(userId);
+    await activeInterviews.del(userId);
 
     return success(res, {
       done: true,
@@ -178,7 +172,5 @@ module.exports = {
   answerInterview,
   startValidation,
   answerValidation,
-  evictStale,
   _activeInterviews: activeInterviews,
-  _sweepInterval: sweepInterval,
 };

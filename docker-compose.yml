@@ -68,6 +68,9 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       APP_URL: ${APP_URL:-http://localhost}
+      # Empty by default → in-memory ephemeral state. To use the optional redis
+      # service below, start with `--profile redis` and set REDIS_URL=redis://redis:6379
+      REDIS_URL: ${REDIS_URL:-}
     ports:
       - "5001:5000"
     # Migrate then seed then serve — sequelize migrations are JS, not docker init SQL.
@@ -114,10 +117,31 @@ services:
     # Run the server in the background, wait 5s for it to start, pull the model automatically, and wait for server to keep the container alive.
     command: -c "ollama serve & sleep 5 && ollama pull $${OLLAMA_MODEL:-gemma3:1b} && wait"
 
+  # ─── Redis (optional) — shared/durable OTP + clarification + interview state ───
+  # Opt in with:  docker compose --profile redis up
+  # then set REDIS_URL=redis://redis:6379 (server picks it up automatically).
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    profiles: ["redis"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - lifesync-net
+
 volumes:
   mysql_data:
     driver: local
   ollama_data:
+    driver: local
+  redis_data:
     driver: local
 
 networks:

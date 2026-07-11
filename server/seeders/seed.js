@@ -84,6 +84,13 @@ const seed = async () => {
           'to create the initial admin in production. Refusing to seed a default ' +
           'admin with a known password.'
         );
+      } else if (isProduction && adminPassword === 'Admin@123456') {
+        // The built-in dev password is public knowledge (this repo). Explicitly
+        // setting it via env does not make it safe.
+        console.warn(
+          '⚠️  Skipping admin seed: SEED_ADMIN_PASSWORD is the well-known ' +
+          'development default. Choose a real password.'
+        );
       } else {
         const password = adminPassword || 'Admin@123456';
 

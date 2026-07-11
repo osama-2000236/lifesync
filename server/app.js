@@ -100,7 +100,10 @@ const COMMIT_SHA = (
   || process.env.SOURCE_VERSION
   || ''
 ).slice(0, 12) || null;
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+  // Secret-free readiness: redis status for multi-instance deploys; never keys.
+  const { redisEnabled, redisStatus } = require('./services/ephemeralStore');
+  const redis = await redisStatus();
   res.status(200).json({
     success: true,
     message: 'LifeSync API is running.',
@@ -108,6 +111,13 @@ app.get('/api/health', (req, res) => {
     version: '2.0.0',
     commit: COMMIT_SHA,
     env: process.env.NODE_ENV || 'development',
+    redis: {
+      configured: redis.configured,
+      ok: redis.ok,
+      // When not configured, ephemeral state + rate limits are process-local.
+      mode: redis.configured ? 'redis' : 'memory',
+    },
+    ephemeral_store: redisEnabled() ? 'redis' : 'memory',
   });
 });
 
@@ -137,6 +147,10 @@ const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
   try {
+    // Fail closed on weak/missing secrets BEFORE any DB work or listening.
+    const { assertProductionEnv } = require('./config/productionEnv');
+    assertProductionEnv();
+
     // Test MySQL connection
     await testConnection();
 

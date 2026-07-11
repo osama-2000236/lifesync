@@ -127,8 +127,8 @@ const changeEmailVerifyValidation = [
 
 const isGoogleManagedAccount = (user) => Boolean(user?.firebase_uid);
 
-const handleOtpDeliveryFailure = (res, email, emailResult) => {
-  consumeOTP(email);
+const handleOtpDeliveryFailure = async (res, email, emailResult) => {
+  await consumeOTP(email);
   return error(
     res,
     emailResult.message || 'Unable to send verification code right now.',
@@ -150,7 +150,7 @@ const sendRegistrationOTP = async (req, res, next) => {
       return error(res, 'An account with this email already exists.', 409, 'DUPLICATE_EMAIL');
     }
 
-    const otpResult = createOTP(email);
+    const otpResult = await createOTP(email);
     if (!otpResult.success) {
       return error(res, otpResult.message, 429, 'OTP_COOLDOWN');
     }
@@ -180,7 +180,7 @@ const verifyRegistrationOTP = async (req, res, next) => {
   try {
     const { email, code } = req.body;
 
-    const result = verifyOTP(email, code);
+    const result = await verifyOTP(email, code);
     if (!result.success) {
       const statusCode = result.code === 'OTP_MAX_ATTEMPTS' ? 429 : 400;
       return error(res, result.message, statusCode, result.code);
@@ -203,7 +203,7 @@ const completeRegistration = async (req, res, next) => {
   try {
     const { email, username, password, name } = req.body;
 
-    if (!isEmailVerified(email)) {
+    if (!await isEmailVerified(email)) {
       return error(
         res,
         'Email has not been verified. Please complete Step 1 (OTP verification) first.',
@@ -219,7 +219,7 @@ const completeRegistration = async (req, res, next) => {
 
     const existingEmail = await User.findOne({ where: { email } });
     if (existingEmail) {
-      consumeOTP(email);
+      await consumeOTP(email);
       return error(res, 'An account with this email already exists.', 409, 'DUPLICATE_EMAIL');
     }
 
@@ -233,7 +233,7 @@ const completeRegistration = async (req, res, next) => {
       is_active: true,
     });
 
-    consumeOTP(email);
+    await consumeOTP(email);
 
     const tokens = generateTokenPair(user);
 
@@ -452,7 +452,7 @@ const forgotPasswordSendOTP = async (req, res, next) => {
       );
     }
 
-    const otpResult = createOTP(email);
+    const otpResult = await createOTP(email);
     if (!otpResult.success) {
       return error(res, otpResult.message, 429, 'OTP_COOLDOWN');
     }
@@ -472,7 +472,7 @@ const forgotPasswordVerifyOTP = async (req, res, next) => {
   try {
     const { email, code } = req.body;
 
-    const result = verifyOTP(email, code);
+    const result = await verifyOTP(email, code);
     if (!result.success) {
       const statusCode = result.code === 'OTP_MAX_ATTEMPTS' ? 429 : 400;
       return error(res, result.message, statusCode, result.code);
@@ -488,7 +488,7 @@ const resetPassword = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    if (!isEmailVerified(email)) {
+    if (!await isEmailVerified(email)) {
       return error(res, 'Email not verified. Please complete the OTP step first.', 403, 'EMAIL_NOT_VERIFIED');
     }
 
@@ -498,7 +498,7 @@ const resetPassword = async (req, res, next) => {
     }
 
     if (isGoogleManagedAccount(user) || !user.hashed_password) {
-      consumeOTP(email);
+      await consumeOTP(email);
       return error(
         res,
         'This account uses Google Sign-In and does not have a password to reset.',
@@ -508,7 +508,7 @@ const resetPassword = async (req, res, next) => {
     }
 
     await user.update({ hashed_password: password });
-    consumeOTP(email);
+    await consumeOTP(email);
 
     return success(res, null, 'Password reset successfully. You can now sign in.');
   } catch (err) {
@@ -561,7 +561,7 @@ const changeEmailSendOTP = async (req, res, next) => {
       return error(res, 'An account with this email already exists.', 409, 'DUPLICATE_EMAIL');
     }
 
-    const otpResult = createOTP(newEmail);
+    const otpResult = await createOTP(newEmail);
     if (!otpResult.success) {
       return error(res, otpResult.message, 429, 'OTP_COOLDOWN');
     }
@@ -591,7 +591,7 @@ const changeEmailVerifyOTP = async (req, res, next) => {
       return error(res, 'This account uses Google Sign-In and cannot change email here.', 400, 'GOOGLE_ACCOUNT');
     }
 
-    const result = verifyOTP(newEmail, code);
+    const result = await verifyOTP(newEmail, code);
     if (!result.success) {
       const statusCode = result.code === 'OTP_MAX_ATTEMPTS' ? 429 : 400;
       return error(res, result.message, statusCode, result.code);
@@ -599,7 +599,7 @@ const changeEmailVerifyOTP = async (req, res, next) => {
 
     const existingUser = await User.findOne({ where: { email: newEmail } });
     if (existingUser && existingUser.id !== req.user.id) {
-      consumeOTP(newEmail);
+      await consumeOTP(newEmail);
       return error(res, 'An account with this email already exists.', 409, 'DUPLICATE_EMAIL');
     }
 
@@ -607,7 +607,7 @@ const changeEmailVerifyOTP = async (req, res, next) => {
       email: newEmail,
       verified_email: true,
     });
-    consumeOTP(newEmail);
+    await consumeOTP(newEmail);
 
     return success(res, { user: req.user.toSafeJSON() }, 'Email updated successfully.');
   } catch (err) {

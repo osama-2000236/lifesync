@@ -30,7 +30,6 @@ const app = express();
 app.use(express.json());
 app.use('/api/assistant', assistantRoutes);
 
-afterAll(() => { clearInterval(ctrl._sweepInterval); });
 beforeEach(() => { ctrl._activeInterviews.clear(); });
 
 test('GET /suggestion is wired', async () => {

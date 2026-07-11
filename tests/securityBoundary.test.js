@@ -147,27 +147,27 @@ describe('roleCheck privilege gate', () => {
 describe('OTP security', () => {
   beforeEach(() => { _otpStore.clear(); });
 
-  test('wrong code then correct after max attempts fails closed', () => {
-    createOTP('brute@test.com');
-    for (let i = 0; i < 5; i += 1) verifyOTP('brute@test.com', '000000');
-    expect(verifyOTP('brute@test.com', '000000').success).toBe(false);
-    expect(isEmailVerified('brute@test.com')).toBe(false);
+  test('wrong code then correct after max attempts fails closed', async () => {
+    await createOTP('brute@test.com');
+    for (let i = 0; i < 5; i += 1) await verifyOTP('brute@test.com', '000000');
+    expect((await verifyOTP('brute@test.com', '000000')).success).toBe(false);
+    expect(await isEmailVerified('brute@test.com')).toBe(false);
   });
 
-  test('after verify + consume, replay of code fails', () => {
-    const { code } = createOTP('replay@test.com');
-    expect(verifyOTP('replay@test.com', code).success).toBe(true);
-    expect(isEmailVerified('replay@test.com')).toBe(true);
-    consumeOTP('replay@test.com');
-    expect(isEmailVerified('replay@test.com')).toBe(false);
-    expect(verifyOTP('replay@test.com', code).success).toBe(false);
-    expect(verifyOTP('replay@test.com', code).code).toBe('OTP_NOT_FOUND');
+  test('after verify + consume, replay of code fails', async () => {
+    const { code } = await createOTP('replay@test.com');
+    expect((await verifyOTP('replay@test.com', code)).success).toBe(true);
+    expect(await isEmailVerified('replay@test.com')).toBe(true);
+    await consumeOTP('replay@test.com');
+    expect(await isEmailVerified('replay@test.com')).toBe(false);
+    expect((await verifyOTP('replay@test.com', code)).success).toBe(false);
+    expect((await verifyOTP('replay@test.com', code)).code).toBe('OTP_NOT_FOUND');
   });
 
-  test('after successful verify, raw code is cleared (cannot re-extract from store)', () => {
-    const { code } = createOTP('clear@test.com');
-    verifyOTP('clear@test.com', code);
-    const rec = _otpStore.get('clear@test.com');
+  test('after successful verify, raw code is cleared (cannot re-extract from store)', async () => {
+    const { code } = await createOTP('clear@test.com');
+    await verifyOTP('clear@test.com', code);
+    const rec = await _otpStore.get('clear@test.com');
     expect(rec.verified).toBe(true);
     expect(rec.code).toBeNull();
   });

@@ -6,10 +6,16 @@
 // - Auth endpoints (login, register) — strict
 // - Chat/NLP endpoints — moderate
 // - General API — lenient
+//
+// Store: Redis when REDIS_URL/REDIS_HOST is set (shared across instances);
+// otherwise express-rate-limit's built-in MemoryStore (single process).
+// Each limiter owns its own store instance (library requirement).
 // ============================================
 
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = rateLimit;
+const { redisEnabled } = require('../services/ephemeralStore');
+const { RedisRateLimitStore } = require('./redisRateLimitStore');
 
 const isEnabled = (value) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 
@@ -30,11 +36,19 @@ const isLocalStrictGemmaMode = () => {
     && (endpoint.includes('127.0.0.1') || endpoint.includes('localhost'));
 };
 
+/** One store per limiter when Redis is configured; else undefined → MemoryStore. */
+const storeFor = (prefix) => (redisEnabled() ? new RedisRateLimitStore(prefix) : undefined);
+
+const withStore = (prefix, options) => {
+  const store = storeFor(prefix);
+  return store ? { ...options, store } : options;
+};
+
 /**
  * Auth rate limiter — prevents brute-force login attacks
  * 10 requests per 15 minutes per IP
  */
-const authLimiter = rateLimit({
+const authLimiter = rateLimit(withStore('auth', {
   windowMs: 15 * 60 * 1000,
   max: 10,
   message: {
@@ -50,13 +64,13 @@ const authLimiter = rateLimit({
     return `${ipKeyGenerator(req.ip)}:${email.toLowerCase().trim()}`;
   },
   skip: () => limitsDisabled(),
-});
+}));
 
 /**
  * OTP rate limiter — prevents OTP spam
  * 3 OTP requests per 5 minutes per email
  */
-const otpLimiter = rateLimit({
+const otpLimiter = rateLimit(withStore('otp', {
   windowMs: 5 * 60 * 1000,
   max: 3,
   message: {
@@ -74,13 +88,13 @@ const otpLimiter = rateLimit({
     return `otp:${ipKeyGenerator(req.ip)}:${email}`;
   },
   skip: () => limitsDisabled(),
-});
+}));
 
 /**
  * Chat/NLP rate limiter — prevents API cost abuse
  * 30 messages per 5 minutes per user
  */
-const chatLimiter = rateLimit({
+const chatLimiter = rateLimit(withStore('chat', {
   windowMs: 5 * 60 * 1000,
   max: 30,
   message: {
@@ -95,13 +109,13 @@ const chatLimiter = rateLimit({
     return req.user?.id ? `chat:${req.user.id}` : `chat:${ipKeyGenerator(req.ip)}`;
   },
   skip: () => limitsDisabled(),
-});
+}));
 
 /**
  * Insight generation limiter — expensive operation
  * 5 requests per 15 minutes
  */
-const insightLimiter = rateLimit({
+const insightLimiter = rateLimit(withStore('insight', {
   windowMs: 15 * 60 * 1000,
   max: 5,
   message: {
@@ -113,7 +127,7 @@ const insightLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => `insight:${req.user?.id || ipKeyGenerator(req.ip)}`,
   skip: () => limitsDisabled() || isLocalStrictGemmaMode(),
-});
+}));
 
 /**
  * General API limiter — catch-all for all other endpoints
@@ -121,7 +135,7 @@ const insightLimiter = rateLimit({
  * calls, so 100 starved legit SPA sessions (and any users sharing a NAT IP);
  * abuse protection for expensive routes lives in the granular limiters above.
  */
-const generalLimiter = rateLimit({
+const generalLimiter = rateLimit(withStore('general', {
   windowMs: 15 * 60 * 1000,
   max: 300,
   message: {
@@ -132,7 +146,7 @@ const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => limitsDisabled(),
-});
+}));
 
 module.exports = {
   authLimiter,
@@ -140,4 +154,6 @@ module.exports = {
   chatLimiter,
   insightLimiter,
   generalLimiter,
+  _storeFor: storeFor,
+  _RedisRateLimitStore: RedisRateLimitStore,
 };

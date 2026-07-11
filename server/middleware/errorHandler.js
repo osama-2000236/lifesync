@@ -27,14 +27,25 @@ const errorHandler = (err, req, res, _next) => {
   let message = err.message || 'Internal server error';
   let code = err.code || 'INTERNAL_ERROR';
 
-  // Log error details in development
-  if (process.env.NODE_ENV === 'development') {
-    console.error('🔴 Error:', {
-      message: err.message,
-      stack: err.stack,
-      statusCode,
-    });
+  // Structured one-line log for ops (no secrets, no bodies). Always on in
+  // production so uptime tools / Railway logs capture failures; stack only
+  // outside production to keep prod logs greppable.
+  const logLine = {
+    level: statusCode >= 500 ? 'error' : 'warn',
+    msg: 'request_error',
+    status: statusCode,
+    code: err.code || null,
+    name: err.name || 'Error',
+    method: req.method,
+    path: req.originalUrl || req.url,
+    // Prefer err.message for ops; client may see a sanitized string below.
+    error: err.message,
+  };
+  if (process.env.NODE_ENV !== 'production' && err.stack) {
+    logLine.stack = err.stack;
   }
+  if (statusCode >= 500) console.error(JSON.stringify(logLine));
+  else if (process.env.NODE_ENV === 'development') console.warn(JSON.stringify(logLine));
 
   // Handle specific error types
   if (err.name === 'SequelizeValidationError') {

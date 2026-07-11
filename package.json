@@ -1,7 +1,7 @@
 {
   "name": "lifesync",
   "version": "1.0.0",
-  "description": "LifeSync \u2014 Smart Life Management System. AI-powered health and finance tracking via NLP.",
+  "description": "LifeSync — Smart Life Management System. AI-powered health and finance tracking via NLP.",
   "main": "server/app.js",
   "scripts": {
     "start": "node scripts/launch.mjs",
@@ -15,7 +15,9 @@
     "install:client": "npm --prefix client ci",
     "build:client": "npm run install:client && npm --prefix client run build",
     "preflight:release-env": "node scripts/validate-release-env.mjs",
+    "preflight:production": "node scripts/validate-production-env.mjs",
     "probe:external": "node scripts/probe-external-services.mjs",
+    "smoke:api": "node scripts/smoke-api.mjs",
     "smoke:workers": "node scripts/smoke-workers.mjs",
     "test:e2e:mysql": "jest --runInBand --runTestsByPath tests/e2e/mysql.e2e.test.js --forceExit --detectOpenHandles",
     "db:wait": "node scripts/wait-for-mysql.js",
@@ -50,7 +52,7 @@
     "express",
     "sequelize"
   ],
-  "author": "LifeSync Team \u2014 Birzeit University",
+  "author": "LifeSync Team — Birzeit University",
   "license": "MIT",
   "nodemonConfig": {
     "watch": [
@@ -74,6 +76,7 @@
     "firebase-admin": "^14.0.0",
     "google-auth-library": "^10.6.2",
     "helmet": "^8.1.0",
+    "ioredis": "^5.11.1",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.1",
     "multer": "^2.2.0",

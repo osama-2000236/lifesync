@@ -29,8 +29,6 @@ const makeRes = () => {
   return res;
 };
 
-afterAll(() => { clearInterval(ctrl._sweepInterval); });
-
 beforeEach(() => {
   jest.clearAllMocks();
   ctrl._activeInterviews.clear();
@@ -179,19 +177,6 @@ describe('answerInterview', () => {
     expect(svc.finalizeInterview).toHaveBeenCalledWith(4, 'sleep_spending',
       expect.objectContaining({ healthIds: [11], financeIds: [] }), 'en');
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ done: true }) }));
-  });
-});
-
-describe('evictStale', () => {
-  test('removes only expired interview state', () => {
-    ctrl._activeInterviews.set(1, { createdAt: 0 });
-    ctrl._activeInterviews.set(2, { createdAt: Date.now() });
-    ctrl.evictStale(Date.now());
-    expect(ctrl._activeInterviews.has(1)).toBe(false);
-    expect(ctrl._activeInterviews.has(2)).toBe(true);
-    // Cover the default-parameter branch (now = Date.now()).
-    ctrl.evictStale();
-    expect(ctrl._activeInterviews.has(2)).toBe(true);
   });
 });
 

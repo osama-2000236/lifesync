@@ -116,11 +116,9 @@ describe('POST /api/chat/stream', () => {
     const ChatLog = require('../server/models/ChatLog');
     await ChatLog.destroy({ where: {}, truncate: true });
 
-    // Clear the clarification interval if it exists (to prevent open handles in Jest)
+    // Reset clarification state (memory-backed store) so it never bleeds tests.
     const chatController = require('../server/controllers/chatController');
-    if (chatController._clarificationInterval) {
-      clearInterval(chatController._clarificationInterval);
-    }
+    chatController._pendingClarifications.clear();
   });
 
   // ─── 1. Authentication ───

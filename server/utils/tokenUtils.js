@@ -9,12 +9,16 @@ const jwt = require('jsonwebtoken');
 const HS256 = { algorithm: 'HS256' };
 const VERIFY_HS256 = { algorithms: ['HS256'] };
 
-/** Fail closed: never sign/verify with missing or placeholder secrets. */
+/** Fail closed: never sign/verify with missing or placeholder secrets.
+ *  Production requires ≥ 32 chars (aligned with ENCRYPTION_KEY policy); the
+ *  boot guard in config/productionEnv.js catches this earlier with a clearer
+ *  message — this is the runtime backstop. Dev/test keep the 16-char floor. */
 const requireSecret = (name) => {
   const secret = process.env[name];
-  if (!secret || typeof secret !== 'string' || secret.trim().length < 16) {
+  const min = process.env.NODE_ENV === 'production' ? 32 : 16;
+  if (!secret || typeof secret !== 'string' || secret.trim().length < min) {
     throw new Error(
-      `${name} is missing or too short (min 16 chars). Refusing to issue or verify JWTs.`,
+      `${name} is missing or too short (min ${min} chars). Refusing to issue or verify JWTs.`,
     );
   }
   return secret;

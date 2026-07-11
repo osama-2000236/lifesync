@@ -81,4 +81,19 @@ describe('tokenUtils', () => {
       process.env.JWT_SECRET = saved;
     }
   });
+
+  test('production floor is 32 chars (16–31 char secret rejected there, fine in test)', () => {
+    const saved = { JWT_SECRET: process.env.JWT_SECRET, NODE_ENV: process.env.NODE_ENV };
+    try {
+      process.env.JWT_SECRET = 'sixteen-plus-but-under32'; // 24 chars
+      expect(() => _requireSecret('JWT_SECRET')).not.toThrow(); // test env: 16 floor
+      process.env.NODE_ENV = 'production';
+      expect(() => _requireSecret('JWT_SECRET')).toThrow(/min 32/);
+      process.env.JWT_SECRET = 'x'.repeat(32);
+      expect(() => _requireSecret('JWT_SECRET')).not.toThrow();
+    } finally {
+      process.env.JWT_SECRET = saved.JWT_SECRET;
+      process.env.NODE_ENV = saved.NODE_ENV;
+    }
+  });
 });

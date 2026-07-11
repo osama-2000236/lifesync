@@ -1,7 +1,9 @@
 // tests/otp.test.js
 // ============================================
 // OTP Service Test Suite
-// Tests the two-step registration OTP workflow
+// Tests the two-step registration OTP workflow.
+// OTP state now lives in the shared ephemeralStore (memory backend in test);
+// the service API is async, so every call is awaited.
 // ============================================
 
 const {
@@ -15,8 +17,8 @@ beforeEach(() => {
 
 describe('OTP Service', () => {
   describe('createOTP', () => {
-    test('should generate a 6-digit OTP', () => {
-      const result = createOTP('test@example.com');
+    test('should generate a 6-digit OTP', async () => {
+      const result = await createOTP('test@example.com');
 
       expect(result.success).toBe(true);
       expect(result.code).toBeDefined();
@@ -24,29 +26,29 @@ describe('OTP Service', () => {
       expect(/^\d{6}$/.test(result.code)).toBe(true);
     });
 
-    test('should set expiry time', () => {
-      const result = createOTP('test@example.com');
+    test('should set expiry time', async () => {
+      const result = await createOTP('test@example.com');
 
       expect(result.expiresIn).toBeGreaterThan(0);
     });
 
-    test('should enforce cooldown between requests', () => {
-      createOTP('test@example.com');
-      const result2 = createOTP('test@example.com');
+    test('should enforce cooldown between requests', async () => {
+      await createOTP('test@example.com');
+      const result2 = await createOTP('test@example.com');
 
       expect(result2.success).toBe(false);
       expect(result2.retryAfter).toBeGreaterThan(0);
     });
 
-    test('should normalize email to lowercase', () => {
-      createOTP('Test@Example.COM');
+    test('should normalize email to lowercase', async () => {
+      await createOTP('Test@Example.COM');
 
       expect(_otpStore.has('test@example.com')).toBe(true);
     });
 
-    test('should generate different codes for different emails', () => {
-      const r1 = createOTP('user1@example.com');
-      const r2 = createOTP('user2@example.com');
+    test('should generate different codes for different emails', async () => {
+      const r1 = await createOTP('user1@example.com');
+      const r2 = await createOTP('user2@example.com');
 
       expect(r1.code).toBeDefined();
       expect(r2.code).toBeDefined();
@@ -55,62 +57,62 @@ describe('OTP Service', () => {
   });
 
   describe('verifyOTP', () => {
-    test('should verify correct code', () => {
-      const { code } = createOTP('test@example.com');
-      const result = verifyOTP('test@example.com', code);
+    test('should verify correct code', async () => {
+      const { code } = await createOTP('test@example.com');
+      const result = await verifyOTP('test@example.com', code);
 
       expect(result.success).toBe(true);
     });
 
-    test('should reject incorrect code', () => {
-      createOTP('test@example.com');
-      const result = verifyOTP('test@example.com', '000000');
+    test('should reject incorrect code', async () => {
+      await createOTP('test@example.com');
+      const result = await verifyOTP('test@example.com', '000000');
 
       expect(result.success).toBe(false);
       expect(result.code).toBe('OTP_INVALID');
     });
 
-    test('should return not found for unregistered email', () => {
-      const result = verifyOTP('unknown@example.com', '123456');
+    test('should return not found for unregistered email', async () => {
+      const result = await verifyOTP('unknown@example.com', '123456');
 
       expect(result.success).toBe(false);
       expect(result.code).toBe('OTP_NOT_FOUND');
     });
 
-    test('should reject after max attempts', () => {
-      createOTP('test@example.com');
+    test('should reject after max attempts', async () => {
+      await createOTP('test@example.com');
 
       // Exhaust all 5 attempts
       for (let i = 0; i < 5; i++) {
-        verifyOTP('test@example.com', '000000');
+        await verifyOTP('test@example.com', '000000');
       }
 
       // The 5th failed attempt triggers OTP_MAX_ATTEMPTS and clears the store
       // So the next call should get OTP_NOT_FOUND since the store was cleaned
-      const result = verifyOTP('test@example.com', '000000');
+      const result = await verifyOTP('test@example.com', '000000');
 
       expect(result.success).toBe(false);
       // After max attempts are exhausted, store is cleared on next verify call
       expect(['OTP_NOT_FOUND', 'OTP_MAX_ATTEMPTS']).toContain(result.code);
     });
 
-    test('should track remaining attempts', () => {
-      createOTP('test@example.com');
-      const result = verifyOTP('test@example.com', '000000');
+    test('should track remaining attempts', async () => {
+      await createOTP('test@example.com');
+      const result = await verifyOTP('test@example.com', '000000');
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('attempt');
     });
 
-    test('should reject expired OTP', () => {
-      const { code } = createOTP('test@example.com');
+    test('should reject expired OTP', async () => {
+      const { code } = await createOTP('test@example.com');
 
       // Manually expire the OTP
-      const record = _otpStore.get('test@example.com');
+      const record = await _otpStore.get('test@example.com');
       record.expiresAt = Date.now() - 1000; // Expired 1 second ago
-      _otpStore.set('test@example.com', record);
+      await _otpStore.set('test@example.com', record);
 
-      const result = verifyOTP('test@example.com', code);
+      const result = await verifyOTP('test@example.com', code);
 
       expect(result.success).toBe(false);
       expect(result.code).toBe('OTP_EXPIRED');
@@ -118,44 +120,44 @@ describe('OTP Service', () => {
   });
 
   describe('isEmailVerified', () => {
-    test('should return true after successful verification', () => {
-      const { code } = createOTP('test@example.com');
-      verifyOTP('test@example.com', code);
+    test('should return true after successful verification', async () => {
+      const { code } = await createOTP('test@example.com');
+      await verifyOTP('test@example.com', code);
 
-      expect(isEmailVerified('test@example.com')).toBe(true);
+      expect(await isEmailVerified('test@example.com')).toBe(true);
     });
 
-    test('should return false for unverified email', () => {
-      createOTP('test@example.com');
+    test('should return false for unverified email', async () => {
+      await createOTP('test@example.com');
 
-      expect(isEmailVerified('test@example.com')).toBe(false);
+      expect(await isEmailVerified('test@example.com')).toBe(false);
     });
 
-    test('should return false for unknown email', () => {
-      expect(isEmailVerified('unknown@example.com')).toBe(false);
+    test('should return false for unknown email', async () => {
+      expect(await isEmailVerified('unknown@example.com')).toBe(false);
     });
 
-    test('should return false after expiry even if verified', () => {
-      const { code } = createOTP('test@example.com');
-      verifyOTP('test@example.com', code);
+    test('should return false after expiry even if verified', async () => {
+      const { code } = await createOTP('test@example.com');
+      await verifyOTP('test@example.com', code);
 
       // Manually expire
-      const record = _otpStore.get('test@example.com');
+      const record = await _otpStore.get('test@example.com');
       record.expiresAt = Date.now() - 1000;
-      _otpStore.set('test@example.com', record);
+      await _otpStore.set('test@example.com', record);
 
-      expect(isEmailVerified('test@example.com')).toBe(false);
+      expect(await isEmailVerified('test@example.com')).toBe(false);
     });
   });
 
   describe('consumeOTP', () => {
-    test('should remove OTP after consumption', () => {
-      const { code } = createOTP('test@example.com');
-      verifyOTP('test@example.com', code);
+    test('should remove OTP after consumption', async () => {
+      const { code } = await createOTP('test@example.com');
+      await verifyOTP('test@example.com', code);
 
-      consumeOTP('test@example.com');
+      await consumeOTP('test@example.com');
 
-      expect(isEmailVerified('test@example.com')).toBe(false);
+      expect(await isEmailVerified('test@example.com')).toBe(false);
       expect(_otpStore.has('test@example.com')).toBe(false);
     });
   });

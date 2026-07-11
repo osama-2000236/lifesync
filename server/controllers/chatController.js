@@ -24,6 +24,7 @@ const ChatLog = require('../models/ChatLog');
 const LinkedDomain = require('../models/LinkedDomain');
 const UserGoal = require('../models/UserGoal');
 const { getFirestore } = require('../config/firebase');
+const { createStore } = require('../services/ephemeralStore');
 const { success, error } = require('../utils/responseHelper');
 
 // ============================================
@@ -58,29 +59,12 @@ const safeUpdate = async (row, fields) => {
 };
 
 // ============================================
-// In-Memory Clarification State
+// Clarification State — shared/durable via ephemeralStore. The store's TTL
+// evicts stale clarifications (no local sweep timer); a mid-clarification turn
+// now survives restart / lands correctly on any instance.
 // ============================================
-const pendingClarifications = new Map();
-
-// TTL cleanup: evict stale clarification state every 60s (5-min TTL)
-// Only set up the interval in non-test environments to avoid Jest open handles
 const CLARIFICATION_TTL_MS = 5 * 60 * 1000;
-let clarificationInterval;
-if (process.env.NODE_ENV !== 'test') {
-  clarificationInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [userId, state] of pendingClarifications) {
-      if (now - state.createdAt > CLARIFICATION_TTL_MS) {
-        pendingClarifications.delete(userId);
-      }
-    }
-  }, 60_000);
-}
-
-// Export for testing (to clear interval in tests if needed)
-if (process.env.NODE_ENV === 'test') {
-  module.exports._clarificationInterval = clarificationInterval;
-}
+const pendingClarifications = createStore('clarif');
 
 // ============================================
 // VALIDATION
@@ -436,7 +420,7 @@ const processMessageStream = async (req, res) => {
     }
 
     // ─── Step 2: Check for pending clarification ───
-    const pending = pendingClarifications.get(userId);
+    const pending = await pendingClarifications.get(userId);
     const nlpContext = await buildBertContext(userId, currentSessionId, {
       excludeChatIds: [userChatLog.id, assistantChatLog.id],
       window: req.body?.context_window || null,
@@ -463,7 +447,7 @@ const processMessageStream = async (req, res) => {
           clarificationQuestion: pending.clarificationQuestion,
           clarificationOptions: pending.clarificationOptions,
         }, nlpContext, aiOptions, onDelta);
-        pendingClarifications.delete(userId);
+        await pendingClarifications.del(userId);
       } else {
         // Fresh message — run the two-track pipeline (extract + converse).
         sseWrite(res, 'status', { message: 'Processing your message...' });
@@ -522,13 +506,13 @@ const processMessageStream = async (req, res) => {
 
     // ─── Step 3: Handle clarification needed ───
     if (nlpResult.needs_clarification) {
-      pendingClarifications.set(userId, {
+      await pendingClarifications.set(userId, {
         originalMessage: message,
         clarificationQuestion: nlpResult.clarification_question,
         clarificationOptions: nlpResult.clarification_options,
         sessionId: currentSessionId,
         createdAt: Date.now(),
-      });
+      }, CLARIFICATION_TTL_MS);
 
       // Update both DB rows
       await safeUpdate(userChatLog, {
@@ -729,7 +713,7 @@ const processMessage = async (req, res, next) => {
     }));
 
     // ─── NLP Processing ───
-    const pending = pendingClarifications.get(userId);
+    const pending = await pendingClarifications.get(userId);
     const nlpContext = await buildBertContext(userId, currentSessionId, {
       excludeChatIds: [userChatLog.id, assistantChatLog.id],
       window: req.body?.context_window || null,
@@ -743,7 +727,7 @@ const processMessage = async (req, res, next) => {
           clarificationQuestion: pending.clarificationQuestion,
           clarificationOptions: pending.clarificationOptions,
         }, nlpContext, aiOptions);
-        pendingClarifications.delete(userId);
+        await pendingClarifications.del(userId);
       } else {
         nlpResult = await parseMessage(message, null, nlpContext, aiOptions);
       }
@@ -787,13 +771,13 @@ const processMessage = async (req, res, next) => {
 
     // ─── Handle clarification ───
     if (nlpResult.needs_clarification) {
-      pendingClarifications.set(userId, {
+      await pendingClarifications.set(userId, {
         originalMessage: message,
         clarificationQuestion: nlpResult.clarification_question,
         clarificationOptions: nlpResult.clarification_options,
         sessionId: currentSessionId,
         createdAt: Date.now(),
-      });
+      }, CLARIFICATION_TTL_MS);
 
       await safeUpdate(userChatLog, {
         intent: nlpResult.intent,
