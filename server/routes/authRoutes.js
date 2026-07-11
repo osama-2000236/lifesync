@@ -37,7 +37,8 @@ router.post('/qa-login', authLimiter, qaLogin);
 // ─── Login & Tokens ───
 router.post('/login', authLimiter, loginValidation, validate, login);
 router.post('/google', authLimiter, googleLoginValidation, validate, loginWithGoogle);
-router.post('/refresh', refreshToken);
+// Refresh is an auth surface — same brute-force budget as login (not unlimited).
+router.post('/refresh', authLimiter, refreshToken);
 
 // ─── Forgot Password (public) ───
 router.post('/forgot-password/send-otp', otpLimiter, forgotPasswordValidation, validate, forgotPasswordSendOTP);

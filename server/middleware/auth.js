@@ -83,16 +83,36 @@ const authenticate = async (req, res, next) => {
 
 /**
  * Middleware: Optional authentication
- * If token is present, verify it. Otherwise, continue without user.
+ * Missing/invalid/expired token → continue as anonymous (never 401).
+ * Only attaches req.user when token verifies AND the DB user is active.
  */
 const optionalAuth = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return next(); // No token, continue without user
-  }
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return next();
+    }
+    const token = authHeader.slice(7).trim();
+    if (!token) return next();
 
-  // If token exists, run full auth
-  return authenticate(req, res, next);
+    let decoded;
+    try {
+      decoded = verifyAccessToken(token);
+    } catch {
+      return next(); // bad/expired → anonymous
+    }
+
+    const user = await User.findByPk(decoded.id, {
+      attributes: { exclude: ['hashed_password'] },
+    });
+    if (user && user.is_active) {
+      req.user = user;
+    }
+    return next();
+  } catch (error) {
+    console.error('optionalAuth error:', error);
+    return next(); // never block the route for optional auth
+  }
 };
 
 module.exports = { authenticate, optionalAuth };

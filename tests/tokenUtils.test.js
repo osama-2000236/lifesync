@@ -32,6 +32,23 @@ describe('tokenUtils', () => {
     expect(header.alg).toBe('HS256');
   });
 
+  test('default access token TTL is short (15m) when JWT_EXPIRES_IN unset', () => {
+    const saved = process.env.JWT_EXPIRES_IN;
+    try {
+      delete process.env.JWT_EXPIRES_IN;
+      // Re-require not needed — expiresIn read at call time
+      const token = generateAccessToken(user);
+      const decoded = verifyAccessToken(token);
+      const ttl = decoded.exp - Math.floor(Date.now() / 1000);
+      // 15m = 900s; allow clock skew / signing delay
+      expect(ttl).toBeGreaterThan(60);
+      expect(ttl).toBeLessThanOrEqual(16 * 60);
+    } finally {
+      if (saved === undefined) delete process.env.JWT_EXPIRES_IN;
+      else process.env.JWT_EXPIRES_IN = saved;
+    }
+  });
+
   test('round-trip refresh token', () => {
     const token = generateRefreshToken(user);
     const decoded = verifyRefreshToken(token);

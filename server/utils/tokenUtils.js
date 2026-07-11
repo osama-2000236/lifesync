@@ -37,8 +37,9 @@ const generateAccessToken = (user) => {
       role: user.role,
     },
     requireSecret('JWT_SECRET'),
-    // Short-lived by default — the client silently refreshes on 401.
-    { expiresIn: process.env.JWT_EXPIRES_IN || '1d', ...HS256 },
+    // Short-lived by default (15m) — client silently refreshes on 401.
+    // Override with JWT_EXPIRES_IN only when you accept a longer stolen-token window.
+    { expiresIn: process.env.JWT_EXPIRES_IN || '15m', ...HS256 },
   );
 };
 

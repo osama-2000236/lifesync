@@ -46,4 +46,25 @@ describe('route auth surface (integration, no token)', () => {
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
   });
+
+  test('refresh without token is 400 (route mounted, not unlimited silent success)', async () => {
+    const res = await request(app).post('/api/auth/refresh').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  test('refresh is rate-limited with authLimiter (same budget as login)', () => {
+    // Stack inspection: refresh must sit behind authLimiter so stolen-token
+    // hammering / online guessing cannot be unlimited.
+    const stack = require('../server/routes/authRoutes').stack || [];
+    const refreshLayer = stack.find(
+      (l) => l.route && l.route.path === '/refresh' && l.route.methods.post,
+    );
+    expect(refreshLayer).toBeTruthy();
+    const handles = refreshLayer.route.stack.map((s) => s.name || s.handle?.name || '');
+    // express-rate-limit handler name is typically empty; assert layer count ≥ 2
+    // (limiter + controller) rather than unlimited single-handler route.
+    expect(refreshLayer.route.stack.length).toBeGreaterThanOrEqual(2);
+    void handles;
+  });
 });

@@ -18,7 +18,7 @@ jest.mock('../server/models/User', () => ({
 }));
 
 const User = require('../server/models/User');
-const { authenticate } = require('../server/middleware/auth');
+const { authenticate, optionalAuth } = require('../server/middleware/auth');
 const { authorize, adminOnly } = require('../server/middleware/roleCheck');
 const { validate } = require('../server/middleware/validate');
 const { generateAccessToken } = require('../server/utils/tokenUtils');
@@ -33,6 +33,9 @@ const buildApp = () => {
   app.use(express.json());
   app.get('/protected', authenticate, (req, res) => {
     res.json({ success: true, userId: req.user.id, role: req.user.role });
+  });
+  app.get('/optional', optionalAuth, (req, res) => {
+    res.json({ success: true, userId: req.user?.id || null, anonymous: !req.user });
   });
   app.get('/admin', authenticate, adminOnly, (req, res) => {
     res.json({ success: true, admin: true });
@@ -111,6 +114,47 @@ describe('authenticate middleware', () => {
     const token = generateAccessToken(user);
     const res = await request(app).get('/protected').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(403);
+  });
+});
+
+describe('optionalAuth middleware', () => {
+  const app = buildApp();
+  const user = {
+    id: 9,
+    email: 'opt@test.com',
+    role: 'user',
+    is_active: true,
+  };
+
+  beforeEach(() => {
+    User.findByPk.mockReset();
+    User.findByPk.mockResolvedValue(user);
+  });
+
+  test('no token → 200 anonymous', async () => {
+    const res = await request(app).get('/optional');
+    expect(res.status).toBe(200);
+    expect(res.body.anonymous).toBe(true);
+    expect(res.body.userId).toBeNull();
+  });
+
+  test('expired/invalid token → 200 anonymous (never 401)', async () => {
+    const token = jwt.sign(
+      { id: 9, email: 'opt@test.com', role: 'user' },
+      process.env.JWT_SECRET,
+      { expiresIn: '-10s', algorithm: 'HS256' },
+    );
+    const res = await request(app).get('/optional').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.anonymous).toBe(true);
+  });
+
+  test('valid token → attaches user', async () => {
+    const token = generateAccessToken(user);
+    const res = await request(app).get('/optional').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.userId).toBe(9);
+    expect(res.body.anonymous).toBe(false);
   });
 });
 
