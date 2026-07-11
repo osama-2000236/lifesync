@@ -13,6 +13,7 @@ import {
   setLocalAvatar,
 } from '../utils/avatarStorage';
 import { MODEL_OPTIONS } from '../config/models';
+import MemorySection from '../components/profile/MemorySection';
 import { Card, Alert, Button, FormField, Input } from '../components/ui';
 import {
   User, Mail, Lock, Trash2, Save, Loader2, Eye, EyeOff,
@@ -676,6 +677,7 @@ export default function ProfilePage() {
       <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
         <ProfileInfoSection user={currentUser} onUpdate={handleUpdate} />
         <AssistantModelSection user={currentUser} onUpdate={handleUpdate} />
+        <MemorySection />
         <EmailChangeSection user={currentUser} isGoogleUser={isGoogleUser} onUpdate={handleUpdate} />
         <ChangePasswordSection isGoogleUser={isGoogleUser} />
         <DangerZoneSection onDeleteAccount={handleDeleteAccount} />

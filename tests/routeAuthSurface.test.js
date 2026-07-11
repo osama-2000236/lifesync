@@ -27,6 +27,10 @@ describe('route auth surface (integration, no token)', () => {
     ['get', '/api/insights'],
     ['put', '/api/insights/1/read'],
     ['get', '/api/assistant/suggestion'],
+    ['get', '/api/memory'],
+    ['put', '/api/memory/1'],
+    ['delete', '/api/memory/1'],
+    ['delete', '/api/memory'],
     ['post', '/api/voice/speak'],
     ['get', '/api/auth/me'],
   ])('%s %s → 401 without token', async (method, path) => {

@@ -264,6 +264,53 @@ const getMemories = async (userId, { limit = 12 } = {}) => {
   }
 };
 
+// ─── User control plane (list / edit / delete via /api/memory) ─────────────
+// Interview bookkeeping (assistant.%) is invisible here too: not the user's
+// facts, and deleting it would corrupt dismissal cooldowns.
+const NOT_ASSISTANT = { [Op.notLike]: 'assistant.%' };
+
+/** Full rows for the memory UI (unlike getMemories, includes id + source). */
+const listMemories = async (userId) => {
+  if (!userId || !(await isTableReady())) return [];
+  const rows = await UserMemory.findAll({
+    where: { user_id: userId, mem_key: NOT_ASSISTANT },
+    order: [['salience', 'DESC'], ['times_seen', 'DESC'], ['last_seen_at', 'DESC']],
+    limit: MAX_MEMORIES_PER_USER,
+    attributes: ['id', 'mem_key', 'category', 'value', 'source', 'times_seen', 'last_seen_at'],
+  });
+  return rows.map((r) => (r.get ? r.get({ plain: true }) : r));
+};
+
+/** User-corrected fact: source 'user', full confidence, ranked to the top. */
+const updateMemory = async (userId, id, value) => {
+  if (!userId || !(await isTableReady())) return null;
+  const safe = sanitizeMemoryValue(value);
+  if (!safe) return null;
+  const row = await UserMemory.findOne({ where: { id, user_id: userId, mem_key: NOT_ASSISTANT } });
+  if (!row) return null;
+  await row.update({
+    value: safe,
+    source: 'user',
+    confidence: 1,
+    salience: Math.max(row.salience || 1, 5),
+    last_seen_at: new Date(),
+  });
+  return row.get ? row.get({ plain: true }) : row;
+};
+
+/** Delete one fact (scoped to the owner). Returns true if a row died. */
+const deleteMemory = async (userId, id) => {
+  if (!userId || !(await isTableReady())) return false;
+  const count = await UserMemory.destroy({ where: { id, user_id: userId, mem_key: NOT_ASSISTANT } });
+  return count > 0;
+};
+
+/** Wipe every remembered fact (privacy / account sharing). */
+const clearMemories = async (userId) => {
+  if (!userId || !(await isTableReady())) return 0;
+  return UserMemory.destroy({ where: { user_id: userId, mem_key: NOT_ASSISTANT } });
+};
+
 /** One-line natural summary of what the assistant remembers (for prose replies). */
 const summarizeMemories = (memories) => {
   if (!Array.isArray(memories) || memories.length === 0) return '';
@@ -288,6 +335,10 @@ module.exports = {
   recordTurnMemories,
   rememberFact,
   getMemories,
+  listMemories,
+  updateMemory,
+  deleteMemory,
+  clearMemories,
   summarizeMemories,
   buildMemoryContext,
   _resetTableProbe: () => { _tableReady = null; },

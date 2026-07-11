@@ -288,6 +288,14 @@ export const voiceAPI = {
   ),
 };
 
+// ─── User Memory control plane (what the assistant remembers) ───
+export const memoryAPI = {
+  list: () => api.get('/memory'),
+  update: (id, value) => api.put(`/memory/${id}`, { value }),
+  remove: (id) => api.delete(`/memory/${id}`),
+  clear: () => api.delete('/memory'),
+};
+
 // ─── External Integrations API ───
 export const externalAPI = {
   connect: (platform) => api.get(`/external/connect/${platform}`),
