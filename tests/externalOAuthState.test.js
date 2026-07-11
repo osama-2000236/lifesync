@@ -23,6 +23,32 @@ jest.mock('../server/services/external/appleHealthAdapter', () => jest.fn().mock
   getAuthorizationUrl: () => ({ type: 'native_sdk' }),
 })));
 
+// In-memory stand-in for the user_integrations table (durable token store).
+jest.mock('../server/models', () => {
+  const rows = [];
+  return {
+    _rows: rows,
+    UserIntegration: {
+      findOne: jest.fn(async ({ where }) => rows.find(
+        (r) => r.user_id === where.user_id && r.platform === where.platform,
+      ) || null),
+      findAll: jest.fn(async ({ where }) => rows.filter((r) => r.user_id === where.user_id)),
+      create: jest.fn(async (data) => {
+        const row = { ...data, update: async (fields) => Object.assign(row, fields) };
+        rows.push(row);
+        return row;
+      }),
+      destroy: jest.fn(async ({ where }) => {
+        const before = rows.length;
+        for (let i = rows.length - 1; i >= 0; i -= 1) {
+          if (rows[i].user_id === where.user_id && rows[i].platform === where.platform) rows.splice(i, 1);
+        }
+        return before - rows.length;
+      }),
+    },
+  };
+});
+
 const express = require('express');
 const request = require('supertest');
 const externalRoutes = require('../server/routes/externalRoutes');
@@ -88,5 +114,18 @@ describe('OAuth callback state binding', () => {
     await request(app).get('/api/external/callback/google_fit').query({ code: 'auth-code', state });
     const status = await request(app).get('/api/external/status');
     expect(status.body.data.platforms.google_fit.connected).toBe(true);
+
+    // Durability: tokens live in user_integrations rows keyed to the
+    // initiating user — not a process-local Map that dies on deploy.
+    const { _rows } = require('../server/models');
+    const row = _rows.find((r) => r.platform === 'google_fit');
+    expect(row).toMatchObject({ user_id: 1, access_token: 'at', refresh_token: 'rt' });
+  });
+
+  test('disconnect removes only the caller-platform row', async () => {
+    const res = await request(app).post('/api/external/disconnect/google_fit');
+    expect(res.status).toBe(200);
+    const status = await request(app).get('/api/external/status');
+    expect(status.body.data.platforms.google_fit.connected).toBe(false);
   });
 });

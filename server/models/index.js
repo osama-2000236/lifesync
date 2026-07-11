@@ -15,6 +15,7 @@ const UserGoal = require('./UserGoal');
 const LinkedDomain = require('./LinkedDomain');
 const SystemLog = require('./SystemLog');
 const UserMemory = require('./UserMemory');
+const UserIntegration = require('./UserIntegration');
 
 // Association FK options must match migration / column onDelete so Sequelize
 // cascade helpers and schema docs stay aligned with the real DB constraints.
@@ -34,6 +35,7 @@ User.hasMany(ChatLog, { foreignKey: 'user_id', as: 'chatLogs', ...CASCADE });
 User.hasMany(UserGoal, { foreignKey: 'user_id', as: 'goals', ...CASCADE });
 User.hasMany(SystemLog, { foreignKey: 'admin_id', as: 'adminLogs', ...SET_NULL });
 User.hasMany(UserMemory, { foreignKey: 'user_id', as: 'memories', ...CASCADE });
+User.hasMany(UserIntegration, { foreignKey: 'user_id', as: 'integrations', ...CASCADE });
 
 // --- HealthLog Associations ---
 HealthLog.belongsTo(User, { foreignKey: 'user_id', as: 'user', ...CASCADE });
@@ -69,6 +71,9 @@ SystemLog.belongsTo(User, { foreignKey: 'admin_id', as: 'admin', ...SET_NULL });
 // --- UserMemory Associations ---
 UserMemory.belongsTo(User, { foreignKey: 'user_id', as: 'user', ...CASCADE });
 
+// --- UserIntegration Associations ---
+UserIntegration.belongsTo(User, { foreignKey: 'user_id', as: 'user', ...CASCADE });
+
 // ============================================
 // Export all models
 // ============================================
@@ -84,6 +89,7 @@ const db = {
   LinkedDomain,
   SystemLog,
   UserMemory,
+  UserIntegration,
 };
 
 module.exports = db;

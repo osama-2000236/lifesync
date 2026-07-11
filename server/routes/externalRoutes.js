@@ -30,10 +30,39 @@ function getAdapter(platform) {
   return adapter;
 }
 
-// In-memory token store (production: use DB table `user_integrations`)
-const tokenStore = new Map();
+// Durable per-user tokens (user_integrations, AES-encrypted at rest by model
+// hooks). The old in-memory Map disconnected every user on each deploy.
+const { UserIntegration } = require('../models');
+
+const getTokens = async (userId, platform) => {
+  const row = await UserIntegration.findOne({ where: { user_id: userId, platform } });
+  if (!row) return null;
+  return {
+    accessToken: row.access_token,
+    refreshToken: row.refresh_token,
+    expiresIn: row.expires_in,
+    connectedAt: row.connected_at,
+  };
+};
+
+const saveTokens = async (userId, platform, { accessToken, refreshToken, expiresIn }) => {
+  const existing = await UserIntegration.findOne({ where: { user_id: userId, platform } });
+  const fields = {
+    access_token: accessToken || null,
+    // Providers omit the refresh token on re-auth/refresh — keep the stored one.
+    refresh_token: refreshToken || existing?.refresh_token || null,
+    expires_in: expiresIn || existing?.expires_in || null,
+    connected_at: new Date(),
+  };
+  if (existing) await existing.update(fields);
+  else await UserIntegration.create({ user_id: userId, platform, ...fields });
+};
+
+const deleteTokens = (userId, platform) => UserIntegration.destroy({ where: { user_id: userId, platform } });
 
 // Pending OAuth states: opaque nonce → { userId, platform, expiresAt }.
+// ponytail: stays in-memory — 10-minute single-use nonces; a restart mid-flow
+// just means clicking Connect again. Tokens are the durable part above.
 // The callback arrives unauthenticated (provider redirect), so this nonce is
 // the ONLY thing binding it to an account — it must be server-issued,
 // single-use, and expiring. Never accept identity data from the state itself.
@@ -93,11 +122,7 @@ router.get('/callback/:platform', async (req, res, next) => {
     const redirectUri = `${process.env.APP_URL || 'http://localhost:5000'}/api/external/callback/${req.params.platform}`;
     const tokens = await adapter.handleCallback(code, redirectUri);
 
-    // Store tokens (production: persist to DB)
-    tokenStore.set(`${pending.userId}:${req.params.platform}`, {
-      ...tokens,
-      connectedAt: new Date().toISOString(),
-    });
+    await saveTokens(pending.userId, req.params.platform, tokens);
 
     // Redirect to frontend success page
     res.redirect(`${process.env.CORS_ORIGIN || 'http://localhost:5173'}/dashboard?integration=${req.params.platform}&status=connected`);
@@ -124,7 +149,7 @@ router.post('/sync/:platform', authenticate, async (req, res, next) => {
       allEntries = adapter.mapToHealthLog(normalized, userId);
     } else {
       // Google Fit: fetch via API using stored tokens
-      const stored = tokenStore.get(`${userId}:${req.params.platform}`);
+      const stored = await getTokens(userId, req.params.platform);
       if (!stored) return error(res, 'Platform not connected. Please connect first.', 401);
 
       let { accessToken } = stored;
@@ -136,10 +161,10 @@ router.post('/sync/:platform', authenticate, async (req, res, next) => {
         try {
           const refreshed = await adapter.refreshToken(stored.refreshToken);
           accessToken = refreshed.accessToken;
-          tokenStore.set(`${userId}:${req.params.platform}`, {
-            ...stored,
+          await saveTokens(userId, req.params.platform, {
             accessToken,
-            connectedAt: new Date().toISOString(),
+            refreshToken: stored.refreshToken,
+            expiresIn: stored.expiresIn,
           });
         } catch (refreshErr) {
           return error(res, 'Token expired. Please reconnect.', 401);
@@ -183,13 +208,13 @@ router.post('/sync/:platform', authenticate, async (req, res, next) => {
 router.post('/disconnect/:platform', authenticate, async (req, res, next) => {
   try {
     const adapter = getAdapter(req.params.platform);
-    const stored = tokenStore.get(`${req.user.id}:${req.params.platform}`);
+    const stored = await getTokens(req.user.id, req.params.platform);
 
     if (stored?.accessToken) {
       try { await adapter.disconnect(stored.accessToken); } catch (e) { /* ignore revocation errors */ }
     }
 
-    tokenStore.delete(`${req.user.id}:${req.params.platform}`);
+    await deleteTokens(req.user.id, req.params.platform);
     success(res, null, `Disconnected from ${req.params.platform}`);
   } catch (err) {
     next(err);
@@ -197,16 +222,22 @@ router.post('/disconnect/:platform', authenticate, async (req, res, next) => {
 });
 
 // ─── Connection Status ───
-router.get('/status', authenticate, async (req, res) => {
-  const platforms = {};
-  for (const key of Object.keys(adapters)) {
-    const stored = tokenStore.get(`${req.user.id}:${key}`);
-    platforms[key] = {
-      connected: !!stored,
-      connectedAt: stored?.connectedAt || null,
-    };
+router.get('/status', authenticate, async (req, res, next) => {
+  try {
+    const rows = await UserIntegration.findAll({ where: { user_id: req.user.id } });
+    const byPlatform = new Map(rows.map((r) => [r.platform, r]));
+    const platforms = {};
+    for (const key of Object.keys(adapters)) {
+      const stored = byPlatform.get(key);
+      platforms[key] = {
+        connected: !!stored,
+        connectedAt: stored?.connected_at || null,
+      };
+    }
+    success(res, { platforms }, 'Integration status');
+  } catch (err) {
+    next(err);
   }
-  success(res, { platforms }, 'Integration status');
 });
 
 module.exports = router;
