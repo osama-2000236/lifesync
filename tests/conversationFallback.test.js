@@ -268,4 +268,32 @@ describe('context char budget (cap before any cloud call)', () => {
     const ctx = { conversation: [{ role: 'user', content: 'hi' }], memory: { summary: 's' } };
     expect(_capContextBudget(ctx)).toBe(ctx);
   });
+
+  test('capContextBudget stringifies O(log n) not O(n) relative to history length', () => {
+    process.env.CHAT_CONTEXT_CHAR_BUDGET = '8000';
+    const orig = JSON.stringify;
+    let count = 0;
+    // eslint-disable-next-line no-extend-native
+    JSON.stringify = (...args) => {
+      count += 1;
+      return orig(...args);
+    };
+    try {
+      const context = {
+        memory: { summary: 'keep me' },
+        conversation: Array.from({ length: 80 }, (_, i) => ({
+          role: i % 2 ? 'assistant' : 'user',
+          content: `t${i} ${'y'.repeat(150)}`,
+        })),
+      };
+      const capped = _capContextBudget(context);
+      expect(JSON.stringify(capped).length).toBeLessThanOrEqual(8000);
+      // Linear shift re-measure would be ~80+; binary search stays well under 40.
+      expect(count).toBeLessThan(40);
+      expect(capped.memory.summary).toBe('keep me');
+    } finally {
+      JSON.stringify = orig;
+      delete process.env.CHAT_CONTEXT_CHAR_BUDGET;
+    }
+  });
 });

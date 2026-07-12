@@ -298,21 +298,49 @@ const stripReasoning = (raw) => {
 // Cap the injected context before any cloud call (~6k tokens ≈ 24k chars).
 // Oldest history is dropped first; memory.summary is never touched —
 // remembering the user is the product, stale small talk is not.
-// ponytail: re-stringify per trim is O(n²) on ~100KB worst case — fine; make
-// it incremental only if a profiler ever cares.
+// Binary-search how many oldest turns to drop → O(log n) stringifies instead of
+// O(n) shifts each re-measuring the full payload (was quadratic on long threads).
 const contextCharBudget = () => parseInt(process.env.CHAT_CONTEXT_CHAR_BUDGET, 10) || 24_000;
 const MIN_HISTORY_TURNS = 4;
+const contextSize = (ctx) => {
+  try {
+    return JSON.stringify(ctx).length;
+  } catch {
+    return Number.MAX_SAFE_INTEGER;
+  }
+};
 const capContextBudget = (context = {}) => {
   const budget = contextCharBudget();
-  if (JSON.stringify(context).length <= budget) return context;
-  const capped = { ...context, conversation: [...(context.conversation || [])] };
-  while (capped.conversation.length > MIN_HISTORY_TURNS && JSON.stringify(capped).length > budget) {
-    capped.conversation.shift();
+  if (contextSize(context) <= budget) return context;
+
+  const conversation = Array.isArray(context.conversation) ? context.conversation : [];
+  const base = { ...context };
+  const maxDrop = Math.max(0, conversation.length - MIN_HISTORY_TURNS);
+
+  // Binary search: smallest drop count that fits under budget (keep max history).
+  let lo = 0;
+  let hi = maxDrop;
+  let bestDrop = maxDrop;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const trial = { ...base, conversation: conversation.slice(mid) };
+    if (contextSize(trial) <= budget) {
+      bestDrop = mid;
+      hi = mid - 1;
+    } else {
+      lo = mid + 1;
+    }
   }
-  // Rare: still over with minimal history — thin the dense row arrays toward
-  // their newest entries. Memory is never dropped.
+
+  const capped = {
+    ...base,
+    conversation: conversation.slice(bestDrop),
+  };
+
+  // Rare: still over with minimal history — thin dense row arrays (newest kept).
+  // Memory is never dropped.
   for (const key of ['recent_messages', 'recent_health_entries', 'recent_finance_entries', 'linked_domains']) {
-    if (JSON.stringify(capped).length <= budget) break;
+    if (contextSize(capped) <= budget) break;
     if (!Array.isArray(capped[key]) || capped[key].length <= 6) continue;
     // recent_messages is oldest→newest; the row arrays are newest-first.
     capped[key] = key === 'recent_messages' ? capped[key].slice(-6) : capped[key].slice(0, 6);

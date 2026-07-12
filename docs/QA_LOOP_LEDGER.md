@@ -392,6 +392,44 @@ npx jest --forceExit --runInBand
 
 ---
 
+## Loop 11 — 2026-07-12 — **Perf hotspots**
+
+### Section
+Chat context budget algorithm + gamification history scan size
+
+### Tests run
+```
+npx jest tests/conversationFallback.test.js
+# 19 pass
+npx jest --forceExit --runInBand
+```
+
+### Findings (fixed)
+| Severity | Issue | Fix |
+|----------|--------|-----|
+| **Medium** | `capContextBudget` re-`JSON.stringify` on every `shift()` → **O(n) full serializations** on long threads | Binary search drop count → **O(log n)** stringifies; memory never dropped |
+| **Low** | Gamification loaded **1000** health+finance rows every dashboard hit | Cap **400** each (still ~year of daily logs) |
+
+### Already solid
+- Chat history hard-cap 120 in `buildMessages`
+- Insight generate rate-limited
+- Dashboard insights in-memory TTL cache (loop 9)
+
+### Residual (accepted)
+- Full context still serialized for size measurement (unavoidable accuracy)
+- Numeric aggregates still require DB scans by design
+- Multi-instance insight cache not shared
+
+### Section status
+**GREEN**
+
+### Campaign decision
+All ledger sections are **GREEN** with no open high/critical code defects from this campaign.  
+Ops-only residual (e.g. Fit Console secret, email provider) is out of code scope.  
+**STOP** scheduled job `019f529f2555`.
+
+---
+
 ## Section scoreboard (campaign)
 
 | Section | Status | Notes |
@@ -408,4 +446,4 @@ npx jest --forceExit --runInBand
 | Memory | **GREEN** (loop 8) | assistant.* isolation |
 | Insights | **GREEN** (loop 9) | model_runtime scrub |
 | FE SPA shells | **GREEN** (loop 10) | OAuth open-redirect |
-| Perf hotspots | pending deep | conversation O(n²) ponytail |
+| Perf hotspots | **GREEN** (loop 11) | context budget O(log n) |

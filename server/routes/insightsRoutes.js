@@ -60,8 +60,9 @@ router.get('/gamification', authenticate, async (req, res, next) => {
   try {
     const [healthRows, financeRows, goals] = await Promise.all([
       // type + value so buildHorizon can compute week sleep/mood averages.
-      HealthLog.findAll({ where: { user_id: req.user.id }, attributes: ['logged_at', 'type', 'value'], order: [['logged_at', 'DESC']], limit: 1000 }),
-      FinancialLog.findAll({ where: { user_id: req.user.id }, attributes: ['logged_at', 'type', 'amount'], order: [['logged_at', 'DESC']], limit: 1000 }),
+      // 400 rows ≈ ~1 year daily logs — enough for streaks/horizon without scanning forever.
+      HealthLog.findAll({ where: { user_id: req.user.id }, attributes: ['logged_at', 'type', 'value'], order: [['logged_at', 'DESC']], limit: 400 }),
+      FinancialLog.findAll({ where: { user_id: req.user.id }, attributes: ['logged_at', 'type', 'amount'], order: [['logged_at', 'DESC']], limit: 400 }),
       // Goals with live progress — a goals hiccup must not sink the streak card.
       getGoalsWithProgress(req.user.id).catch(() => []),
     ]);
