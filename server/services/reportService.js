@@ -65,19 +65,14 @@ const generateWeeklyReport = async (userId, { at = new Date() } = {}) => {
   if (existing) return { report: toPublicReport(existing), created: false };
 
   // Force a fresh insight snapshot, then freeze it into weekly_reports.
+  // period_* always match ISO week_key (Mon–Sun UTC), not the rolling 7d insight window.
   const insights = await persistDashboardInsights(userId);
-  const periodStart = insights.period?.start
-    ? new Date(insights.period.start).toISOString().slice(0, 10)
-    : bounds.period_start;
-  const periodEnd = insights.period?.end
-    ? new Date(insights.period.end).toISOString().slice(0, 10)
-    : bounds.period_end;
 
   try {
     const row = await WeeklyReport.create({
       user_id: userId,
-      period_start: periodStart,
-      period_end: periodEnd,
+      period_start: bounds.period_start,
+      period_end: bounds.period_end,
       week_key: bounds.week_key,
       summary: insights.summary || 'Weekly summary.',
       metrics_snapshot: {
@@ -153,6 +148,7 @@ const markReportNotified = async (reportId) => {
 };
 
 const findUsersDueForWeeklyReport = async ({ at = new Date() } = {}) => {
+  // Due window is UTC ISO week only. User.timezone is stored for prefs/display, not used here.
   const { week_key } = weekBoundsUtc(at);
   // Active users with notifications on who do not yet have this week’s report notified.
   const users = await User.findAll({

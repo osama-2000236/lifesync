@@ -12,13 +12,23 @@ const asDate = (value) => {
   return String(value).slice(0, 10);
 };
 
+/** Human-readable line for PDF — prefer text/observation, never raw JSON when avoidable. */
 const lineText = (value) => {
   if (value == null) return '—';
   if (typeof value === 'string') return value;
-  if (typeof value === 'number') return String(value);
-  if (Array.isArray(value)) return value.map((v) => (v?.text || v?.name || JSON.stringify(v))).join('; ');
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value.map((v) => lineText(v)).filter((s) => s && s !== '—').join('; ') || '—';
+  }
   if (typeof value === 'object') {
-    if (value.text) return String(value.text);
+    // insightEngine patterns use observation; recs use text; categories use name/category
+    if (value.text != null && value.text !== '') return String(value.text);
+    if (value.observation != null && value.observation !== '') return String(value.observation);
+    if (value.name != null && value.name !== '') return String(value.name);
+    if (value.category != null) {
+      const pct = value.percentage != null ? ` ${value.percentage}%` : '';
+      return `${value.category}${pct}`;
+    }
     return JSON.stringify(value);
   }
   return String(value);
@@ -56,8 +66,9 @@ const buildWeeklyReportPdf = (report) => new Promise((resolve, reject) => {
     // Header
     doc.fontSize(20).fillColor('#0f172a').text('LifeSync Weekly Report', { align: 'left' });
     doc.moveDown(0.3);
+    // ASCII separators only — Helvetica/WinAnsi mangles Unicode arrows (→).
     doc.fontSize(10).fillColor('#64748b').text(
-      `Week ${report.week_key || '—'}  ·  ${asDate(report.period_start)} → ${asDate(report.period_end)}`,
+      `Week ${report.week_key || '—'}  |  ${asDate(report.period_start)} -> ${asDate(report.period_end)}`,
     );
     if (report.user_name || report.user_email) {
       doc.text(`Prepared for: ${report.user_name || report.user_email}`);

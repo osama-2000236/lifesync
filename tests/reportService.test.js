@@ -59,12 +59,14 @@ describe('reportService (UC-13)', () => {
   });
 
   test('generateWeeklyReport creates a frozen snapshot', async () => {
-    const { report, created } = await generateWeeklyReport(user.id, {
-      at: new Date('2026-07-11T12:00:00Z'),
-    });
+    const at = new Date('2026-07-11T12:00:00Z');
+    const { report, created } = await generateWeeklyReport(user.id, { at });
     expect(created).toBe(true);
     expect(report.user_id).toBe(user.id);
-    expect(report.week_key).toBe(isoWeekKey(new Date('2026-07-11T12:00:00Z')));
+    expect(report.week_key).toBe(isoWeekKey(at));
+    // period_* must match ISO Mon–Sun for week_key (not rolling insights.period)
+    expect(report.period_start).toBe('2026-07-06');
+    expect(report.period_end).toBe('2026-07-12');
     expect(report.summary).toMatch(/Deterministic summary/);
     expect(report.metrics_snapshot.health_score).toBe(70);
   });

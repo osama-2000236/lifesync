@@ -31,7 +31,7 @@ describe('UC-13 requirements (system)', () => {
         spending_trend: 'down',
       },
       recommendations: [{ text: 'Walk 30 minutes', priority: 'medium' }],
-      patterns: [],
+      patterns: [{ observation: 'Sleep linked to spend', domain: 'cross' }],
     });
     expect(pdf.length).toBeGreaterThan(400);
     expect(pdf.slice(0, 5).toString()).toBe('%PDF-');

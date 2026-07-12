@@ -1,6 +1,6 @@
 // Unit tests — pure PDF builder (UC-13)
 
-const { buildWeeklyReportPdf, isoWeekKey, weekBoundsUtc } = (() => {
+const { buildWeeklyReportPdf, lineText, asDate, isoWeekKey, weekBoundsUtc } = (() => {
   const pdf = require('../server/services/pdfReportBuilder');
   // isoWeekKey lives in reportService — import both.
   return {
@@ -8,6 +8,30 @@ const { buildWeeklyReportPdf, isoWeekKey, weekBoundsUtc } = (() => {
     ...require('../server/services/reportService'),
   };
 })();
+
+describe('lineText (production insight shapes)', () => {
+  test('prefers observation over JSON dump for patterns', () => {
+    expect(lineText({
+      observation: 'Sleep and spending move together (r=0.6).',
+      domain: 'cross',
+      severity: 'informative',
+    })).toBe('Sleep and spending move together (r=0.6).');
+  });
+
+  test('prefers text for recommendations', () => {
+    expect(lineText({ text: 'Sleep 7h+', priority: 'high' })).toBe('Sleep 7h+');
+  });
+
+  test('formats category share without JSON', () => {
+    expect(lineText([{ category: 'Food', percentage: 40 }])).toBe('Food 40%');
+  });
+
+  test('null and primitives', () => {
+    expect(lineText(null)).toBe('—');
+    expect(lineText(72)).toBe('72');
+    expect(lineText('stable')).toBe('stable');
+  });
+});
 
 describe('pdfReportBuilder (unit)', () => {
   test('builds a non-empty PDF buffer with %PDF header', async () => {
@@ -21,10 +45,14 @@ describe('pdfReportBuilder (unit)', () => {
         financial_health_score: 65,
         mood_trend: 'stable',
         spending_trend: 'down',
-        budget: { total_expense: 120, total_income: 500 },
+        budget: {
+          income: 500,
+          expenses: 120,
+          top_categories: [{ category: 'Food', percentage: 40 }],
+        },
       },
       recommendations: [{ text: 'Keep water intake above 2L', priority: 'medium' }],
-      patterns: [{ text: 'Sleep correlates with lower spending' }],
+      patterns: [{ observation: 'Sleep correlates with lower spending', domain: 'cross' }],
       user_name: 'QA Bot',
       generated_at: new Date('2026-07-12T12:00:00Z'),
     });
@@ -42,6 +70,14 @@ describe('pdfReportBuilder (unit)', () => {
       metrics_snapshot: {},
     });
     expect(buf.slice(0, 4).toString()).toBe('%PDF');
+  });
+
+  test('header uses ASCII range separator (not Unicode arrow)', () => {
+    expect(asDate('2026-07-06')).toBe('2026-07-06');
+    // Contract: builder template must stay ASCII-safe for Helvetica.
+    const header = `Week 2026-W28  |  ${asDate('2026-07-06')} -> ${asDate('2026-07-12')}`;
+    expect(header).toBe('Week 2026-W28  |  2026-07-06 -> 2026-07-12');
+    expect(header).not.toMatch(/[→·]/);
   });
 });
 
