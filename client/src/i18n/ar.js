@@ -240,7 +240,7 @@ export const ar = {
   'profile.danger.deleteFailed': 'فشل حذف الحساب.',
   // memory control plane (what the assistant remembers)
   'reports.cardTitle': 'التقرير الأسبوعي',
-  'reports.cardDesc': 'نزّل ملف PDF لدرجات الصحة والمال والأنماط والتوصيات لهذا الأسبوع.',
+  'reports.cardDesc': 'نزّل تقريراً مفصّلاً: الدرجات، نظرة يومية من الاثنين إلى الأحد من سجلاتك، الأنماط، والتوصيات.',
   'reports.downloadCta': 'إنشاء التقرير وتنزيله',
   'reports.working': 'جارٍ إعداد التقرير…',
   'reports.generated': 'التقرير جاهز — بدأ التنزيل. حُفظ إشعار أيضاً.',

@@ -145,6 +145,31 @@ describe('pdfReportBuilder (unit)', () => {
           expenses: 120,
           top_categories: [{ category: 'Food', percentage: 40 }],
         },
+        daily_overview: {
+          days_with_data: 2,
+          totals: {
+            steps: 12000, sleep_h_avg: 7.2, mood_avg: 4, water: 10,
+            exercise_min: 60, income: 500, expense: 120, health_count: 6, finance_count: 3,
+          },
+          days: [
+            {
+              date: '2026-07-06', weekday: 'Mon', steps: 6000, sleep_h: 7.5, mood: 4,
+              water: 2, exercise_min: 30, income: 0, expense: 40, health_count: 3, finance_count: 1,
+              notes: ['6000 steps', '7.5h sleep'],
+            },
+            {
+              date: '2026-07-07', weekday: 'Tue', steps: 6000, sleep_h: 7, mood: 3,
+              water: 2, exercise_min: 0, income: 500, expense: 80, health_count: 3, finance_count: 2,
+              notes: ['6000 steps'],
+            },
+            ...['2026-07-08', '2026-07-09', '2026-07-10', '2026-07-11', '2026-07-12'].map((date, i) => ({
+              date,
+              weekday: ['Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i],
+              steps: null, sleep_h: null, mood: null, water: null, exercise_min: null,
+              income: 0, expense: 0, health_count: 0, finance_count: 0, notes: ['No logs'],
+            })),
+          ],
+        },
       },
       recommendations: [{ text: 'Keep water intake above 2L', priority: 'medium' }],
       patterns: [{ observation: 'Sleep correlates with lower spending', domain: 'cross' }],
@@ -152,7 +177,7 @@ describe('pdfReportBuilder (unit)', () => {
       generated_at: new Date('2026-07-12T12:00:00Z'),
     });
     expect(Buffer.isBuffer(buf)).toBe(true);
-    expect(buf.length).toBeGreaterThan(500);
+    expect(buf.length).toBeGreaterThan(1500);
     expect(buf.slice(0, 5).toString('utf8')).toBe('%PDF-');
   });
 

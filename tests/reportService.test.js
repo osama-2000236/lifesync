@@ -75,6 +75,11 @@ describe('reportService (UC-13)', () => {
     expect(report.period_end).toBe('2026-07-12');
     expect(report.summary).toMatch(/Deterministic summary/);
     expect(report.metrics_snapshot.health_score).toBe(70);
+    // Daily overview always frozen (7 ISO weekdays even with no logs)
+    expect(report.metrics_snapshot.daily_overview).toBeTruthy();
+    expect(report.metrics_snapshot.daily_overview.days).toHaveLength(7);
+    expect(report.metrics_snapshot.daily_overview.days[0].date).toBe('2026-07-06');
+    expect(report.metrics_snapshot.daily_overview.days[6].date).toBe('2026-07-12');
   });
 
   test('generateWeeklyReport is idempotent for the same week', async () => {

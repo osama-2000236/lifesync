@@ -241,7 +241,7 @@ export const en = {
   // memory control plane (what the assistant remembers)
   // weekly reports + notifications (UC-13 / UC-14)
   'reports.cardTitle': 'Weekly report',
-  'reports.cardDesc': 'Download a PDF of this week’s health and finance scores, patterns, and recommendations.',
+  'reports.cardDesc': 'Download a detailed PDF: scores, daily Mon–Sun overview from your logs, patterns, and recommendations.',
   'reports.downloadCta': 'Generate & download PDF',
   'reports.working': 'Building report…',
   'reports.generated': 'Report ready — download started. A notification was also saved.',

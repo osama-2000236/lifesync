@@ -10,6 +10,7 @@ const WeeklyReport = require('../models/WeeklyReport');
 const User = require('../models/User');
 const { persistDashboardInsights } = require('./ai/dashboardInsightsService');
 const { buildWeeklyReportPdf, freezeReportPayload } = require('./pdfReportBuilder');
+const { buildDailyOverviewForUser } = require('./dailyOverviewBuilder');
 
 /** ISO week key YYYY-Www (UTC). Pure — easy to unit-test. */
 const isoWeekKey = (date = new Date()) => {
@@ -64,10 +65,16 @@ const generateWeeklyReport = async (userId, { at = new Date() } = {}) => {
   });
   if (existing) return { report: toPublicReport(existing), created: false };
 
-  // Force a fresh insight snapshot, then freeze sanitized values only.
-  // period_* always match ISO week_key (Mon–Sun UTC), not the rolling 7d insight window.
-  const insights = await persistDashboardInsights(userId);
-  const frozen = freezeReportPayload(insights);
+  // Force a fresh insight snapshot + ISO-week daily log overview, then freeze.
+  // period_* always match ISO week_key (Mon–Sun UTC).
+  const [insights, dailyOverview] = await Promise.all([
+    persistDashboardInsights(userId),
+    buildDailyOverviewForUser(userId, bounds.period_start, bounds.period_end),
+  ]);
+  const frozen = freezeReportPayload({
+    ...insights,
+    daily_overview: dailyOverview,
+  });
 
   try {
     const row = await WeeklyReport.create({

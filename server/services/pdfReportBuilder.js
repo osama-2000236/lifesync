@@ -2,12 +2,36 @@
 // ============================================
 // Deterministic PDF builder for weekly reports (UC-13).
 // Pure function of a frozen metrics snapshot — no I/O, no AI calls.
+// Visual system mirrors the LifeSync dashboard (navy + emerald).
 // All display values are sanitized so PDFs never show NaN/JSON/undefined.
 // ============================================
 
 const PDFDocument = require('pdfkit');
+const { sanitizeDailyOverview } = require('./dailyOverviewBuilder');
 
 const MISSING = '—';
+
+/** Brand tokens from client/src/styles/globals.css (@theme). */
+const BRAND = {
+  navy900: '#102a43',
+  navy800: '#243b53',
+  navy700: '#334e68',
+  navy500: '#627d98',
+  navy400: '#829ab1',
+  navy200: '#bcccdc',
+  navy100: '#d9e2ec',
+  navy50: '#f0f4f8',
+  emerald600: '#059669',
+  emerald500: '#10b981',
+  emerald50: '#ecfdf5',
+  coral500: '#f43f5e',
+  amber500: '#f59e0b',
+  surface: '#f8fafc',
+  white: '#ffffff',
+  body: '#334e68',
+};
+
+const PAGE = { left: 50, right: 545, width: 495, bottom: 780 };
 
 const asDate = (value) => {
   if (value == null || value === '') return MISSING;
@@ -164,6 +188,9 @@ const freezeReportPayload = (insights = {}) => {
       ?? insights.cross_domain
       ?? insights.metrics_snapshot?.cross_domain,
   );
+  const daily = sanitizeDailyOverview(
+    insights.daily_overview ?? insights.metrics_snapshot?.daily_overview,
+  );
   const metrics_snapshot = {
     health_score: clampScore(
       insights.health_score ?? insights.metrics_snapshot?.health_score,
@@ -179,6 +206,7 @@ const freezeReportPayload = (insights = {}) => {
     ),
     budget,
     cross_domain: cross,
+    daily_overview: daily,
   };
   const rt = insights.model_runtime ?? insights.metrics_snapshot?.model_runtime;
   if (rt && typeof rt === 'object' && rt.status) {
@@ -194,6 +222,42 @@ const freezeReportPayload = (insights = {}) => {
     ),
     patterns: sanitizePatterns(insights.patterns ?? insights.metrics_snapshot?.patterns),
   };
+};
+
+const ensureSpace = (doc, need = 80) => {
+  if (doc.y + need > PAGE.bottom) {
+    doc.addPage();
+    doc.y = 50;
+  }
+};
+
+const sectionTitle = (doc, title) => {
+  ensureSpace(doc, 36);
+  doc.moveDown(0.35);
+  doc.fontSize(13).fillColor(BRAND.navy900).text(title, PAGE.left, doc.y, { width: PAGE.width });
+  const y = doc.y + 4;
+  doc.moveTo(PAGE.left, y).lineTo(PAGE.left + 36, y).strokeColor(BRAND.emerald500).lineWidth(2).stroke();
+  doc.lineWidth(1);
+  doc.y = y + 10;
+};
+
+const metricChip = (label, value) => {
+  if (value == null || value === '' || value === MISSING) return null;
+  return `${label} ${value}`;
+};
+
+const dayHighlights = (day) => {
+  if (Array.isArray(day.notes) && day.notes.length) return day.notes.join('  ·  ');
+  const parts = [
+    metricChip('steps', day.steps != null ? day.steps.toLocaleString('en-US') : null),
+    metricChip('sleep', day.sleep_h != null ? `${day.sleep_h}h` : null),
+    metricChip('mood', day.mood != null ? `${day.mood}/5` : null),
+    metricChip('water', day.water != null ? day.water : null),
+    metricChip('exercise', day.exercise_min != null ? `${day.exercise_min}m` : null),
+    day.expense > 0 ? `spent ${day.expense}` : null,
+    day.income > 0 ? `income ${day.income}` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join('  ·  ') : 'No logs this day';
 };
 
 /** Human-readable line for PDF — prefer text/observation, never raw JSON when avoidable. */
@@ -245,10 +309,12 @@ const buildWeeklyReportPdf = (report) => new Promise((resolve, reject) => {
       budget: report.metrics_snapshot?.budget,
       cross_domain: report.metrics_snapshot?.cross_domain,
       model_runtime: report.metrics_snapshot?.model_runtime,
+      daily_overview: report.metrics_snapshot?.daily_overview,
     });
     const metrics = frozen.metrics_snapshot;
     const recs = frozen.recommendations;
     const patterns = frozen.patterns;
+    const daily = metrics.daily_overview;
     const weekKey = report.week_key && String(report.week_key).match(/^\d{4}-W\d{2}$/)
       ? report.week_key
       : (report.week_key ? String(report.week_key).replace(/[^\w.-]/g, '').slice(0, 16) : MISSING);
@@ -267,95 +333,217 @@ const buildWeeklyReportPdf = (report) => new Promise((resolve, reject) => {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    // Header
-    doc.fontSize(20).fillColor('#0f172a').text('LifeSync Weekly Report', { align: 'left' });
-    doc.moveDown(0.3);
-    // ASCII separators only — Helvetica/WinAnsi mangles Unicode arrows.
-    doc.fontSize(10).fillColor('#64748b').text(
+    // ── Branded hero (navy band + emerald accent — matches dashboard ink/emerald) ──
+    doc.rect(0, 0, 595.28, 118).fill(BRAND.navy900);
+    doc.rect(0, 118, 595.28, 4).fill(BRAND.emerald500);
+    doc.fillColor(BRAND.emerald500).fontSize(9).text('LIFESYNC', PAGE.left, 28, { characterSpacing: 1.5 });
+    doc.fillColor(BRAND.white).fontSize(22).text('Weekly Report', PAGE.left, 44);
+    doc.fontSize(10).fillColor(BRAND.navy200).text(
       `Week ${weekKey}  |  ${asDate(report.period_start)} -> ${asDate(report.period_end)}`,
+      PAGE.left,
+      74,
     );
-    if (report.user_name || report.user_email) {
-      const who = String(report.user_name || report.user_email).trim().slice(0, 120);
-      if (who) doc.text(`Prepared for: ${who}`);
+    const who = report.user_name || report.user_email
+      ? String(report.user_name || report.user_email).trim().slice(0, 80)
+      : null;
+    doc.fontSize(9).fillColor(BRAND.navy400).text(
+      `${who ? `Prepared for ${who}  ·  ` : ''}Generated ${asDate(report.generated_at || new Date())}`,
+      PAGE.left,
+      92,
+    );
+    doc.y = 140;
+
+    // ── Overview score cards ──
+    sectionTitle(doc, 'Week overview');
+    const cardW = 235;
+    const cardH = 58;
+    const cardY = doc.y;
+    const drawScoreCard = (x, title, score, trend, accent) => {
+      doc.roundedRect(x, cardY, cardW, cardH, 8).fill(BRAND.navy50);
+      doc.roundedRect(x, cardY, 4, cardH, 2).fill(accent);
+      doc.fillColor(BRAND.navy500).fontSize(8).text(title.toUpperCase(), x + 14, cardY + 10, { width: cardW - 24 });
+      doc.fillColor(BRAND.navy900).fontSize(20).text(`${scoreDisplay(score)}`, x + 14, cardY + 24);
+      doc.fillColor(BRAND.navy400).fontSize(8).text('/ 100', x + 52, cardY + 32);
+      if (trend) {
+        doc.fillColor(BRAND.navy500).fontSize(8).text(`Trend: ${lineText(trend)}`, x + 14, cardY + 44, {
+          width: cardW - 24,
+        });
+      }
+    };
+    drawScoreCard(PAGE.left, 'Health score', metrics.health_score, metrics.mood_trend, BRAND.emerald500);
+    drawScoreCard(PAGE.left + cardW + 20, 'Finance score', metrics.financial_health_score, metrics.spending_trend, BRAND.amber500);
+    doc.y = cardY + cardH + 14;
+
+    // Week totals strip from daily logs (facts)
+    if (daily?.totals) {
+      ensureSpace(doc, 48);
+      const t = daily.totals;
+      const facts = [
+        t.steps != null ? `Steps ${t.steps.toLocaleString('en-US')}` : null,
+        t.sleep_h_avg != null ? `Sleep avg ${t.sleep_h_avg}h` : null,
+        t.mood_avg != null ? `Mood avg ${t.mood_avg}/5` : null,
+        t.water != null ? `Water ${t.water}` : null,
+        t.exercise_min != null ? `Exercise ${t.exercise_min} min` : null,
+        `Income ${t.income ?? 0}`,
+        `Expense ${t.expense ?? 0}`,
+        `${daily.days_with_data || 0}/7 days logged`,
+      ].filter(Boolean);
+      const stripY = doc.y;
+      doc.roundedRect(PAGE.left, stripY, PAGE.width, 36, 8).fill(BRAND.emerald50);
+      doc.fillColor(BRAND.emerald600).fontSize(8).text('LOGGED THIS WEEK', PAGE.left + 12, stripY + 8);
+      doc.fillColor(BRAND.navy800).fontSize(9).text(facts.join('   ·   '), PAGE.left + 12, stripY + 20, {
+        width: PAGE.width - 24,
+      });
+      doc.y = stripY + 48;
     }
-    doc.text(`Generated: ${asDate(report.generated_at || new Date())}`);
-    doc.moveDown(0.8);
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#e2e8f0').stroke();
-    doc.moveDown(0.8);
 
-    // Scores — always finite 0–100 or em dash
-    doc.fontSize(14).fillColor('#0f172a').text('Scores');
-    doc.moveDown(0.3);
-    doc.fontSize(11).fillColor('#334155');
-    doc.text(`Health score: ${scoreDisplay(metrics.health_score)} / 100`);
-    doc.text(`Financial health score: ${scoreDisplay(metrics.financial_health_score)} / 100`);
-    doc.text(`Mood trend: ${lineText(metrics.mood_trend)}`);
-    doc.text(`Spending trend: ${lineText(metrics.spending_trend)}`);
-    doc.moveDown(0.6);
+    // Narrative summary
+    sectionTitle(doc, 'Summary');
+    doc.fontSize(10).fillColor(BRAND.body).text(frozen.summary, PAGE.left, doc.y, {
+      width: PAGE.width,
+      align: 'left',
+      lineGap: 3,
+    });
+    doc.moveDown(0.5);
 
-    // Budget (only when we have valid numbers)
+    // Budget
     if (metrics.budget) {
-      doc.fontSize(14).fillColor('#0f172a').text('Budget snapshot');
-      doc.moveDown(0.3);
-      doc.fontSize(11).fillColor('#334155');
+      sectionTitle(doc, 'Budget snapshot');
+      doc.fontSize(10).fillColor(BRAND.body);
       Object.entries(metrics.budget).forEach(([k, v]) => {
         const label = k.replace(/_/g, ' ');
         const rendered = lineText(v);
-        if (rendered !== MISSING) doc.text(`${label}: ${rendered}`);
+        if (rendered === MISSING) return;
+        const isExpense = /expense/i.test(k);
+        const isIncome = /income/i.test(k);
+        doc.fillColor(isExpense ? BRAND.coral500 : isIncome ? BRAND.emerald600 : BRAND.body);
+        doc.text(`${label}: ${rendered}`, { width: PAGE.width });
+        doc.fillColor(BRAND.body);
       });
-      doc.moveDown(0.6);
+      doc.moveDown(0.3);
     }
 
-    // Narrative
-    doc.fontSize(14).fillColor('#0f172a').text('Summary');
-    doc.moveDown(0.3);
-    doc.fontSize(11).fillColor('#334155').text(frozen.summary, {
-      align: 'left',
-      lineGap: 2,
-    });
-    doc.moveDown(0.6);
+    // ── Daily overview (every day of the week) ──
+    sectionTitle(doc, 'Daily overview');
+    doc.fontSize(9).fillColor(BRAND.navy500).text(
+      'Fact-based from your health and finance logs for each day of this ISO week (UTC).',
+      PAGE.left,
+      doc.y,
+      { width: PAGE.width },
+    );
+    doc.moveDown(0.4);
 
-    // Patterns — only human-readable items
+    const days = Array.isArray(daily?.days) ? daily.days : [];
+    if (!days.length) {
+      doc.fontSize(10).fillColor(BRAND.navy400).text(
+        'No daily log data was frozen for this report. Log health and spending, then generate a new weekly report.',
+        { width: PAGE.width },
+      );
+      doc.moveDown(0.4);
+    } else {
+      days.forEach((day) => {
+        ensureSpace(doc, 72);
+        const y0 = doc.y;
+        const hasData = (day.health_count || 0) + (day.finance_count || 0) > 0;
+        doc.roundedRect(PAGE.left, y0, PAGE.width, 62, 8).fill(hasData ? BRAND.surface : BRAND.navy50);
+        // Left emerald rail when data exists
+        doc.roundedRect(PAGE.left, y0, 4, 62, 2).fill(hasData ? BRAND.emerald500 : BRAND.navy200);
+
+        doc.fillColor(BRAND.navy900).fontSize(11).text(
+          `${day.weekday}  ${day.date}`,
+          PAGE.left + 14,
+          y0 + 8,
+          { width: 160 },
+        );
+        // Money chips on the right
+        doc.fontSize(8).fillColor(BRAND.coral500).text(
+          day.expense > 0 ? `-${day.expense}` : 'exp 0',
+          PAGE.left + 340,
+          y0 + 10,
+          { width: 70, align: 'right' },
+        );
+        doc.fillColor(BRAND.emerald600).text(
+          day.income > 0 ? `+${day.income}` : 'inc 0',
+          PAGE.left + 415,
+          y0 + 10,
+          { width: 70, align: 'right' },
+        );
+
+        // Metric row
+        const cells = [
+          { label: 'Steps', val: day.steps != null ? String(day.steps) : MISSING },
+          { label: 'Sleep', val: day.sleep_h != null ? `${day.sleep_h}h` : MISSING },
+          { label: 'Mood', val: day.mood != null ? `${day.mood}` : MISSING },
+          { label: 'Water', val: day.water != null ? String(day.water) : MISSING },
+          { label: 'Move', val: day.exercise_min != null ? `${day.exercise_min}m` : MISSING },
+        ];
+        let cx = PAGE.left + 14;
+        cells.forEach((c) => {
+          doc.fillColor(BRAND.navy400).fontSize(7).text(c.label.toUpperCase(), cx, y0 + 26, { width: 70 });
+          doc.fillColor(BRAND.navy800).fontSize(10).text(c.val, cx, y0 + 36, { width: 70 });
+          cx += 78;
+        });
+
+        doc.fillColor(BRAND.navy500).fontSize(8).text(dayHighlights(day), PAGE.left + 14, y0 + 50, {
+          width: PAGE.width - 28,
+          ellipsis: true,
+        });
+        doc.y = y0 + 70;
+      });
+    }
+
+    // Patterns
     if (patterns.length) {
-      doc.fontSize(14).fillColor('#0f172a').text('Patterns');
-      doc.moveDown(0.3);
-      doc.fontSize(11).fillColor('#334155');
+      sectionTitle(doc, 'Patterns');
+      doc.fontSize(10).fillColor(BRAND.body);
       patterns.forEach((p, i) => {
         const t = lineText(p);
-        if (t !== MISSING) doc.text(`${i + 1}. ${t}`);
+        if (t === MISSING) return;
+        ensureSpace(doc, 24);
+        doc.fillColor(BRAND.emerald600).text(`${i + 1}.`, PAGE.left, doc.y, { continued: true, width: 18 });
+        doc.fillColor(BRAND.body).text(` ${t}`, { width: PAGE.width - 18 });
+        doc.moveDown(0.15);
       });
-      doc.moveDown(0.6);
     }
 
     // Recommendations
     if (recs.length) {
-      doc.fontSize(14).fillColor('#0f172a').text('Recommendations');
-      doc.moveDown(0.3);
-      doc.fontSize(11).fillColor('#334155');
+      sectionTitle(doc, 'Recommendations');
+      doc.fontSize(10);
       recs.forEach((r, i) => {
         const t = lineText(r.text || r);
         if (t === MISSING) return;
+        ensureSpace(doc, 24);
         const priority = r.priority ? ` [${r.priority}]` : '';
-        doc.text(`${i + 1}. ${t}${priority}`);
+        doc.fillColor(BRAND.navy900).text(`${i + 1}. ${t}${priority}`, PAGE.left, doc.y, {
+          width: PAGE.width,
+        });
+        doc.moveDown(0.15);
       });
-      doc.moveDown(0.6);
     }
 
     // Cross-domain
     if (metrics.cross_domain) {
-      doc.fontSize(14).fillColor('#0f172a').text('Cross-domain notes');
-      doc.moveDown(0.3);
-      doc.fontSize(11).fillColor('#334155').text(lineText(metrics.cross_domain), { lineGap: 2 });
-      doc.moveDown(0.6);
+      sectionTitle(doc, 'Cross-domain notes');
+      doc.fontSize(10).fillColor(BRAND.body).text(lineText(metrics.cross_domain), {
+        width: PAGE.width,
+        lineGap: 2,
+      });
     }
 
     // Footer disclaimer
-    doc.moveDown(1);
-    doc.fontSize(8).fillColor('#94a3b8').text(
+    ensureSpace(doc, 50);
+    doc.moveDown(0.8);
+    doc.moveTo(PAGE.left, doc.y).lineTo(PAGE.right, doc.y).strokeColor(BRAND.navy100).stroke();
+    doc.moveDown(0.4);
+    doc.fontSize(8).fillColor(BRAND.navy400).text(
       'This report is generated from your LifeSync health and finance logs. '
       + 'It is not medical or financial advice. Scores are deterministic dashboard metrics; '
-      + 'narrative text may include model-assisted wording labeled in product UI.',
-      { align: 'left' },
+      + 'narrative text may include model-assisted wording labeled in product UI. '
+      + 'Daily overview uses UTC calendar days for the ISO week shown above.',
+      PAGE.left,
+      doc.y,
+      { width: PAGE.width, align: 'left' },
     );
 
     doc.end();
@@ -378,4 +566,5 @@ module.exports = {
   sanitizeRecommendations,
   sanitizeCrossDomain,
   freezeReportPayload,
+  BRAND,
 };
