@@ -1,8 +1,19 @@
 // Unit tests — pure PDF builder (UC-13)
 
-const { buildWeeklyReportPdf, lineText, asDate, isoWeekKey, weekBoundsUtc } = (() => {
+const {
+  buildWeeklyReportPdf,
+  lineText,
+  asDate,
+  clampScore,
+  scoreDisplay,
+  freezeReportPayload,
+  sanitizeBudget,
+  sanitizePatterns,
+  sanitizeRecommendations,
+  isoWeekKey,
+  weekBoundsUtc,
+} = (() => {
   const pdf = require('../server/services/pdfReportBuilder');
-  // isoWeekKey lives in reportService — import both.
   return {
     ...pdf,
     ...require('../server/services/reportService'),
@@ -30,6 +41,90 @@ describe('lineText (production insight shapes)', () => {
     expect(lineText(null)).toBe('—');
     expect(lineText(72)).toBe('72');
     expect(lineText('stable')).toBe('stable');
+    expect(lineText(Number.NaN)).toBe('—');
+    expect(lineText('{ "bad": true }')).toBe('—');
+  });
+});
+
+describe('valid value sanitizers', () => {
+  test('clampScore rejects NaN/Infinity and clamps range', () => {
+    expect(clampScore(72.4)).toBe(72);
+    expect(clampScore(-5)).toBe(0);
+    expect(clampScore(150)).toBe(100);
+    expect(clampScore(Number.NaN)).toBeNull();
+    expect(clampScore(Infinity)).toBeNull();
+    expect(clampScore('nope')).toBeNull();
+    expect(clampScore(null)).toBeNull();
+    expect(scoreDisplay(Number.NaN)).toBe('—');
+    expect(scoreDisplay(88)).toBe('88');
+  });
+
+  test('sanitizeBudget keeps finite numbers and category lines only', () => {
+    expect(sanitizeBudget({
+      income: 500.555,
+      expenses: '120.5',
+      junk: { a: 1 },
+      top_categories: [{ category: 'Food', percentage: 40 }, { percentage: 10 }],
+      bad: Number.NaN,
+    })).toEqual({
+      income: 500.56,
+      expenses: 120.5,
+      top_categories: [{ category: 'Food', percentage: 40 }],
+    });
+    expect(sanitizeBudget(null)).toBeNull();
+  });
+
+  test('sanitizePatterns drops empty and JSON-like rows', () => {
+    expect(sanitizePatterns([
+      { observation: 'Valid pattern' },
+      { observation: '' },
+      { text: '{"hack":true}' },
+      null,
+      'plain string pattern',
+    ])).toEqual([
+      { observation: 'Valid pattern' },
+      { observation: 'plain string pattern' },
+    ]);
+  });
+
+  test('sanitizeRecommendations requires text and normalizes priority', () => {
+    expect(sanitizeRecommendations([
+      { text: 'Sleep 7h+', priority: 'HIGH' },
+      { text: '', priority: 'high' },
+      { priority: 'low' },
+      { text: 'Walk', priority: 'urgent' },
+    ])).toEqual([
+      { text: 'Sleep 7h+', priority: 'high' },
+      { text: 'Walk' },
+    ]);
+  });
+
+  test('freezeReportPayload produces only valid frozen fields', () => {
+    const frozen = freezeReportPayload({
+      summary: '  ',
+      health_score: Number.NaN,
+      financial_health_score: 999,
+      mood_trend: { weird: true },
+      spending_trend: 'decreasing',
+      budget_summary: { income: 10, expenses: Number.NaN },
+      cross_domain_insights: null,
+      recommendations: [{ text: 'Do the thing', priority: 'medium' }, {}],
+      patterns: [{ observation: 'Sleep link' }, { domain: 'x' }],
+      model_runtime: { status: 'ready', secret: 'nope', operating_mode: 'local' },
+    });
+    expect(frozen.summary).toBe('Weekly summary.');
+    expect(frozen.metrics_snapshot.health_score).toBeNull();
+    expect(frozen.metrics_snapshot.financial_health_score).toBe(100);
+    expect(frozen.metrics_snapshot.mood_trend).toBeNull();
+    expect(frozen.metrics_snapshot.spending_trend).toBe('decreasing');
+    expect(frozen.metrics_snapshot.budget).toEqual({ income: 10 });
+    expect(frozen.metrics_snapshot.cross_domain).toBeNull();
+    expect(frozen.metrics_snapshot.model_runtime).toEqual({
+      status: 'ready',
+      operating_mode: 'local',
+    });
+    expect(frozen.recommendations).toEqual([{ text: 'Do the thing', priority: 'medium' }]);
+    expect(frozen.patterns).toEqual([{ observation: 'Sleep link' }]);
   });
 });
 
@@ -70,6 +165,26 @@ describe('pdfReportBuilder (unit)', () => {
       metrics_snapshot: {},
     });
     expect(buf.slice(0, 4).toString()).toBe('%PDF');
+  });
+
+  test('builds PDF even when metrics are NaN/invalid (no crash, valid placeholder scores)', async () => {
+    const buf = await buildWeeklyReportPdf({
+      week_key: '2026-W28',
+      period_start: 'not-a-date',
+      period_end: '2026-07-12',
+      summary: null,
+      metrics_snapshot: {
+        health_score: Number.NaN,
+        financial_health_score: 'oops',
+        mood_trend: null,
+        spending_trend: { x: 1 },
+        budget: { income: Number.NaN, expenses: 20 },
+      },
+      recommendations: [{}, { text: 'Valid rec', priority: 'high' }],
+      patterns: [{ observation: '' }, { observation: 'Valid pattern' }],
+    });
+    expect(buf.slice(0, 5).toString()).toBe('%PDF-');
+    expect(buf.length).toBeGreaterThan(400);
   });
 
   test('header uses ASCII range separator (not Unicode arrow)', () => {

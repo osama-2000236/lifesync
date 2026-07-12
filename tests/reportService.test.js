@@ -15,24 +15,28 @@ const {
 } = require('../server/services/reportService');
 
 jest.mock('../server/services/ai/dashboardInsightsService', () => ({
-  persistDashboardInsights: jest.fn(async (userId) => ({
-    id: 99,
-    period: {
-      start: new Date('2026-07-06T00:00:00Z'),
-      end: new Date('2026-07-12T00:00:00Z'),
-    },
-    summary: `Deterministic summary for user ${userId}`,
-    health_score: 70,
-    financial_health_score: 60,
-    mood_trend: 'up',
-    spending_trend: 'stable',
-    budget_summary: { total_expense: 40 },
-    cross_domain_insights: 'Walks linked to lower spend',
-    recommendations: [{ text: 'Sleep 7h+', priority: 'high' }],
-    patterns: [{ text: 'pattern-a' }],
-    model_runtime: { status: 'classifier_only' },
-  })),
+  persistDashboardInsights: jest.fn(),
 }));
+
+const { persistDashboardInsights } = require('../server/services/ai/dashboardInsightsService');
+
+const defaultInsights = (userId) => ({
+  id: 99,
+  period: {
+    start: new Date('2026-07-06T00:00:00Z'),
+    end: new Date('2026-07-12T00:00:00Z'),
+  },
+  summary: `Deterministic summary for user ${userId}`,
+  health_score: 70,
+  financial_health_score: 60,
+  mood_trend: 'up',
+  spending_trend: 'stable',
+  budget_summary: { total_expense: 40 },
+  cross_domain_insights: 'Walks linked to lower spend',
+  recommendations: [{ text: 'Sleep 7h+', priority: 'high' }],
+  patterns: [{ text: 'pattern-a' }],
+  model_runtime: { status: 'classifier_only' },
+});
 
 describe('reportService (UC-13)', () => {
   let user;
@@ -44,6 +48,8 @@ describe('reportService (UC-13)', () => {
   beforeEach(async () => {
     await WeeklyReport.destroy({ where: {} });
     await User.destroy({ where: {} });
+    persistDashboardInsights.mockReset();
+    persistDashboardInsights.mockImplementation(async (userId) => defaultInsights(userId));
     user = await User.create({
       username: 'report_user',
       email: 'report@test.com',
@@ -108,5 +114,39 @@ describe('reportService (UC-13)', () => {
     expect(pdf.filename).toMatch(/\.pdf$/);
     const denied = await downloadReportPdf(report.id, 99999);
     expect(denied).toBeNull();
+  });
+
+  test('generateWeeklyReport freezes only valid values (strips NaN/empty junk)', async () => {
+    persistDashboardInsights.mockImplementationOnce(async () => ({
+      id: 7,
+      summary: '',
+      health_score: Number.NaN,
+      financial_health_score: 200,
+      mood_trend: null,
+      spending_trend: 'stable',
+      budget_summary: { income: Number.NaN, expenses: 33.3, top_categories: [{ category: 'Food', percentage: 50 }] },
+      cross_domain_insights: '',
+      recommendations: [{ text: '' }, { text: 'Drink water', priority: 'MEDIUM' }],
+      patterns: [{ observation: '' }, { observation: 'Hydration up' }],
+      model_runtime: { status: 'ready', api_key: 'secret' },
+    }));
+    const { report, created } = await generateWeeklyReport(user.id, {
+      at: new Date('2026-07-11T12:00:00Z'),
+    });
+    expect(created).toBe(true);
+    expect(report.summary).toBe('Weekly summary.');
+    expect(report.metrics_snapshot.health_score).toBeNull();
+    expect(report.metrics_snapshot.financial_health_score).toBe(100);
+    expect(report.metrics_snapshot.mood_trend).toBeNull();
+    expect(report.metrics_snapshot.spending_trend).toBe('stable');
+    expect(report.metrics_snapshot.budget).toEqual({
+      expenses: 33.3,
+      top_categories: [{ category: 'Food', percentage: 50 }],
+    });
+    expect(report.metrics_snapshot.cross_domain).toBeNull();
+    expect(report.metrics_snapshot.model_runtime).toEqual({ status: 'ready' });
+    expect(report.metrics_snapshot.model_runtime.api_key).toBeUndefined();
+    expect(report.recommendations).toEqual([{ text: 'Drink water', priority: 'medium' }]);
+    expect(report.patterns).toEqual([{ observation: 'Hydration up' }]);
   });
 });

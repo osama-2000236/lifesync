@@ -9,7 +9,7 @@ const { Op } = require('sequelize');
 const WeeklyReport = require('../models/WeeklyReport');
 const User = require('../models/User');
 const { persistDashboardInsights } = require('./ai/dashboardInsightsService');
-const { buildWeeklyReportPdf } = require('./pdfReportBuilder');
+const { buildWeeklyReportPdf, freezeReportPayload } = require('./pdfReportBuilder');
 
 /** ISO week key YYYY-Www (UTC). Pure — easy to unit-test. */
 const isoWeekKey = (date = new Date()) => {
@@ -64,9 +64,10 @@ const generateWeeklyReport = async (userId, { at = new Date() } = {}) => {
   });
   if (existing) return { report: toPublicReport(existing), created: false };
 
-  // Force a fresh insight snapshot, then freeze it into weekly_reports.
+  // Force a fresh insight snapshot, then freeze sanitized values only.
   // period_* always match ISO week_key (Mon–Sun UTC), not the rolling 7d insight window.
   const insights = await persistDashboardInsights(userId);
+  const frozen = freezeReportPayload(insights);
 
   try {
     const row = await WeeklyReport.create({
@@ -74,18 +75,10 @@ const generateWeeklyReport = async (userId, { at = new Date() } = {}) => {
       period_start: bounds.period_start,
       period_end: bounds.period_end,
       week_key: bounds.week_key,
-      summary: insights.summary || 'Weekly summary.',
-      metrics_snapshot: {
-        health_score: insights.health_score,
-        financial_health_score: insights.financial_health_score,
-        mood_trend: insights.mood_trend,
-        spending_trend: insights.spending_trend,
-        budget: insights.budget_summary,
-        cross_domain: insights.cross_domain_insights,
-        model_runtime: insights.model_runtime,
-      },
-      recommendations: insights.recommendations || [],
-      patterns: insights.patterns || [],
+      summary: frozen.summary,
+      metrics_snapshot: frozen.metrics_snapshot,
+      recommendations: frozen.recommendations,
+      patterns: frozen.patterns,
       source_summary_id: insights.id || null,
       generated_at: new Date(),
     });
