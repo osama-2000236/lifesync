@@ -36,16 +36,31 @@ const processUserWeeklyReport = async (user, { at = new Date(), notify = true, f
 const runWeeklyReportJob = async ({ at = new Date() } = {}) => {
   const due = await findUsersDueForWeeklyReport({ at });
   const results = [];
-  for (const { user } of due) {
+  for (const entry of due) {
+    const { user, at: userAt, week_key: userWeek, timezone } = entry;
     try {
-      const r = await processUserWeeklyReport(user, { at, notify: true });
-      results.push({ user_id: user.id, ok: true, ...r });
+      // Generate against the user's local ISO week, not the server's UTC week.
+      const r = await processUserWeeklyReport(user, { at: userAt || at, notify: true });
+      results.push({
+        user_id: user.id,
+        ok: true,
+        week_key: userWeek || r.report?.week_key,
+        timezone: timezone || user.timezone || 'UTC',
+        ...r,
+      });
     } catch (err) {
       console.error(`[reportScheduler] user ${user.id} failed:`, err.message);
-      results.push({ user_id: user.id, ok: false, error: err.message });
+      results.push({
+        user_id: user.id,
+        ok: false,
+        week_key: userWeek || null,
+        timezone: timezone || user.timezone || 'UTC',
+        error: err.message,
+      });
     }
   }
   return {
+    // Job-clock week (UTC) for ops; per-user week_key is on each result.
     week_key: weekBoundsUtc(at).week_key,
     processed: results.length,
     results,

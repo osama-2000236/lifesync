@@ -10,6 +10,7 @@ const {
   downloadReportPdf,
 } = require('../services/reportService');
 const { processUserWeeklyReport, runWeeklyReportJob } = require('../services/reportScheduler');
+const { weekBoundsForTimeZone } = require('../utils/isoWeek');
 const {
   listNotifications,
   unreadCount,
@@ -47,7 +48,9 @@ const generateReportHandler = async (req, res, next) => {
     const notify = req.body?.notify !== false;
     // force=true re-freezes this week's snapshot from latest logs (user download path).
     const force = req.body?.force === true;
-    const result = await processUserWeeklyReport(req.user, { notify, force });
+    // ISO week from the user's IANA timezone (not server UTC).
+    const at = weekBoundsForTimeZone(new Date(), req.user?.timezone || 'UTC').at_local;
+    const result = await processUserWeeklyReport(req.user, { notify, force, at });
     const statusFn = result.created ? created : success;
     const message = result.created
       ? 'Weekly report generated'

@@ -68,7 +68,23 @@ describe('dailyOverviewBuilder', () => {
     expect(mon.notes.join(' ')).toMatch(/Low sleep \+ spending/i);
     expect(mon.notes.join(' ')).toMatch(/Food|Spent/);
     expect(mon.notes.join(' ')).toMatch(/Net -/);
+    expect(mon.notes.join(' ')).toMatch(/Low mood 2\/10/);
     expect(mon.top_expense_category).toBe('Food');
+  });
+
+  test('mood labels use 1–10 scale (not /5)', () => {
+    const overview = buildDailyOverviewFromRows({
+      periodStart: '2026-07-06',
+      periodEnd: '2026-07-12',
+      healthRows: [
+        { type: 'mood', value: 8, logged_at: '2026-07-06T12:00:00.000Z' },
+      ],
+      financeRows: [],
+    });
+    const mon = overview.days[0];
+    expect(mon.headline).toMatch(/Good mood day \(8\/10\)/);
+    expect(mon.notes.join(' ')).toMatch(/Good mood 8\/10/);
+    expect(mon.notes.join(' ')).not.toMatch(/\/5/);
   });
 
   test('empty week still returns 7 days marked No logs', () => {

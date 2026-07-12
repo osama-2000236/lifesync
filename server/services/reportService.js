@@ -11,28 +11,7 @@ const User = require('../models/User');
 const { persistDashboardInsights } = require('./ai/dashboardInsightsService');
 const { buildWeeklyReportPdf, freezeReportPayload } = require('./pdfReportBuilder');
 const { buildDailyOverviewForUser } = require('./dailyOverviewBuilder');
-
-/** ISO week key YYYY-Www (UTC). Pure — easy to unit-test. */
-const isoWeekKey = (date = new Date()) => {
-  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  // Thursday in current week decides the year.
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
-};
-
-/** Monday–Sunday (UTC) for a Date in that week. */
-const weekBoundsUtc = (date = new Date()) => {
-  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const day = d.getUTCDay() || 7; // Mon=1 … Sun=7
-  d.setUTCDate(d.getUTCDate() - day + 1);
-  const start = new Date(d);
-  const end = new Date(d);
-  end.setUTCDate(end.getUTCDate() + 6);
-  const toDateOnly = (x) => x.toISOString().slice(0, 10);
-  return { period_start: toDateOnly(start), period_end: toDateOnly(end), week_key: isoWeekKey(date) };
-};
+const { isoWeekKey, weekBoundsUtc, weekBoundsForTimeZone } = require('../utils/isoWeek');
 
 const toPublicReport = (row) => {
   const plain = row?.get ? row.get({ plain: true }) : row;
@@ -66,10 +45,9 @@ const generateWeeklyReport = async (userId, { at = new Date(), force = false } =
   });
   if (existing && !force) return { report: toPublicReport(existing), created: false };
 
-  // Fresh insight snapshot + ISO-week daily log overview, then freeze.
-  // period_* always match ISO week_key (Mon–Sun UTC).
+  // Fresh insight snapshot + daily overview — both on the same ISO week as week_key.
   const [insights, dailyOverview] = await Promise.all([
-    persistDashboardInsights(userId),
+    persistDashboardInsights(userId, { at }),
     buildDailyOverviewForUser(userId, bounds.period_start, bounds.period_end),
   ]);
   const frozen = freezeReportPayload({
@@ -163,10 +141,11 @@ const markReportNotified = async (reportId) => {
   return row;
 };
 
+/**
+ * Users due for a weekly report/notify for *their* local ISO week.
+ * `at` is the job instant (UTC). Each user's week_key comes from their IANA timezone.
+ */
 const findUsersDueForWeeklyReport = async ({ at = new Date() } = {}) => {
-  // Due window is UTC ISO week only. User.timezone is stored for prefs/display, not used here.
-  const { week_key } = weekBoundsUtc(at);
-  // Active users with notifications on who do not yet have this week’s report notified.
   const users = await User.findAll({
     where: {
       is_active: true,
@@ -176,11 +155,21 @@ const findUsersDueForWeeklyReport = async ({ at = new Date() } = {}) => {
   });
   const due = [];
   for (const user of users) {
+    const bounds = weekBoundsForTimeZone(at, user.timezone || 'UTC');
     const existing = await WeeklyReport.findOne({
-      where: { user_id: user.id, week_key },
+      where: { user_id: user.id, week_key: bounds.week_key },
     });
     if (!existing || !existing.notified_at) {
-      due.push({ user, week_key, existing });
+      due.push({
+        user,
+        week_key: bounds.week_key,
+        period_start: bounds.period_start,
+        period_end: bounds.period_end,
+        // Local calendar noon — generateWeeklyReport freezes this user's week, not UTC's.
+        at: bounds.at_local,
+        timezone: bounds.timezone,
+        existing,
+      });
     }
   }
   return due;
@@ -189,6 +178,7 @@ const findUsersDueForWeeklyReport = async ({ at = new Date() } = {}) => {
 module.exports = {
   isoWeekKey,
   weekBoundsUtc,
+  weekBoundsForTimeZone,
   toPublicReport,
   generateWeeklyReport,
   listReports,

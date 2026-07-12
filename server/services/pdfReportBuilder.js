@@ -251,7 +251,7 @@ const dayHighlights = (day) => {
   const parts = [
     metricChip('steps', day.steps != null ? day.steps.toLocaleString('en-US') : null),
     metricChip('sleep', day.sleep_h != null ? `${day.sleep_h}h` : null),
-    metricChip('mood', day.mood != null ? `${day.mood}/5` : null),
+    metricChip('mood', day.mood != null ? `${day.mood}/10` : null),
     metricChip('water', day.water != null ? day.water : null),
     metricChip('exercise', day.exercise_min != null ? `${day.exercise_min}m` : null),
     day.expense > 0 ? `spent ${day.expense}` : null,
@@ -387,7 +387,7 @@ const buildWeeklyReportPdf = (report) => new Promise((resolve, reject) => {
       const facts = [
         t.steps != null ? `Steps ${t.steps.toLocaleString('en-US')}` : null,
         t.sleep_h_avg != null ? `Sleep avg ${t.sleep_h_avg}h` : null,
-        t.mood_avg != null ? `Mood avg ${t.mood_avg}/5` : null,
+        t.mood_avg != null ? `Mood avg ${t.mood_avg}/10` : null,
         t.water != null ? `Water ${t.water}` : null,
         t.exercise_min != null ? `Exercise ${t.exercise_min} min` : null,
         `Income ${t.income ?? 0}`,

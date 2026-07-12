@@ -1,6 +1,7 @@
 const AISummary = require('../../models/AISummary');
 const { runInsightEngine } = require('./insightEngine');
 const { generateWeeklyInsights } = require('./nlpService');
+const { weekBoundsUtc } = require('../../utils/isoWeek');
 
 const cache = new Map();
 /** Prevent unbounded growth if many users hit a single process. */
@@ -46,11 +47,13 @@ const mergeRecommendations = (modelRecommendations = [], deterministicRecommenda
     .slice(0, 5);
 };
 
-const buildDashboardInsights = async (userId, { force = false } = {}) => {
-  const cached = cache.get(userId);
+const buildDashboardInsights = async (userId, { force = false, at = new Date() } = {}) => {
+  // Cache per user + ISO week so Mon roll-over cannot serve last week’s scores.
+  const cacheKey = `${userId}:${weekBoundsUtc(at).week_key}`;
+  const cached = cache.get(cacheKey);
   if (!force && cached && cached.expiresAt > Date.now()) return cached.value;
 
-  const deterministic = await runInsightEngine(userId);
+  const deterministic = await runInsightEngine(userId, { at });
   const modelInsights = await generateWeeklyInsights(
     { deterministic_metrics: compactDeterministicInput(deterministic) },
     { instruction: 'Use the deterministic metrics as facts. Do not recalculate or invent scores.' }
@@ -92,15 +95,15 @@ const buildDashboardInsights = async (userId, { force = false } = {}) => {
     }
   }
 
-  cache.set(userId, {
+  cache.set(cacheKey, {
     value: result,
     expiresAt: Date.now() + ((modelReady || classifierOnly) ? cacheTtlMs() : fallbackTtlMs()),
   });
   return result;
 };
 
-const persistDashboardInsights = async (userId) => {
-  const insights = await buildDashboardInsights(userId, { force: true });
+const persistDashboardInsights = async (userId, { at = new Date() } = {}) => {
+  const insights = await buildDashboardInsights(userId, { force: true, at });
   const summary = await AISummary.create({
     user_id: userId,
     type: 'combined',

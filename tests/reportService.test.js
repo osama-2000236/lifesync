@@ -11,6 +11,7 @@ const {
   listReports,
   getReportForUser,
   downloadReportPdf,
+  findUsersDueForWeeklyReport,
   isoWeekKey,
 } = require('../server/services/reportService');
 
@@ -70,7 +71,8 @@ describe('reportService (UC-13)', () => {
     expect(created).toBe(true);
     expect(report.user_id).toBe(user.id);
     expect(report.week_key).toBe(isoWeekKey(at));
-    // period_* must match ISO Mon–Sun for week_key (not rolling insights.period)
+    // Insights + period_* share ISO Mon–Sun for week_key (not rolling last-7d)
+    expect(persistDashboardInsights).toHaveBeenCalledWith(user.id, { at });
     expect(report.period_start).toBe('2026-07-06');
     expect(report.period_end).toBe('2026-07-12');
     expect(report.summary).toMatch(/Deterministic summary/);
@@ -164,5 +166,37 @@ describe('reportService (UC-13)', () => {
     expect(report.metrics_snapshot.model_runtime.api_key).toBeUndefined();
     expect(report.recommendations).toEqual([{ text: 'Drink water', priority: 'medium' }]);
     expect(report.patterns).toEqual([{ observation: 'Hydration up' }]);
+  });
+
+  test('findUsersDueForWeeklyReport uses each user IANA timezone for week_key', async () => {
+    // Sunday 22:00 UTC = Monday in Asia/Hebron → Hebron is already W29; UTC still W28
+    const at = new Date('2026-07-12T22:00:00Z');
+    await user.update({ timezone: 'Asia/Hebron', report_notify_enabled: true, is_active: true });
+    const utcUser = await User.create({
+      username: 'utc_report_u',
+      email: 'utc-report@test.com',
+      hashed_password: 'Password1!',
+      verified_email: true,
+      is_active: true,
+      report_notify_enabled: true,
+      timezone: 'UTC',
+      name: 'UTC User',
+    });
+
+    const due = await findUsersDueForWeeklyReport({ at });
+    const hebron = due.find((d) => d.user.id === user.id);
+    const utc = due.find((d) => d.user.id === utcUser.id);
+    expect(hebron).toBeTruthy();
+    expect(utc).toBeTruthy();
+    expect(hebron.week_key).toBe('2026-W29');
+    expect(hebron.timezone).toBe('Asia/Hebron');
+    expect(utc.week_key).toBe('2026-W28');
+    expect(utc.timezone).toBe('UTC');
+
+    // Generate with the due entry's local `at` so freeze matches that week_key
+    const gen = await generateWeeklyReport(user.id, { at: hebron.at });
+    expect(gen.report.week_key).toBe('2026-W29');
+    expect(gen.report.period_start).toBe('2026-07-13');
+    expect(gen.report.period_end).toBe('2026-07-19');
   });
 });

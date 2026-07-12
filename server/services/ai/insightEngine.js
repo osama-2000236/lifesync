@@ -3,7 +3,7 @@
 // AI Insight Engine — Behavioral Pattern Detection
 // Requirement: UR12 & UR7
 //
-// Analyzes 7-day combined Health + Finance data
+// Analyzes ISO Mon–Sun UTC Health + Finance logs
 // to detect cross-domain correlations and generate
 // actionable "Insight Cards" for the dashboard.
 // ============================================
@@ -16,6 +16,7 @@ const Category = require('../../models/Category');
 const AISummary = require('../../models/AISummary');
 const { localizeInsights } = require('./insightLocalizer');
 const { T } = require('./insightTemplates');
+const { isoWeekQueryWindows } = require('../../utils/isoWeek');
 
 // ────────────────────────────────────────────
 // STATISTICAL HELPERS
@@ -83,13 +84,18 @@ function bucketByDay(rows, dateField = 'logged_at') {
 // DATA GATHERING
 // ────────────────────────────────────────────
 
-async function gatherWeekData(userId) {
-  const now = new Date();
-  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+async function gatherWeekData(userId, { at = new Date() } = {}) {
+  // ISO Mon–Sun UTC (same window as weekly PDF report), not rolling last-7-days.
+  const { start, endExclusive, prevStart, prevEnd, period } = isoWeekQueryWindows(at);
 
-  const whereThisWeek = { user_id: userId, logged_at: { [Op.gte]: weekAgo } };
-  const whereLastWeek = { user_id: userId, logged_at: { [Op.gte]: twoWeeksAgo, [Op.lt]: weekAgo } };
+  const whereThisWeek = {
+    user_id: userId,
+    logged_at: { [Op.gte]: start, [Op.lt]: endExclusive },
+  };
+  const whereLastWeek = {
+    user_id: userId,
+    logged_at: { [Op.gte]: prevStart, [Op.lt]: prevEnd },
+  };
 
   // Raw daily health records (this week)
   const healthRows = await HealthLog.findAll({
@@ -156,7 +162,7 @@ async function gatherWeekData(userId) {
   return {
     healthRows, financeRows, healthAgg, healthAggPrev,
     financeAgg, financeAggPrev,
-    period: { start: weekAgo, end: now },
+    period,
   };
 }
 
@@ -511,10 +517,11 @@ function calculateFinancialScore(financeAgg) {
  * Returns a structured insight object ready for the dashboard.
  *
  * @param {number} userId
+ * @param {{ at?: Date }} [opts]  `at` selects the ISO week (UTC Mon–Sun). Default: now.
  * @returns {Object} Insight cards payload
  */
-async function runInsightEngine(userId) {
-  const data = await gatherWeekData(userId);
+async function runInsightEngine(userId, { at = new Date() } = {}) {
+  const data = await gatherWeekData(userId, { at });
   const {
     healthRows, financeRows, healthAgg, healthAggPrev,
     financeAgg, financeAggPrev, period,
@@ -634,8 +641,8 @@ async function runInsightEngine(userId) {
 /**
  * Run engine + persist to AISummary table
  */
-async function generateAndPersistInsights(userId) {
-  const insights = await runInsightEngine(userId);
+async function generateAndPersistInsights(userId, { at = new Date() } = {}) {
+  const insights = await runInsightEngine(userId, { at });
 
   const summary = await AISummary.create({
     user_id: userId,
@@ -671,4 +678,5 @@ module.exports = {
   detectActivityMoodLink,
   calculateHealthScore,
   calculateFinancialScore,
+  gatherWeekData,
 };

@@ -153,11 +153,11 @@ const buildDayNotes = (day) => {
     notes.push(`${day.exercise_min} min exercise`);
   }
 
-  // Mood + recovery signals
+  // Mood + recovery signals (product scale is 1–10, not 1–5)
   if (day.mood != null) {
-    if (day.mood >= 4) notes.push(`Good mood ${day.mood}/5`);
-    else if (day.mood <= 2) notes.push(`Low mood ${day.mood}/5`);
-    else notes.push(`Mood ${day.mood}/5`);
+    if (day.mood >= 7) notes.push(`Good mood ${day.mood}/10`);
+    else if (day.mood <= 3) notes.push(`Low mood ${day.mood}/10`);
+    else notes.push(`Mood ${day.mood}/10`);
   }
   if (day.water != null && day.water > 0) {
     notes.push(day.water >= 2 ? `Hydrated ${day.water}` : `Water ${day.water}`);
@@ -182,17 +182,17 @@ const buildDayNotes = (day) => {
   if (day.sleep_h != null && day.sleep_h < 6 && day.expense > 0) {
     notes.push('Low sleep + spending day');
   }
-  if (day.mood != null && day.mood >= 4 && day.steps != null && day.steps >= 8000) {
+  if (day.mood != null && day.mood >= 7 && day.steps != null && day.steps >= 8000) {
     notes.push('High energy day');
   }
-  if (day.mood != null && day.mood <= 2 && day.expense > 0) {
+  if (day.mood != null && day.mood <= 3 && day.expense > 0) {
     notes.push('Low mood + spending day');
   }
 
   // Headline = strongest single signal
   if (day.sleep_h != null && day.sleep_h < 6) headline = `Short sleep (${day.sleep_h}h)`;
   else if (day.steps != null && day.steps >= 10000) headline = `Active — ${day.steps.toLocaleString('en-US')} steps`;
-  else if (day.mood != null && day.mood >= 4) headline = `Good mood day (${day.mood}/5)`;
+  else if (day.mood != null && day.mood >= 7) headline = `Good mood day (${day.mood}/10)`;
   else if (day.expense > 0 && day.expense >= (day.income || 0)) headline = `Spend focus — ${day.expense}`;
   else if (day.income > 0) headline = `Income logged — ${day.income}`;
   else if (notes[0]) headline = notes[0];

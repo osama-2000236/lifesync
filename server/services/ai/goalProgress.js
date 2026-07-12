@@ -5,10 +5,20 @@
 // the model and dashboard saw "current: 0" forever while the set-goal reply
 // promised tracking. Deriving at read time needs no hooks in the six
 // log-create sites and stays correct when logs are edited or deleted.
+//
+// Finance goals: multi-currency logs are converted into the goal unit (or
+// dominant currency / FX base) via fxService (Frankfurter ECB rates).
 // ============================================
 
 const { Op, fn, col } = require('sequelize');
 const { HealthLog, FinancialLog, UserGoal } = require('../../models');
+const { weekBoundsUtc } = require('../../utils/isoWeek');
+const {
+  getRatesTable,
+  sumInCurrency,
+  normalizeCurrency,
+  isMoneyUnit,
+} = require('../fxService');
 
 const num = (value) => {
   const parsed = Number(value);
@@ -16,23 +26,23 @@ const num = (value) => {
 };
 const round2 = (value) => Math.round(value * 100) / 100;
 
-// UTC period start: daily = today 00:00Z, monthly = 1st of month.
-// ponytail: weekly is a rolling 7 days; switch to ISO weeks if users ask.
+// UTC period start: daily = today 00:00Z, weekly = ISO Mon 00:00Z, monthly = 1st.
 const periodStart = (period, now = new Date()) => {
   if (period === 'monthly') return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  if (period === 'weekly') return new Date(now.getTime() - 7 * 86_400_000);
+  if (period === 'weekly') {
+    const { period_start } = weekBoundsUtc(now);
+    return new Date(`${period_start}T00:00:00.000Z`);
+  }
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 };
 
-// Money sums are per-currency: an ILS budget must not absorb USD rows.
-// No goal currency → the period's dominant currency (most money moved), never
-// a cross-currency sum — 100 ILS + 50 USD is not 150 of anything.
-// ponytail: dominant-currency heuristic, no FX — add real conversion when a
-// user holds goals across currencies and asks for combined totals.
+// Fallback reporting currency when the goal has no unit: most money moved
+// (absolute income+expense). FX then converts every other currency into it.
 const dominantCurrency = (income = {}, expense = {}) => {
   const totals = {};
   for (const [cur, v] of [...Object.entries(income), ...Object.entries(expense)]) {
-    totals[cur] = (totals[cur] || 0) + Math.abs(num(v));
+    const code = normalizeCurrency(cur) || String(cur || '').toUpperCase();
+    totals[code] = (totals[code] || 0) + Math.abs(num(v));
   }
   return Object.keys(totals).reduce(
     (best, cur) => (best == null || totals[cur] > totals[best] ? cur : best),
@@ -40,21 +50,66 @@ const dominantCurrency = (income = {}, expense = {}) => {
   );
 };
 
-// Pure: current value for one goal from its period sums.
-// health metric → SUM(value); budget → spend so far; savings → income − expense.
-const currentFor = (goal, sums = {}) => {
+/**
+ * Pure: current value for one goal from its period sums + FX table.
+ * health metric → SUM(value); budget → spend so far; savings → income − expense.
+ * Finance amounts in other currencies are converted into the goal unit.
+ *
+ * @returns {{ current: number, unit: string|null, fx_missing: string[], fx_converted: boolean }}
+ */
+const currentFor = (goal, sums = {}, ratesTable = null) => {
   if (goal.domain === 'finance') {
-    const unit = goal.unit || dominantCurrency(sums.income, sums.expense);
+    const unit = normalizeCurrency(goal.unit)
+      || dominantCurrency(sums.income, sums.expense)
+      || (ratesTable?.base || 'USD');
+
+    if (ratesTable?.rates) {
+      const income = sumInCurrency(sums.income, unit, ratesTable);
+      const expense = sumInCurrency(sums.expense, unit, ratesTable);
+      const missing = [...new Set([...income.missing, ...expense.missing])];
+      const current = goal.metric_type === 'budget'
+        ? expense.total
+        : round2(income.total - expense.total);
+      return {
+        current: round2(current),
+        unit,
+        fx_missing: missing,
+        fx_converted: income.converted || expense.converted,
+      };
+    }
+
+    // No rates table at all — same-currency only (never invent a cross rate).
     const income = num(sums.income?.[unit]);
     const expense = num(sums.expense?.[unit]);
-    return round2(goal.metric_type === 'budget' ? expense : income - expense);
+    const other = new Set([
+      ...Object.keys(sums.income || {}),
+      ...Object.keys(sums.expense || {}),
+    ].map((c) => normalizeCurrency(c) || c).filter((c) => c && c !== unit));
+    return {
+      current: round2(goal.metric_type === 'budget' ? expense : income - expense),
+      unit,
+      fx_missing: [...other],
+      fx_converted: false,
+    };
   }
-  return round2(num(sums.health?.[goal.metric_type]));
+
+  return {
+    current: round2(num(sums.health?.[goal.metric_type])),
+    unit: goal.unit || null,
+    fx_missing: [],
+    fx_converted: false,
+  };
 };
 
 // Active goals with live progress. One grouped SUM per domain per distinct
 // period — a user realistically holds 1–3 goals, so 1–2 cheap indexed queries.
-const getGoalsWithProgress = async (userId, { limit = 12, now = new Date() } = {}) => {
+// One FX rates fetch per call (shared across all finance goals).
+const getGoalsWithProgress = async (userId, {
+  limit = 12,
+  now = new Date(),
+  ratesTable = null,
+  fetchImpl,
+} = {}) => {
   const goals = await UserGoal.findAll({
     where: { user_id: userId, status: 'active' },
     order: [['created_at', 'DESC']],
@@ -63,6 +118,11 @@ const getGoalsWithProgress = async (userId, { limit = 12, now = new Date() } = {
     raw: true,
   });
   if (!goals?.length) return [];
+
+  const needFx = goals.some((g) => g.domain === 'finance');
+  const fx = needFx
+    ? (ratesTable || await getRatesTable({ fetchImpl }))
+    : null;
 
   const sumsByPeriod = {};
   await Promise.all([...new Set(goals.map((g) => g.period))].map(async (period) => {
@@ -86,24 +146,42 @@ const getGoalsWithProgress = async (userId, { limit = 12, now = new Date() } = {
     const sums = { health: {}, income: {}, expense: {} };
     for (const row of healthRows) sums.health[row.type] = num(row.total);
     for (const row of financeRows) {
-      sums[row.type === 'income' ? 'income' : 'expense'][row.currency || 'USD'] = num(row.total);
+      const cur = normalizeCurrency(row.currency) || 'USD';
+      const bucket = row.type === 'income' ? 'income' : 'expense';
+      sums[bucket][cur] = round2((sums[bucket][cur] || 0) + num(row.total));
     }
     sumsByPeriod[period] = sums;
   }));
 
-  return goals.map((g) => ({
-    domain: g.domain,
-    metric: g.metric_type,
-    target: Number.isFinite(Number(g.target_value)) ? Number(g.target_value) : null,
-    current: currentFor(g, sumsByPeriod[g.period]),
-    unit: g.unit || null,
-    period: g.period,
-    end_date: g.end_date || null,
-  }));
+  return goals.map((g) => {
+    const progress = currentFor(g, sumsByPeriod[g.period], fx);
+    const out = {
+      domain: g.domain,
+      metric: g.metric_type,
+      target: Number.isFinite(Number(g.target_value)) ? Number(g.target_value) : null,
+      current: progress.current,
+      unit: progress.unit,
+      period: g.period,
+      end_date: g.end_date || null,
+    };
+    if (g.domain === 'finance' && fx) {
+      out.fx = {
+        base: fx.base,
+        as_of: fx.date,
+        source: fx.source,
+        converted: progress.fx_converted,
+        missing: progress.fx_missing,
+      };
+      if (fx.error) out.fx.error = fx.error;
+    }
+    return out;
+  });
 };
 
 module.exports = {
   getGoalsWithProgress,
   _periodStart: periodStart,
   _currentFor: currentFor,
+  _dominantCurrency: dominantCurrency,
+  _isMoneyUnit: isMoneyUnit,
 };
