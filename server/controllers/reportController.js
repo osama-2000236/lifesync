@@ -45,13 +45,21 @@ const listReportsHandler = async (req, res, next) => {
 const generateReportHandler = async (req, res, next) => {
   try {
     const notify = req.body?.notify !== false;
-    const result = await processUserWeeklyReport(req.user, { notify });
+    // force=true re-freezes this week's snapshot from latest logs (user download path).
+    const force = req.body?.force === true;
+    const result = await processUserWeeklyReport(req.user, { notify, force });
     const statusFn = result.created ? created : success;
+    const message = result.created
+      ? 'Weekly report generated'
+      : result.refreshed
+        ? 'Weekly report refreshed'
+        : 'Weekly report already exists';
     return statusFn(res, {
       report: result.report,
       created: result.created,
+      refreshed: Boolean(result.refreshed),
       notification: result.notification?.notification || null,
-    }, result.created ? 'Weekly report generated' : 'Weekly report already exists');
+    }, message);
   } catch (err) {
     next(err);
   }

@@ -95,13 +95,25 @@ describe('report routes (integration)', () => {
     expect(pdf.headers['content-type']).toMatch(/pdf/);
     expect(pdf.body.slice(0, 4).toString()).toBe('%PDF');
 
-    // Idempotent generate
+    // Idempotent generate (no force)
     const again = await request(app)
       .post('/api/reports/generate')
       .set('Authorization', `Bearer ${token}`)
       .send({ notify: false })
       .expect(200);
     expect(again.body.data.created).toBe(false);
+    expect(again.body.data.refreshed).toBe(false);
+
+    // Force refresh rebuilds snapshot for the same week
+    const refreshed = await request(app)
+      .post('/api/reports/generate')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ notify: false, force: true })
+      .expect(200);
+    expect(refreshed.body.data.created).toBe(false);
+    expect(refreshed.body.data.refreshed).toBe(true);
+    expect(refreshed.body.data.report.id).toBe(reportId);
+    expect(refreshed.body.data.report.metrics_snapshot.daily_overview.days).toHaveLength(7);
   });
 
   test('UC-13: foreign report download is 404 (not leak)', async () => {

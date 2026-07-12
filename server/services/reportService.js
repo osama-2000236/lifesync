@@ -56,16 +56,17 @@ const toPublicReport = (row) => {
 
 /**
  * Generate (or return existing) weekly report for the user.
- * @returns {{ report: object, created: boolean }}
+ * @param {boolean} [opts.force=false]  When true, re-freeze snapshot for this week (refresh logs/insights).
+ * @returns {{ report: object, created: boolean, refreshed?: boolean }}
  */
-const generateWeeklyReport = async (userId, { at = new Date() } = {}) => {
+const generateWeeklyReport = async (userId, { at = new Date(), force = false } = {}) => {
   const bounds = weekBoundsUtc(at);
   const existing = await WeeklyReport.findOne({
     where: { user_id: userId, week_key: bounds.week_key },
   });
-  if (existing) return { report: toPublicReport(existing), created: false };
+  if (existing && !force) return { report: toPublicReport(existing), created: false };
 
-  // Force a fresh insight snapshot + ISO-week daily log overview, then freeze.
+  // Fresh insight snapshot + ISO-week daily log overview, then freeze.
   // period_* always match ISO week_key (Mon–Sun UTC).
   const [insights, dailyOverview] = await Promise.all([
     persistDashboardInsights(userId),
@@ -75,6 +76,21 @@ const generateWeeklyReport = async (userId, { at = new Date() } = {}) => {
     ...insights,
     daily_overview: dailyOverview,
   });
+
+  // Refresh existing week in place (keeps id + notified_at; updates metrics/PDF source).
+  if (existing && force) {
+    await existing.update({
+      period_start: bounds.period_start,
+      period_end: bounds.period_end,
+      summary: frozen.summary,
+      metrics_snapshot: frozen.metrics_snapshot,
+      recommendations: frozen.recommendations,
+      patterns: frozen.patterns,
+      source_summary_id: insights.id || null,
+      generated_at: new Date(),
+    });
+    return { report: toPublicReport(existing), created: false, refreshed: true };
+  }
 
   try {
     const row = await WeeklyReport.create({

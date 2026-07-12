@@ -246,6 +246,7 @@ export const en = {
   'reports.working': 'Building report…',
   'reports.generated': 'Report ready — download started. A notification was also saved.',
   'reports.alreadyExists': 'Using this week’s existing report — download started.',
+  'reports.refreshed': 'Report refreshed with latest logs — download started.',
   'reports.failed': 'Could not build the report. Try again in a moment.',
   'reports.weekLabel': 'Week {week}',
   'reports.notifyTitle': 'Report notifications',

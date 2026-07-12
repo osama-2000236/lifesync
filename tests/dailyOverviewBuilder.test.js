@@ -47,6 +47,28 @@ describe('dailyOverviewBuilder', () => {
     expect(overview.totals.income).toBe(100);
     expect(overview.totals.expense).toBe(17.5);
     expect(overview.days[0].notes.join(' ')).toMatch(/steps/i);
+    expect(overview.days[0].headline).toBeTruthy();
+    expect(overview.days[0].notes.length).toBeGreaterThan(0);
+  });
+
+  test('rich notes flag short sleep + spending and net money', () => {
+    const overview = buildDailyOverviewFromRows({
+      periodStart: '2026-07-06',
+      periodEnd: '2026-07-12',
+      healthRows: [
+        { type: 'sleep', value: 5, logged_at: '2026-07-06T23:00:00.000Z' },
+        { type: 'mood', value: 2, logged_at: '2026-07-06T12:00:00.000Z' },
+      ],
+      financeRows: [
+        { type: 'expense', amount: 40, category_name: 'Food', logged_at: '2026-07-06T14:00:00.000Z' },
+      ],
+    });
+    const mon = overview.days[0];
+    expect(mon.headline).toMatch(/short sleep/i);
+    expect(mon.notes.join(' ')).toMatch(/Low sleep \+ spending/i);
+    expect(mon.notes.join(' ')).toMatch(/Food|Spent/);
+    expect(mon.notes.join(' ')).toMatch(/Net -/);
+    expect(mon.top_expense_category).toBe('Food');
   });
 
   test('empty week still returns 7 days marked No logs', () => {
@@ -58,7 +80,8 @@ describe('dailyOverviewBuilder', () => {
     });
     expect(overview.days).toHaveLength(7);
     expect(overview.days_with_data).toBe(0);
-    expect(overview.days[3].notes).toContain('No logs');
+    expect(overview.days[3].headline).toMatch(/No logs/i);
+    expect(overview.days[3].notes.join(' ')).toMatch(/No health|No logs/i);
   });
 
   test('sanitizeDailyOverview drops invalid days and keeps metrics finite', () => {

@@ -307,7 +307,8 @@ export const externalAPI = {
 // ─── Weekly reports (UC-13) + notifications (UC-14) ───
 export const reportsAPI = {
   list: () => api.get('/reports'),
-  generate: (notify = true) => api.post('/reports/generate', { notify }),
+  // force=true rebuilds this week's freeze from latest health/finance logs.
+  generate: (notify = true, force = true) => api.post('/reports/generate', { notify, force }),
   get: (id) => api.get(`/reports/${id}`),
   // Binary PDF — caller creates an object URL / triggers download.
   download: (id) => api.get(`/reports/${id}/download`, { responseType: 'blob' }),

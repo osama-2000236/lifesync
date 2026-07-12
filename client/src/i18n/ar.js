@@ -245,6 +245,7 @@ export const ar = {
   'reports.working': 'جارٍ إعداد التقرير…',
   'reports.generated': 'التقرير جاهز — بدأ التنزيل. حُفظ إشعار أيضاً.',
   'reports.alreadyExists': 'يُستخدم تقرير هذا الأسبوع الموجود — بدأ التنزيل.',
+  'reports.refreshed': 'تم تحديث التقرير بأحدث السجلات — بدأ التنزيل.',
   'reports.failed': 'تعذّر إنشاء التقرير. حاول مجدداً بعد لحظة.',
   'reports.weekLabel': 'الأسبوع {week}',
   'reports.notifyTitle': 'إشعارات التقارير',

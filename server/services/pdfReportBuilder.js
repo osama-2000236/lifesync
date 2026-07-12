@@ -260,6 +260,12 @@ const dayHighlights = (day) => {
   return parts.length ? parts.join('  ·  ') : 'No logs this day';
 };
 
+const dayHeadline = (day) => {
+  if (day.headline && String(day.headline).trim()) return String(day.headline).trim().slice(0, 100);
+  const h = dayHighlights(day);
+  return h.split('  ·  ')[0] || 'Day overview';
+};
+
 /** Human-readable line for PDF — prefer text/observation, never raw JSON when avoidable. */
 const lineText = (value) => {
   if (value == null) return MISSING;
@@ -442,12 +448,12 @@ const buildWeeklyReportPdf = (report) => new Promise((resolve, reject) => {
       doc.moveDown(0.4);
     } else {
       days.forEach((day) => {
-        ensureSpace(doc, 72);
+        ensureSpace(doc, 86);
         const y0 = doc.y;
+        const cardH = 78;
         const hasData = (day.health_count || 0) + (day.finance_count || 0) > 0;
-        doc.roundedRect(PAGE.left, y0, PAGE.width, 62, 8).fill(hasData ? BRAND.surface : BRAND.navy50);
-        // Left emerald rail when data exists
-        doc.roundedRect(PAGE.left, y0, 4, 62, 2).fill(hasData ? BRAND.emerald500 : BRAND.navy200);
+        doc.roundedRect(PAGE.left, y0, PAGE.width, cardH, 8).fill(hasData ? BRAND.surface : BRAND.navy50);
+        doc.roundedRect(PAGE.left, y0, 4, cardH, 2).fill(hasData ? BRAND.emerald500 : BRAND.navy200);
 
         doc.fillColor(BRAND.navy900).fontSize(11).text(
           `${day.weekday}  ${day.date}`,
@@ -455,7 +461,6 @@ const buildWeeklyReportPdf = (report) => new Promise((resolve, reject) => {
           y0 + 8,
           { width: 160 },
         );
-        // Money chips on the right
         doc.fontSize(8).fillColor(BRAND.coral500).text(
           day.expense > 0 ? `-${day.expense}` : 'exp 0',
           PAGE.left + 340,
@@ -469,6 +474,12 @@ const buildWeeklyReportPdf = (report) => new Promise((resolve, reject) => {
           { width: 70, align: 'right' },
         );
 
+        // Headline (richest single takeaway)
+        doc.fillColor(BRAND.emerald600).fontSize(9).text(dayHeadline(day), PAGE.left + 14, y0 + 24, {
+          width: PAGE.width - 28,
+          ellipsis: true,
+        });
+
         // Metric row
         const cells = [
           { label: 'Steps', val: day.steps != null ? String(day.steps) : MISSING },
@@ -479,16 +490,16 @@ const buildWeeklyReportPdf = (report) => new Promise((resolve, reject) => {
         ];
         let cx = PAGE.left + 14;
         cells.forEach((c) => {
-          doc.fillColor(BRAND.navy400).fontSize(7).text(c.label.toUpperCase(), cx, y0 + 26, { width: 70 });
-          doc.fillColor(BRAND.navy800).fontSize(10).text(c.val, cx, y0 + 36, { width: 70 });
+          doc.fillColor(BRAND.navy400).fontSize(7).text(c.label.toUpperCase(), cx, y0 + 40, { width: 70 });
+          doc.fillColor(BRAND.navy800).fontSize(10).text(c.val, cx, y0 + 50, { width: 70 });
           cx += 78;
         });
 
-        doc.fillColor(BRAND.navy500).fontSize(8).text(dayHighlights(day), PAGE.left + 14, y0 + 50, {
+        doc.fillColor(BRAND.navy500).fontSize(7).text(dayHighlights(day), PAGE.left + 14, y0 + 64, {
           width: PAGE.width - 28,
           ellipsis: true,
         });
-        doc.y = y0 + 70;
+        doc.y = y0 + cardH + 8;
       });
     }
 

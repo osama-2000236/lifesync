@@ -15,9 +15,10 @@ const { notifyWeeklyReportReady } = require('./notificationService');
 /**
  * Process one user: ensure report exists, notify if not yet notified.
  */
-const processUserWeeklyReport = async (user, { at = new Date(), notify = true } = {}) => {
-  const { report, created } = await generateWeeklyReport(user.id, { at });
+const processUserWeeklyReport = async (user, { at = new Date(), notify = true, force = false } = {}) => {
+  const { report, created, refreshed } = await generateWeeklyReport(user.id, { at, force });
   let notification = null;
+  // Announce once (notified_at gate). Force-refresh keeps notified_at so no spam.
   if (notify && !report.notified_at) {
     const result = await notifyWeeklyReportReady(user.id, report);
     if (!result.skipped) {
@@ -26,7 +27,7 @@ const processUserWeeklyReport = async (user, { at = new Date(), notify = true } 
     }
     notification = result;
   }
-  return { report, created, notification };
+  return { report, created, refreshed: Boolean(refreshed), notification };
 };
 
 /**

@@ -121,6 +121,17 @@ describe('reportService (UC-13)', () => {
     expect(denied).toBeNull();
   });
 
+  test('generateWeeklyReport force=true refreshes existing week freeze', async () => {
+    const at = new Date('2026-07-11T12:00:00Z');
+    const first = await generateWeeklyReport(user.id, { at });
+    expect(first.created).toBe(true);
+    const second = await generateWeeklyReport(user.id, { at, force: true });
+    expect(second.created).toBe(false);
+    expect(second.refreshed).toBe(true);
+    expect(second.report.id).toBe(first.report.id);
+    expect(second.report.metrics_snapshot.daily_overview.days).toHaveLength(7);
+  });
+
   test('generateWeeklyReport freezes only valid values (strips NaN/empty junk)', async () => {
     persistDashboardInsights.mockImplementationOnce(async () => ({
       id: 7,

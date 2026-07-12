@@ -36,7 +36,9 @@ export default function WeeklyReportCard() {
       setInfo(
         data.data?.created
           ? t('reports.generated')
-          : t('reports.alreadyExists'),
+          : data.data?.refreshed
+            ? t('reports.refreshed')
+            : t('reports.alreadyExists'),
       );
       const pdf = await reportsAPI.download(report.id);
       const blob = pdf.data instanceof Blob ? pdf.data : new Blob([pdf.data], { type: 'application/pdf' });

@@ -55,9 +55,12 @@ const emptyDay = (date) => {
     nutrition: null,
     income: 0,
     expense: 0,
+    top_expense_category: null,
+    _expenseByCat: {},
     health_count: 0,
     finance_count: 0,
     notes: [],
+    headline: null,
   };
 };
 
@@ -115,8 +118,87 @@ const foldFinance = (day, row) => {
   const amount = finite(row.amount);
   if (amount == null || amount < 0) return;
   day.finance_count += 1;
-  if (row.type === 'income') day.income = round2(day.income + amount);
-  else if (row.type === 'expense') day.expense = round2(day.expense + amount);
+  if (row.type === 'income') {
+    day.income = round2(day.income + amount);
+  } else if (row.type === 'expense') {
+    day.expense = round2(day.expense + amount);
+    const cat = (row.category_name || row.category?.name || 'other').toString().slice(0, 40);
+    day._expenseByCat[cat] = round2((day._expenseByCat[cat] || 0) + amount);
+  }
+};
+
+/** Human, useful day notes — quality labels + cross signals, not raw dumps. */
+const buildDayNotes = (day) => {
+  if (day.health_count === 0 && day.finance_count === 0) {
+    return { headline: 'No logs — quiet day', notes: ['No health or finance entries'] };
+  }
+
+  const notes = [];
+  let headline = null;
+
+  // Sleep quality
+  if (day.sleep_h != null) {
+    if (day.sleep_h >= 7.5) notes.push(`Solid sleep ${day.sleep_h}h`);
+    else if (day.sleep_h < 6) notes.push(`Short sleep ${day.sleep_h}h`);
+    else notes.push(`Sleep ${day.sleep_h}h`);
+  }
+
+  // Activity
+  if (day.steps != null && day.steps > 0) {
+    if (day.steps >= 10000) notes.push(`Active day ${day.steps.toLocaleString('en-US')} steps`);
+    else if (day.steps < 3000) notes.push(`Low movement ${day.steps.toLocaleString('en-US')} steps`);
+    else notes.push(`${day.steps.toLocaleString('en-US')} steps`);
+  }
+  if (day.exercise_min != null && day.exercise_min > 0) {
+    notes.push(`${day.exercise_min} min exercise`);
+  }
+
+  // Mood + recovery signals
+  if (day.mood != null) {
+    if (day.mood >= 4) notes.push(`Good mood ${day.mood}/5`);
+    else if (day.mood <= 2) notes.push(`Low mood ${day.mood}/5`);
+    else notes.push(`Mood ${day.mood}/5`);
+  }
+  if (day.water != null && day.water > 0) {
+    notes.push(day.water >= 2 ? `Hydrated ${day.water}` : `Water ${day.water}`);
+  }
+  if (day.heart_rate != null) notes.push(`HR ~${day.heart_rate}`);
+  if (day.nutrition != null && day.nutrition > 0) notes.push(`Nutrition ${day.nutrition}`);
+
+  // Money
+  if (day.expense > 0) {
+    const catBit = day.top_expense_category ? ` (${day.top_expense_category})` : '';
+    notes.push(`Spent ${day.expense}${catBit}`);
+  }
+  if (day.income > 0) notes.push(`Income ${day.income}`);
+  const net = round2((day.income || 0) - (day.expense || 0));
+  if ((day.income || 0) > 0 || (day.expense || 0) > 0) {
+    if (net > 0) notes.push(`Net +${net}`);
+    else if (net < 0) notes.push(`Net ${net}`);
+    else notes.push('Net even');
+  }
+
+  // Cross-domain day tags (facts only)
+  if (day.sleep_h != null && day.sleep_h < 6 && day.expense > 0) {
+    notes.push('Low sleep + spending day');
+  }
+  if (day.mood != null && day.mood >= 4 && day.steps != null && day.steps >= 8000) {
+    notes.push('High energy day');
+  }
+  if (day.mood != null && day.mood <= 2 && day.expense > 0) {
+    notes.push('Low mood + spending day');
+  }
+
+  // Headline = strongest single signal
+  if (day.sleep_h != null && day.sleep_h < 6) headline = `Short sleep (${day.sleep_h}h)`;
+  else if (day.steps != null && day.steps >= 10000) headline = `Active — ${day.steps.toLocaleString('en-US')} steps`;
+  else if (day.mood != null && day.mood >= 4) headline = `Good mood day (${day.mood}/5)`;
+  else if (day.expense > 0 && day.expense >= (day.income || 0)) headline = `Spend focus — ${day.expense}`;
+  else if (day.income > 0) headline = `Income logged — ${day.income}`;
+  else if (notes[0]) headline = notes[0];
+  else headline = 'Logged day';
+
+  return { headline, notes: notes.slice(0, 6) };
 };
 
 const finalizeDay = (day) => {
@@ -130,19 +212,18 @@ const finalizeDay = (day) => {
   day.income = round2(day.income || 0);
   day.expense = round2(day.expense || 0);
 
-  // Short fact highlights for PDF (max 4).
-  const notes = [];
-  if (day.steps != null && day.steps > 0) notes.push(`${day.steps.toLocaleString('en-US')} steps`);
-  if (day.sleep_h != null) notes.push(`${day.sleep_h}h sleep`);
-  if (day.mood != null) notes.push(`mood ${day.mood}/5`);
-  if (day.water != null && day.water > 0) notes.push(`${day.water} water`);
-  if (day.exercise_min != null && day.exercise_min > 0) notes.push(`${day.exercise_min} min exercise`);
-  if (day.expense > 0) notes.push(`spent ${day.expense}`);
-  if (day.income > 0) notes.push(`income ${day.income}`);
-  if (!notes.length && day.health_count === 0 && day.finance_count === 0) {
-    notes.push('No logs');
+  // Top expense category for the day
+  const cats = day._expenseByCat || {};
+  let topCat = null;
+  let topAmt = 0;
+  for (const [name, amt] of Object.entries(cats)) {
+    if (amt > topAmt) { topAmt = amt; topCat = name; }
   }
-  day.notes = notes.slice(0, 5);
+  day.top_expense_category = topCat;
+
+  const { headline, notes } = buildDayNotes(day);
+  day.headline = headline;
+  day.notes = notes;
 
   delete day._sleepSum;
   delete day._sleepN;
@@ -150,6 +231,7 @@ const finalizeDay = (day) => {
   delete day._moodN;
   delete day._hrSum;
   delete day._hrN;
+  delete day._expenseByCat;
   return day;
 };
 
@@ -240,16 +322,28 @@ const buildDailyOverviewForUser = async (userId, periodStart, periodEnd) => {
         logged_at: { [Op.gte]: start, [Op.lt]: endExclusive },
       },
       attributes: ['type', 'amount', 'logged_at'],
+      include: [{
+        association: 'category',
+        attributes: ['name'],
+        required: false,
+      }],
       order: [['logged_at', 'ASC']],
       raw: true,
+      nest: true,
     }),
   ]);
+
+  // Normalize category name onto a flat field for pure aggregator.
+  const financeNorm = financeRows.map((r) => ({
+    ...r,
+    category_name: r.category?.name || r['category.name'] || null,
+  }));
 
   return buildDailyOverviewFromRows({
     periodStart,
     periodEnd,
     healthRows,
-    financeRows,
+    financeRows: financeNorm,
   });
 };
 
@@ -267,8 +361,14 @@ const sanitizeDailyOverview = (overview) => {
       return Number.isFinite(n) ? n : null;
     };
     const notes = Array.isArray(d.notes)
-      ? d.notes.map((n) => String(n).trim().slice(0, 80)).filter(Boolean).slice(0, 5)
+      ? d.notes.map((n) => String(n).trim().slice(0, 100)).filter(Boolean).slice(0, 6)
       : [];
+    const headline = d.headline != null
+      ? String(d.headline).trim().slice(0, 120)
+      : (notes[0] || null);
+    const topCat = d.top_expense_category != null
+      ? String(d.top_expense_category).trim().slice(0, 40)
+      : null;
     return {
       date,
       weekday,
@@ -281,8 +381,10 @@ const sanitizeDailyOverview = (overview) => {
       nutrition: num(d.nutrition) != null ? Math.round(num(d.nutrition)) : null,
       income: round2(num(d.income) || 0),
       expense: round2(num(d.expense) || 0),
+      top_expense_category: topCat,
       health_count: Math.max(0, Math.round(num(d.health_count) || 0)),
       finance_count: Math.max(0, Math.round(num(d.finance_count) || 0)),
+      headline,
       notes,
     };
   }).filter(Boolean);
@@ -318,4 +420,5 @@ module.exports = {
   buildDailyOverviewForUser,
   sanitizeDailyOverview,
   enumerateDays,
+  buildDayNotes,
 };
