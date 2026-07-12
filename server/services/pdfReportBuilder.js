@@ -246,6 +246,13 @@ const metricChip = (label, value) => {
   return `${label} ${value}`;
 };
 
+/** Display helper: missing → —, real 0 → "0", values as string. */
+const metricVal = (value, suffix = '') => {
+  if (value == null || value === '') return MISSING;
+  if (typeof value === 'number' && !Number.isFinite(value)) return MISSING;
+  return `${value}${suffix}`;
+};
+
 const dayHighlights = (day) => {
   if (Array.isArray(day.notes) && day.notes.length) return day.notes.join('  ·  ');
   const parts = [
@@ -254,8 +261,8 @@ const dayHighlights = (day) => {
     metricChip('mood', day.mood != null ? `${day.mood}/10` : null),
     metricChip('water', day.water != null ? day.water : null),
     metricChip('exercise', day.exercise_min != null ? `${day.exercise_min}m` : null),
-    day.expense > 0 ? `spent ${day.expense}` : null,
-    day.income > 0 ? `income ${day.income}` : null,
+    day.expense != null && day.expense > 0 ? `spent ${day.expense}` : null,
+    day.income != null && day.income > 0 ? `income ${day.income}` : null,
   ].filter(Boolean);
   return parts.length ? parts.join('  ·  ') : 'No logs this day';
 };
@@ -384,14 +391,15 @@ const buildWeeklyReportPdf = (report) => new Promise((resolve, reject) => {
     if (daily?.totals) {
       ensureSpace(doc, 48);
       const t = daily.totals;
+      // Same rule for every metric: only show what was logged (no fake zeros).
       const facts = [
         t.steps != null ? `Steps ${t.steps.toLocaleString('en-US')}` : null,
         t.sleep_h_avg != null ? `Sleep avg ${t.sleep_h_avg}h` : null,
         t.mood_avg != null ? `Mood avg ${t.mood_avg}/10` : null,
         t.water != null ? `Water ${t.water}` : null,
         t.exercise_min != null ? `Exercise ${t.exercise_min} min` : null,
-        `Income ${t.income ?? 0}`,
-        `Expense ${t.expense ?? 0}`,
+        t.income != null ? `Income ${t.income}` : null,
+        t.expense != null ? `Expense ${t.expense}` : null,
         `${daily.days_with_data || 0}/7 days logged`,
       ].filter(Boolean);
       const stripY = doc.y;
@@ -461,14 +469,15 @@ const buildWeeklyReportPdf = (report) => new Promise((resolve, reject) => {
           y0 + 8,
           { width: 160 },
         );
+        // Money: null → —, logged 0 → 0, positive positive → -N, income positive → +N
         doc.fontSize(8).fillColor(BRAND.coral500).text(
-          day.expense > 0 ? `-${day.expense}` : 'exp 0',
+          day.expense == null ? MISSING : (day.expense > 0 ? `-${day.expense}` : String(day.expense)),
           PAGE.left + 340,
           y0 + 10,
           { width: 70, align: 'right' },
         );
         doc.fillColor(BRAND.emerald600).text(
-          day.income > 0 ? `+${day.income}` : 'inc 0',
+          day.income == null ? MISSING : (day.income > 0 ? `+${day.income}` : String(day.income)),
           PAGE.left + 415,
           y0 + 10,
           { width: 70, align: 'right' },
@@ -480,13 +489,13 @@ const buildWeeklyReportPdf = (report) => new Promise((resolve, reject) => {
           ellipsis: true,
         });
 
-        // Metric row
+        // Metric row — identical missing rule for every cell (— when unlogged)
         const cells = [
-          { label: 'Steps', val: day.steps != null ? String(day.steps) : MISSING },
-          { label: 'Sleep', val: day.sleep_h != null ? `${day.sleep_h}h` : MISSING },
-          { label: 'Mood', val: day.mood != null ? `${day.mood}` : MISSING },
-          { label: 'Water', val: day.water != null ? String(day.water) : MISSING },
-          { label: 'Move', val: day.exercise_min != null ? `${day.exercise_min}m` : MISSING },
+          { label: 'Steps', val: metricVal(day.steps) },
+          { label: 'Sleep', val: metricVal(day.sleep_h, 'h') },
+          { label: 'Mood', val: metricVal(day.mood) },
+          { label: 'Water', val: metricVal(day.water) },
+          { label: 'Move', val: metricVal(day.exercise_min, 'm') },
         ];
         let cx = PAGE.left + 14;
         cells.forEach((c) => {

@@ -98,6 +98,12 @@ describe('dailyOverviewBuilder', () => {
     expect(overview.days_with_data).toBe(0);
     expect(overview.days[3].headline).toMatch(/No logs/i);
     expect(overview.days[3].notes.join(' ')).toMatch(/No health|No logs/i);
+    // Unlogged money is null — same rule as unlogged steps (not fake 0).
+    expect(overview.days[3].income).toBeNull();
+    expect(overview.days[3].expense).toBeNull();
+    expect(overview.totals.income).toBeNull();
+    expect(overview.totals.expense).toBeNull();
+    expect(overview.totals.steps).toBeNull();
   });
 
   test('sanitizeDailyOverview drops invalid days and keeps metrics finite', () => {
@@ -112,7 +118,8 @@ describe('dailyOverviewBuilder', () => {
     });
     expect(clean.days).toHaveLength(1);
     expect(clean.days[0].steps).toBe(1001); // Math.round(1000.9)
-    expect(clean.totals.expense).toBe(0);
+    expect(clean.totals.expense).toBeNull(); // NaN → missing, not 0
+    expect(clean.totals.income).toBe(5);
   });
 
   test('CRITICAL: null metrics stay null (Number(null) must not become 0)', () => {
@@ -122,39 +129,78 @@ describe('dailyOverviewBuilder', () => {
           date: '2026-07-06', weekday: 'Mon',
           steps: null, sleep_h: null, mood: null, water: null,
           exercise_min: null, heart_rate: null, nutrition: null,
-          income: 0, expense: 0, health_count: 0, finance_count: 0,
+          income: null, expense: null, health_count: 0, finance_count: 0,
           notes: ['No logs'],
         },
         {
           date: '2026-07-07', weekday: 'Tue',
           steps: 8000, sleep_h: null, mood: 7, water: null,
           exercise_min: null, heart_rate: null, nutrition: null,
-          income: 0, expense: 0, health_count: 2, finance_count: 0,
+          income: null, expense: null, health_count: 2, finance_count: 0,
           notes: ['8000 steps'],
         },
       ],
       totals: {
         steps: 8000, sleep_h_avg: null, mood_avg: 7, water: null,
-        exercise_min: null, income: 0, expense: 0, health_count: 2, finance_count: 0,
+        exercise_min: null, income: null, expense: null, health_count: 2, finance_count: 0,
       },
       days_with_data: 1,
     });
-    // Empty day: missing health metrics must NOT print as 0 in the PDF.
+    // Empty day: ALL unlogged metrics null (health + money).
     expect(clean.days[0].steps).toBeNull();
     expect(clean.days[0].sleep_h).toBeNull();
     expect(clean.days[0].mood).toBeNull();
     expect(clean.days[0].water).toBeNull();
     expect(clean.days[0].exercise_min).toBeNull();
-    // Day with real steps keeps the value.
+    expect(clean.days[0].income).toBeNull();
+    expect(clean.days[0].expense).toBeNull();
+    // Day with real steps keeps the value; unlogged money stays null.
     expect(clean.days[1].steps).toBe(8000);
     expect(clean.days[1].mood).toBe(7);
     expect(clean.days[1].sleep_h).toBeNull();
+    expect(clean.days[1].income).toBeNull();
     // Totals: null stays null (not 0).
     expect(clean.totals.steps).toBe(8000);
     expect(clean.totals.sleep_h_avg).toBeNull();
     expect(clean.totals.water).toBeNull();
     expect(clean.totals.exercise_min).toBeNull();
     expect(clean.totals.mood_avg).toBe(7);
+    expect(clean.totals.income).toBeNull();
+    expect(clean.totals.expense).toBeNull();
+  });
+
+  test('money null vs health null is consistent after build + freeze', () => {
+    const { freezeReportPayload } = require('../server/services/pdfReportBuilder');
+    const overview = buildDailyOverviewFromRows({
+      periodStart: '2026-07-06',
+      periodEnd: '2026-07-12',
+      healthRows: [
+        { type: 'steps', value: 5000, logged_at: '2026-07-06T10:00:00.000Z' },
+      ],
+      financeRows: [
+        { type: 'expense', amount: 20, logged_at: '2026-07-07T10:00:00.000Z' },
+      ],
+    });
+    // Mon: steps only → expense null, income null
+    expect(overview.days[0].steps).toBe(5000);
+    expect(overview.days[0].expense).toBeNull();
+    expect(overview.days[0].income).toBeNull();
+    // Tue: expense only → steps null
+    expect(overview.days[1].steps).toBeNull();
+    expect(overview.days[1].expense).toBe(20);
+    expect(overview.days[1].income).toBeNull();
+    // Wed empty: everything null
+    expect(overview.days[2].steps).toBeNull();
+    expect(overview.days[2].expense).toBeNull();
+
+    const frozen = freezeReportPayload({ daily_overview: overview, summary: 'x' });
+    const d = frozen.metrics_snapshot.daily_overview;
+    expect(d.days[0].expense).toBeNull();
+    expect(d.days[1].steps).toBeNull();
+    expect(d.days[1].expense).toBe(20);
+    expect(d.totals.income).toBeNull();
+    expect(d.totals.expense).toBe(20);
+    expect(d.totals.steps).toBe(5000);
   });
 
   test('freeze path keeps real steps and does not invent zeros for missing fields', () => {

@@ -55,8 +55,9 @@ const emptyDay = (date) => {
     exercise_min: null,
     heart_rate: null,
     nutrition: null,
-    income: 0,
-    expense: 0,
+    // null = no money logs that day (same rule as steps/sleep). 0 only after a real log of 0.
+    income: null,
+    expense: null,
     top_expense_category: null,
     _expenseByCat: {},
     health_count: 0,
@@ -167,27 +168,27 @@ const buildDayNotes = (day) => {
   if (day.heart_rate != null) notes.push(`HR ~${day.heart_rate}`);
   if (day.nutrition != null && day.nutrition > 0) notes.push(`Nutrition ${day.nutrition}`);
 
-  // Money
-  if (day.expense > 0) {
+  // Money (null = unlogged, not zero)
+  if (day.expense != null && day.expense > 0) {
     const catBit = day.top_expense_category ? ` (${day.top_expense_category})` : '';
     notes.push(`Spent ${day.expense}${catBit}`);
   }
-  if (day.income > 0) notes.push(`Income ${day.income}`);
-  const net = round2((day.income || 0) - (day.expense || 0));
-  if ((day.income || 0) > 0 || (day.expense || 0) > 0) {
+  if (day.income != null && day.income > 0) notes.push(`Income ${day.income}`);
+  if (day.income != null || day.expense != null) {
+    const net = round2((day.income || 0) - (day.expense || 0));
     if (net > 0) notes.push(`Net +${net}`);
     else if (net < 0) notes.push(`Net ${net}`);
     else notes.push('Net even');
   }
 
   // Cross-domain day tags (facts only)
-  if (day.sleep_h != null && day.sleep_h < 6 && day.expense > 0) {
+  if (day.sleep_h != null && day.sleep_h < 6 && day.expense != null && day.expense > 0) {
     notes.push('Low sleep + spending day');
   }
   if (day.mood != null && day.mood >= 7 && day.steps != null && day.steps >= 8000) {
     notes.push('High energy day');
   }
-  if (day.mood != null && day.mood <= 3 && day.expense > 0) {
+  if (day.mood != null && day.mood <= 3 && day.expense != null && day.expense > 0) {
     notes.push('Low mood + spending day');
   }
 
@@ -195,8 +196,9 @@ const buildDayNotes = (day) => {
   if (day.sleep_h != null && day.sleep_h < 6) headline = `Short sleep (${day.sleep_h}h)`;
   else if (day.steps != null && day.steps >= 10000) headline = `Active — ${day.steps.toLocaleString('en-US')} steps`;
   else if (day.mood != null && day.mood >= 7) headline = `Good mood day (${day.mood}/10)`;
-  else if (day.expense > 0 && day.expense >= (day.income || 0)) headline = `Spend focus — ${day.expense}`;
-  else if (day.income > 0) headline = `Income logged — ${day.income}`;
+  else if (day.expense != null && day.expense > 0 && day.expense >= (day.income || 0)) {
+    headline = `Spend focus — ${day.expense}`;
+  } else if (day.income != null && day.income > 0) headline = `Income logged — ${day.income}`;
   else if (notes[0]) headline = notes[0];
   else headline = 'Logged day';
 
@@ -211,8 +213,9 @@ const finalizeDay = (day) => {
   if (day.water != null) day.water = round1(day.water);
   if (day.exercise_min != null) day.exercise_min = Math.round(day.exercise_min);
   if (day.nutrition != null) day.nutrition = Math.round(day.nutrition);
-  day.income = round2(day.income || 0);
-  day.expense = round2(day.expense || 0);
+  // Keep null when no income/expense rows; never invent 0 for unlogged money.
+  if (day.income != null) day.income = round2(day.income);
+  if (day.expense != null) day.expense = round2(day.expense);
 
   // Top expense category for the day
   const cats = day._expenseByCat || {};
@@ -263,8 +266,8 @@ const buildDailyOverviewFromRows = ({ periodStart, periodEnd, healthRows = [], f
     mood_avg: null,
     water: null,
     exercise_min: null,
-    income: 0,
-    expense: 0,
+    income: null,
+    expense: null,
     health_count: 0,
     finance_count: 0,
   };
@@ -278,10 +281,12 @@ const buildDailyOverviewFromRows = ({ periodStart, periodEnd, healthRows = [], f
   let waterN = 0;
   let exSum = 0;
   let exN = 0;
+  let incomeSum = 0;
+  let incomeN = 0;
+  let expenseSum = 0;
+  let expenseN = 0;
 
   for (const d of days) {
-    totals.income = round2(totals.income + d.income);
-    totals.expense = round2(totals.expense + d.expense);
     totals.health_count += d.health_count;
     totals.finance_count += d.finance_count;
     if (d.steps != null) { stepsSum += d.steps; stepsN += 1; }
@@ -289,12 +294,16 @@ const buildDailyOverviewFromRows = ({ periodStart, periodEnd, healthRows = [], f
     if (d.mood != null) { moodSum += d.mood; moodN += 1; }
     if (d.water != null) { waterSum += d.water; waterN += 1; }
     if (d.exercise_min != null) { exSum += d.exercise_min; exN += 1; }
+    if (d.income != null) { incomeSum += d.income; incomeN += 1; }
+    if (d.expense != null) { expenseSum += d.expense; expenseN += 1; }
   }
   if (stepsN) totals.steps = Math.round(stepsSum);
   if (sleepN) totals.sleep_h_avg = round1(sleepSum / sleepN);
   if (moodN) totals.mood_avg = round1(moodSum / moodN);
   if (waterN) totals.water = round1(waterSum);
   if (exN) totals.exercise_min = Math.round(exSum);
+  if (incomeN) totals.income = round2(incomeSum);
+  if (expenseN) totals.expense = round2(expenseSum);
 
   const days_with_data = days.filter((d) => d.health_count > 0 || d.finance_count > 0).length;
   return { days, totals, days_with_data, period_start: periodStart, period_end: periodEnd };
@@ -383,8 +392,8 @@ const sanitizeDailyOverview = (overview) => {
       exercise_min: exercise != null ? Math.round(exercise) : null,
       heart_rate: hr != null ? Math.round(hr) : null,
       nutrition: nutrition != null ? Math.round(nutrition) : null,
-      income: round2(finite(d.income) || 0),
-      expense: round2(finite(d.expense) || 0),
+      income: finite(d.income) != null ? round2(finite(d.income)) : null,
+      expense: finite(d.expense) != null ? round2(finite(d.expense)) : null,
       top_expense_category: topCat,
       health_count: Math.max(0, Math.round(healthCount || 0)),
       finance_count: Math.max(0, Math.round(financeCount || 0)),
@@ -414,8 +423,8 @@ const sanitizeDailyOverview = (overview) => {
       mood_avg: finite(t.mood_avg),
       water: finite(t.water),
       exercise_min: tEx != null ? Math.round(tEx) : null,
-      income: round2(finite(t.income) || 0),
-      expense: round2(finite(t.expense) || 0),
+      income: finite(t.income) != null ? round2(finite(t.income)) : null,
+      expense: finite(t.expense) != null ? round2(finite(t.expense)) : null,
       health_count: Math.max(0, Math.round(tHealth || 0)),
       finance_count: Math.max(0, Math.round(tFinance || 0)),
     },
