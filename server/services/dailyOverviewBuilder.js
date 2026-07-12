@@ -10,8 +10,10 @@ const FinancialLog = require('../models/FinancialLog');
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+// Critical: Number(null) === 0 in JS — never treat missing metrics as zero.
 const finite = (v) => {
-  const n = Number(v);
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(String(v).replace(/,/g, '').trim());
   return Number.isFinite(n) ? n : null;
 };
 
@@ -356,10 +358,6 @@ const sanitizeDailyOverview = (overview) => {
     const date = String(d.date || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
     const weekday = String(d.weekday || '').slice(0, 3) || '—';
-    const num = (v) => {
-      const n = Number(v);
-      return Number.isFinite(n) ? n : null;
-    };
     const notes = Array.isArray(d.notes)
       ? d.notes.map((n) => String(n).trim().slice(0, 100)).filter(Boolean).slice(0, 6)
       : [];
@@ -369,21 +367,27 @@ const sanitizeDailyOverview = (overview) => {
     const topCat = d.top_expense_category != null
       ? String(d.top_expense_category).trim().slice(0, 40)
       : null;
+    const steps = finite(d.steps);
+    const exercise = finite(d.exercise_min);
+    const hr = finite(d.heart_rate);
+    const nutrition = finite(d.nutrition);
+    const healthCount = finite(d.health_count);
+    const financeCount = finite(d.finance_count);
     return {
       date,
       weekday,
-      steps: num(d.steps) != null ? Math.round(num(d.steps)) : null,
-      sleep_h: num(d.sleep_h),
-      mood: num(d.mood),
-      water: num(d.water),
-      exercise_min: num(d.exercise_min) != null ? Math.round(num(d.exercise_min)) : null,
-      heart_rate: num(d.heart_rate) != null ? Math.round(num(d.heart_rate)) : null,
-      nutrition: num(d.nutrition) != null ? Math.round(num(d.nutrition)) : null,
-      income: round2(num(d.income) || 0),
-      expense: round2(num(d.expense) || 0),
+      steps: steps != null ? Math.round(steps) : null,
+      sleep_h: finite(d.sleep_h),
+      mood: finite(d.mood),
+      water: finite(d.water),
+      exercise_min: exercise != null ? Math.round(exercise) : null,
+      heart_rate: hr != null ? Math.round(hr) : null,
+      nutrition: nutrition != null ? Math.round(nutrition) : null,
+      income: round2(finite(d.income) || 0),
+      expense: round2(finite(d.expense) || 0),
       top_expense_category: topCat,
-      health_count: Math.max(0, Math.round(num(d.health_count) || 0)),
-      finance_count: Math.max(0, Math.round(num(d.finance_count) || 0)),
+      health_count: Math.max(0, Math.round(healthCount || 0)),
+      finance_count: Math.max(0, Math.round(financeCount || 0)),
       headline,
       notes,
     };
@@ -392,24 +396,28 @@ const sanitizeDailyOverview = (overview) => {
   if (!days.length) return null;
 
   const t = overview.totals && typeof overview.totals === 'object' ? overview.totals : {};
-  const num = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  };
+  const daysWith = finite(overview.days_with_data);
+  const tSteps = finite(t.steps);
+  const tEx = finite(t.exercise_min);
+  const tHealth = finite(t.health_count);
+  const tFinance = finite(t.finance_count);
   return {
     period_start: overview.period_start || days[0].date,
     period_end: overview.period_end || days[days.length - 1].date,
-    days_with_data: Math.max(0, Math.round(num(overview.days_with_data) || days.filter((d) => d.health_count || d.finance_count).length)),
+    days_with_data: Math.max(
+      0,
+      Math.round(daysWith != null ? daysWith : days.filter((d) => d.health_count || d.finance_count).length),
+    ),
     totals: {
-      steps: num(t.steps) != null ? Math.round(num(t.steps)) : null,
-      sleep_h_avg: num(t.sleep_h_avg),
-      mood_avg: num(t.mood_avg),
-      water: num(t.water),
-      exercise_min: num(t.exercise_min) != null ? Math.round(num(t.exercise_min)) : null,
-      income: round2(num(t.income) || 0),
-      expense: round2(num(t.expense) || 0),
-      health_count: Math.max(0, Math.round(num(t.health_count) || 0)),
-      finance_count: Math.max(0, Math.round(num(t.finance_count) || 0)),
+      steps: tSteps != null ? Math.round(tSteps) : null,
+      sleep_h_avg: finite(t.sleep_h_avg),
+      mood_avg: finite(t.mood_avg),
+      water: finite(t.water),
+      exercise_min: tEx != null ? Math.round(tEx) : null,
+      income: round2(finite(t.income) || 0),
+      expense: round2(finite(t.expense) || 0),
+      health_count: Math.max(0, Math.round(tHealth || 0)),
+      finance_count: Math.max(0, Math.round(tFinance || 0)),
     },
     days,
   };

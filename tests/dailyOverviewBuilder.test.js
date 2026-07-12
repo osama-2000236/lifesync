@@ -114,4 +114,66 @@ describe('dailyOverviewBuilder', () => {
     expect(clean.days[0].steps).toBe(1001); // Math.round(1000.9)
     expect(clean.totals.expense).toBe(0);
   });
+
+  test('CRITICAL: null metrics stay null (Number(null) must not become 0)', () => {
+    const clean = sanitizeDailyOverview({
+      days: [
+        {
+          date: '2026-07-06', weekday: 'Mon',
+          steps: null, sleep_h: null, mood: null, water: null,
+          exercise_min: null, heart_rate: null, nutrition: null,
+          income: 0, expense: 0, health_count: 0, finance_count: 0,
+          notes: ['No logs'],
+        },
+        {
+          date: '2026-07-07', weekday: 'Tue',
+          steps: 8000, sleep_h: null, mood: 7, water: null,
+          exercise_min: null, heart_rate: null, nutrition: null,
+          income: 0, expense: 0, health_count: 2, finance_count: 0,
+          notes: ['8000 steps'],
+        },
+      ],
+      totals: {
+        steps: 8000, sleep_h_avg: null, mood_avg: 7, water: null,
+        exercise_min: null, income: 0, expense: 0, health_count: 2, finance_count: 0,
+      },
+      days_with_data: 1,
+    });
+    // Empty day: missing health metrics must NOT print as 0 in the PDF.
+    expect(clean.days[0].steps).toBeNull();
+    expect(clean.days[0].sleep_h).toBeNull();
+    expect(clean.days[0].mood).toBeNull();
+    expect(clean.days[0].water).toBeNull();
+    expect(clean.days[0].exercise_min).toBeNull();
+    // Day with real steps keeps the value.
+    expect(clean.days[1].steps).toBe(8000);
+    expect(clean.days[1].mood).toBe(7);
+    expect(clean.days[1].sleep_h).toBeNull();
+    // Totals: null stays null (not 0).
+    expect(clean.totals.steps).toBe(8000);
+    expect(clean.totals.sleep_h_avg).toBeNull();
+    expect(clean.totals.water).toBeNull();
+    expect(clean.totals.exercise_min).toBeNull();
+    expect(clean.totals.mood_avg).toBe(7);
+  });
+
+  test('freeze path keeps real steps and does not invent zeros for missing fields', () => {
+    const { freezeReportPayload } = require('../server/services/pdfReportBuilder');
+    const overview = buildDailyOverviewFromRows({
+      periodStart: '2026-07-06',
+      periodEnd: '2026-07-12',
+      healthRows: [
+        { type: 'steps', value: 8000, logged_at: '2026-07-07T10:00:00.000Z' },
+      ],
+      financeRows: [],
+    });
+    const frozen = freezeReportPayload({ daily_overview: overview, health_score: 70, summary: 'ok' });
+    const daily = frozen.metrics_snapshot.daily_overview;
+    const mon = daily.days[0];
+    const tue = daily.days[1];
+    expect(mon.steps).toBeNull(); // no logs Monday
+    expect(tue.steps).toBe(8000);
+    expect(daily.totals.steps).toBe(8000);
+    expect(daily.totals.sleep_h_avg).toBeNull();
+  });
 });
