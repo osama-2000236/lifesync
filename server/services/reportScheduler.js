@@ -79,11 +79,15 @@ const startReportScheduler = () => {
   const everyMs = parseInt(process.env.REPORT_SCHEDULER_MS, 10) || 60 * 60 * 1000;
   // Stagger first run a few minutes after boot so DB is warm.
   const firstDelay = Math.min(everyMs, 3 * 60 * 1000);
-  setTimeout(() => {
+  const tick = () => {
     runWeeklyReportJob().catch((e) => console.error('[reportScheduler]', e.message));
-    intervalHandle = setInterval(() => {
-      runWeeklyReportJob().catch((e) => console.error('[reportScheduler]', e.message));
-    }, everyMs);
+    // Same hourly clock drives the goal reminders (budget limit + hydration).
+    const { runGoalReminderJob } = require('./notificationService');
+    runGoalReminderJob().catch((e) => console.error('[goalReminders]', e.message));
+  };
+  setTimeout(() => {
+    tick();
+    intervalHandle = setInterval(tick, everyMs);
     if (intervalHandle.unref) intervalHandle.unref();
   }, firstDelay);
   console.log(`[reportScheduler] hourly job armed (first in ${Math.round(firstDelay / 1000)}s)`);

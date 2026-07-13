@@ -203,7 +203,9 @@ const buildDataGaps = (context = {}, now = new Date(), today = null) => {
 
 /** System prompt: full data access + curious digger + dashboard logging contract. */
 const buildSystemPrompt = (context = {}, loggedEntities = [], locale = null, modelSlug = null, ambiguity = null) => {
-  const name = context?.profile?.name;
+  // Privacy boundary: the user's name/username never enter the cloud prompt.
+  // Personalized greetings stay in the local deterministic replies
+  // (bertNlpService), which never leave the server.
   const memory = context?.memory?.summary;
   const resolvedLocale = locale || context?.locale || null;
   // Locale-aware data picture so AR turns get Arabic fact lines (clearer grounding).
@@ -246,7 +248,6 @@ const buildSystemPrompt = (context = {}, loggedEntities = [], locale = null, mod
     'MEMORY TRANSFER: User memories and history live in LifeSync, not in the model. The same session stays on one model for a consistent voice; a new chat may use another model and still has full memory — never claim amnesia because the engine changed.',
     'REAL-TIME LANGUAGE: Only Arabic or English. Match THIS turn\'s language even if earlier turns differ. Digit-only follow-ups keep the previous turn\'s language.',
     buildLanguageDirective(resolvedLocale),
-    name ? `The user's name is ${name}.` : '',
     'Speak like a warm, normal person who tracks the user\'s health and money — natural everyday Arabic (فصحى عصرية واضحة) or natural everyday English, never stiff translationese or robotic lists unless asked.',
     'Keep replies short (2–5 sentences) unless asked for detail. Output ONLY your final reply — never show reasoning or a "thinking process".',
     // Direct data access contract (Track A logger + this context = dashboard truth).

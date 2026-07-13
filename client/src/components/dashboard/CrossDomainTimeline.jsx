@@ -1,10 +1,12 @@
 // src/components/dashboard/CrossDomainTimeline.jsx
-// Linked health+finance timeline with a synchronized hover crosshair. React
-// owns the DOM and renders <path>/<circle> JSX from plain linear-scale math.
-// Fed entirely from healthData/financeData already fetched by DashboardPage —
-// no backend change (the API's `patterns` field has no per-day series, so
-// this reads the raw logs directly instead).
+// Linked health+finance timeline with a synchronized hover crosshair. Built
+// with D3 for scales/shape-generators only — React owns the DOM (renders the
+// <path>/<circle> JSX from D3-computed coordinates), so there's no D3-vs-React
+// DOM fight. Fed entirely from healthData/financeData already fetched by
+// DashboardPage — no backend change (the API's `patterns` field has no
+// per-day series, so this reads the raw logs directly instead).
 import { useMemo, useState, useRef } from 'react';
+import { scaleTime, scaleLinear, line as d3line, curveMonotoneX, extent, max } from 'd3';
 import { useSettings } from '../../contexts/SettingsContext';
 import { dateLocale } from '../../i18n';
 import ChartEmptyState from './ChartEmptyState';
@@ -15,16 +17,6 @@ const HEIGHT = 220;
 const MARGIN = { top: 16, right: 16, bottom: 24, left: 16 };
 
 const dateKey = (d) => new Date(d).toISOString().slice(0, 10);
-
-// ponytail: linear scales + straight-segment path replace d3 (its only use in
-// the app) — bring back d3-shape's curveMonotoneX only if smooth curves are asked for.
-const makeScale = (d0, d1, r0, r1) => {
-  const scale = (v) => r0 + ((v - d0) / (d1 - d0 || 1)) * (r1 - r0);
-  scale.invert = (p) => d0 + ((p - r0) / (r1 - r0 || 1)) * (d1 - d0);
-  return scale;
-};
-
-const linePath = (points) => points.map(([px, py], i) => `${i ? 'L' : 'M'}${px},${py}`).join('');
 
 export function buildDailySeries(healthData, financeData) {
   const sleepByDay = new Map();
@@ -75,13 +67,12 @@ export default function CrossDomainTimeline({ healthData = [], financeData = [],
   const innerW = WIDTH - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
-  const times = series.map((d) => d.date.getTime());
-  const x = makeScale(Math.min(...times), Math.max(...times), 0, innerW);
-  const ySleep = makeScale(0, Math.max(8, ...series.map((d) => d.sleep)), innerH, 0);
-  const ySpend = makeScale(0, Math.max(1, ...series.map((d) => d.spend)), innerH, 0);
+  const x = scaleTime().domain(extent(series, (d) => d.date)).range([0, innerW]);
+  const ySleep = scaleLinear().domain([0, Math.max(8, max(series, (d) => d.sleep))]).range([innerH, 0]);
+  const ySpend = scaleLinear().domain([0, Math.max(1, max(series, (d) => d.spend))]).range([innerH, 0]);
 
-  const sleepPath = linePath(series.map((d) => [x(d.date), ySleep(d.sleep)]));
-  const spendPath = linePath(series.map((d) => [x(d.date), ySpend(d.spend)]));
+  const sleepPath = d3line().x((d) => x(d.date)).y((d) => ySleep(d.sleep)).curve(curveMonotoneX)(series);
+  const spendPath = d3line().x((d) => x(d.date)).y((d) => ySpend(d.spend)).curve(curveMonotoneX)(series);
 
   const handleMove = (e) => {
     const rect = svgRef.current.getBoundingClientRect();

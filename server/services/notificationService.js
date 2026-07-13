@@ -4,6 +4,7 @@
 // Never announces a report that was not persisted.
 // ============================================
 
+const { Op } = require('sequelize');
 const UserNotification = require('../models/UserNotification');
 const User = require('../models/User');
 const nodemailer = require('nodemailer');
@@ -211,6 +212,75 @@ const notifyWeeklyReportReady = async (userId, report) => {
   };
 };
 
+// ── Goal reminders (dashboard promise: budget-limit + hydration nudges) ─────
+// Hourly sweep from the report scheduler. In-app only (no email), and at most
+// one notification per user+type per UTC day, so an over-budget week nags once
+// a day, not once an hour.
+
+const round2 = (v) => Math.round(Number(v) * 100) / 100;
+
+/** Create unless the same user+type already fired today (UTC). */
+const createDailyOnce = async (userId, type, dayStartUtc, payload) => {
+  const dupe = await UserNotification.count({
+    where: { user_id: userId, type, created_at: { [Op.gte]: dayStartUtc } },
+  });
+  if (dupe > 0) return null;
+  const row = await UserNotification.create({ user_id: userId, type, ...payload });
+  return toPublic(row);
+};
+
+/**
+ * Sweep all users with active goals; nudge on (a) budget goals over target,
+ * (b) water goals still under target in the evening.
+ */
+const runGoalReminderJob = async ({ at = new Date() } = {}) => {
+  // Required lazily: goalProgress pulls in the FX table; keep boot cheap.
+  const UserGoal = require('../models/UserGoal');
+  const { getGoalsWithProgress } = require('./ai/goalProgress');
+
+  const dayStart = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
+  const active = await UserGoal.findAll({
+    where: { status: 'active' },
+    attributes: ['user_id'],
+    group: ['user_id'],
+    raw: true,
+  });
+
+  const created = [];
+  for (const { user_id: userId } of active) {
+    try {
+      const goals = await getGoalsWithProgress(userId, { now: at });
+
+      const over = goals.find((g) => g.metric === 'budget' && g.target > 0 && g.current > g.target);
+      if (over) {
+        const n = await createDailyOnce(userId, 'budget_limit', dayStart, {
+          title: 'Budget limit reached',
+          body: `You have spent ${round2(over.current)} of your ${round2(over.target)}${over.unit ? ` ${over.unit}` : ''} ${over.period} budget.`,
+          link: `${APP_URL()}/finance`,
+          meta: { metric: 'budget', period: over.period, current: round2(over.current), target: round2(over.target) },
+        });
+        if (n) created.push(n);
+      }
+
+      // ponytail: evening = 17:00 UTC for everyone; switch to the user's IANA
+      // timezone (weekBoundsForTimeZone pattern) if non-UTC users complain.
+      const water = goals.find((g) => g.metric === 'water' && g.target > 0 && g.current < g.target);
+      if (water && at.getUTCHours() >= 17) {
+        const n = await createDailyOnce(userId, 'hydration', dayStart, {
+          title: 'Hydration check-in',
+          body: `You are at ${round2(water.current)} of your ${round2(water.target)}${water.unit ? ` ${water.unit}` : ''} water goal today — a glass now helps.`,
+          link: `${APP_URL()}/health`,
+          meta: { metric: 'water', period: water.period, current: round2(water.current), target: round2(water.target) },
+        });
+        if (n) created.push(n);
+      }
+    } catch (err) {
+      console.error(`[goalReminders] user ${userId} failed:`, err.message);
+    }
+  }
+  return created;
+};
+
 module.exports = {
   listNotifications,
   unreadCount,
@@ -218,6 +288,7 @@ module.exports = {
   markAllRead,
   notifyWeeklyReportReady,
   sendNotificationEmail,
+  runGoalReminderJob,
   toPublic,
   APP_URL,
 };

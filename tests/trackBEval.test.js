@@ -60,7 +60,8 @@ describe('Track B floors — system prompt contracts', () => {
       'google/gemma-4-31b-it:free',
     );
     expect(sys).toContain('LifeSync');
-    expect(sys).toContain('Sara');
+    // Privacy boundary: the user's name must NOT reach the cloud prompt.
+    expect(sys).not.toContain('Sara');
     expect(sys).toContain('likes morning walks');
     expect(sys).toContain('google/gemma-4-31b-it:free');
     expect(sys).toMatch(/CROSS-DOMAIN HARNESS|CROSS-DOMAIN CURIOSITY/i);

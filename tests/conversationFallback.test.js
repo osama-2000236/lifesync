@@ -49,6 +49,15 @@ describe('system prompt', () => {
     const sys = _buildSystemPrompt({}, [], 'en', null);
     expect(sys).not.toContain('powered by');
   });
+
+  test('never leaks the user identity into the cloud prompt', () => {
+    const sys = _buildSystemPrompt(
+      { profile: { name: 'Xanthippe77', username: 'xan_user_99', member_since: '2024-01-01' } },
+      [], 'en', GEMMA,
+    );
+    expect(sys).not.toContain('Xanthippe77');
+    expect(sys).not.toContain('xan_user_99');
+  });
 });
 
 describe('honest model candidates (no silent swap)', () => {

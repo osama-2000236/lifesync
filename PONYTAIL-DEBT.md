@@ -18,11 +18,6 @@ bold / inline code / fences / lists only.
 **ceiling:** subset markdown
 **upgrade:** react-markdown when headings, tables, or links appear in replies
 
-### `client/src/components/dashboard/CrossDomainTimeline.jsx` (near `dateKey`)
-hand-rolled linear scales + straight-segment path (d3 removed — was its only use).
-**ceiling:** straight line segments, no curve smoothing
-**upgrade:** reinstate d3-shape `curveMonotoneX` if smooth curves are asked for
-
 ---
 
 ## server
@@ -43,7 +38,10 @@ Arabic-block regex (not langdetect).
 
 ## Summary
 
-**4 markers · 0 no-trigger.**
+**3 markers · 0 no-trigger.**
+
+Note 2026-07-14: d3 reinstated in CrossDomainTimeline by user decision (defense
+slides present D3.js as part of the stack) — the linear-scale marker above is gone.
 
 Every shortcut has a named revisit condition. Ledger clean.
 

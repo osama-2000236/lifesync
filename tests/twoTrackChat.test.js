@@ -41,7 +41,8 @@ describe('conversationService', () => {
 
   test('system prompt grounds the model with memory + just-logged facts', () => {
     const sys = _buildSystemPrompt(ctx(), [{ domain: 'finance', type: 'expense', amount: 15, currency: 'USD', description: 'lunch' }]);
-    expect(sys).toContain('Osama');
+    // Privacy boundary: the user's name must NOT reach the cloud prompt.
+    expect(sys).not.toContain('Osama');
     expect(sys).toContain('has a car');
     expect(sys).toMatch(/already logged.*15/);
   });
