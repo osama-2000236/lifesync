@@ -243,7 +243,6 @@ APP_URL=https://your-api.example
 Also configure:
 
 - real SMTP credentials for OTP delivery
-- Firebase credentials only if real-time Firebase chat sync is desired
 - Google OAuth client IDs only if Google login is desired
 - managed MySQL backups and secret management for production
 
@@ -276,7 +275,7 @@ Express API
    ├─ bounded user context (profile, goals, chat, health, finance)
    ├─ conversational provider (Ollama / LM Studio / cloud)
    ├─ safe structured extraction and validation
-   └─ MySQL persistence + optional Firebase sync
+   └─ MySQL persistence
 ```
 
 Important files:
@@ -319,7 +318,6 @@ This permanently deletes the local LifeSync database and downloaded model volume
 - `CUSTOM_HF_ENDPOINT` can point to the bundled local Gradio service at `http://127.0.0.1:7860`.
 - The bundled `hf_space` service now targets `google/gemma-4-E2B-it` through Transformers.
 - On CPU-only machines, the service defaults to the official TorchAO int4 CPU quantization path to reduce memory pressure.
-- Firebase is optional. If it is not configured, Firebase-backed chat sync is skipped.
 - SMTP is optional in development. In production, use a real provider.
 - For Gmail SMTP, set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_SECURE=false`, and set `SMTP_FROM_EMAIL` to the same Gmail address as `SMTP_USER`.
 - The backend code expects `DB_PASSWORD`, not `DB_PASS`.
@@ -376,7 +374,6 @@ This project is close to a strong student/demo app, but it is not yet production
 - Database: managed MySQL
 - Cache/session store: managed Redis
 - Email: managed SMTP provider
-- Optional realtime layer: Firebase
 
 ## Cloudflare Frontend Deploy
 

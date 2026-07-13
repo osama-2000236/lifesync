@@ -1,11 +1,19 @@
 // server/utils/encryption.js
 // ============================================
 // Field-Level Encryption Utility
-// Encrypts sensitive health metrics and financial amounts at rest
-// Uses AES-256 encryption via crypto-js
+// Encrypts sensitive health metrics and financial amounts at rest.
+//
+// Formats:
+//   • v2 (current)  — node:crypto AES-256-GCM, scrypt-derived key, random IV,
+//                     serialized as `v2:` + base64(iv | authTag | ciphertext).
+//   • legacy        — CryptoJS `AES.encrypt(plaintext, passphrase)` output
+//                     (base64 starting "U2Fsd" = "Salted__"): OpenSSL EVP
+//                     key derivation (MD5) + AES-256-CBC. Decrypt-only, kept
+//                     so rows written before the v2 migration keep reading.
+//                     New writes always use v2.
 // ============================================
 
-const CryptoJS = require('crypto-js');
+const crypto = require('crypto');
 require('dotenv').config();
 
 // Resolve the field-encryption key.
@@ -49,19 +57,66 @@ const resolveEncryptionKey = () => {
 
 const ENCRYPTION_KEY = resolveEncryptionKey();
 
+// ── v2: AES-256-GCM ───────────────────────────────────────────────────────────
+// Static scrypt salt is fine here: the input is an app-level ≥32-char secret,
+// not a user password, and the salt only needs to domain-separate this key.
+const V2_PREFIX = 'v2:';
+const GCM_IV_LEN = 12;
+const GCM_TAG_LEN = 16;
+const v2Key = crypto.scryptSync(ENCRYPTION_KEY, 'lifesync-field-encryption-v2', 32);
+
+const encryptV2 = (plaintext) => {
+  const iv = crypto.randomBytes(GCM_IV_LEN);
+  const cipher = crypto.createCipheriv('aes-256-gcm', v2Key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  return V2_PREFIX + Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString('base64');
+};
+
+const decryptV2 = (value) => {
+  const data = Buffer.from(value.slice(V2_PREFIX.length), 'base64');
+  const iv = data.subarray(0, GCM_IV_LEN);
+  const tag = data.subarray(GCM_IV_LEN, GCM_IV_LEN + GCM_TAG_LEN);
+  const ciphertext = data.subarray(GCM_IV_LEN + GCM_TAG_LEN);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', v2Key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+};
+
+// ── legacy: CryptoJS/OpenSSL-EVP AES-256-CBC (decrypt-only) ──────────────────
+// EVP_BytesToKey with MD5 — weak by modern standards, which is exactly why new
+// writes use v2; this exists only to read pre-migration rows.
+const evpBytesToKey = (password, salt) => {
+  const pw = Buffer.from(String(password), 'utf8');
+  let block = Buffer.alloc(0);
+  let derived = Buffer.alloc(0);
+  while (derived.length < 48) { // 32-byte key + 16-byte IV
+    block = crypto.createHash('md5').update(Buffer.concat([block, pw, salt])).digest();
+    derived = Buffer.concat([derived, block]);
+  }
+  return { key: derived.subarray(0, 32), iv: derived.subarray(32, 48) };
+};
+
+const decryptLegacy = (value) => {
+  const data = Buffer.from(value, 'base64');
+  // "Salted__" + 8-byte salt + ciphertext
+  const salt = data.subarray(8, 16);
+  const { key, iv } = evpBytesToKey(ENCRYPTION_KEY, salt);
+  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+  return Buffer.concat([decipher.update(data.subarray(16)), decipher.final()]).toString('utf8');
+};
+
 /**
- * Encrypt a value for storage
+ * Encrypt a value for storage (always v2/GCM)
  * @param {string|number} value - The plaintext value to encrypt
  * @returns {string} Encrypted ciphertext
  */
 const encrypt = (value) => {
   if (value === null || value === undefined) return null;
-  const plaintext = String(value);
-  return CryptoJS.AES.encrypt(plaintext, ENCRYPTION_KEY).toString();
+  return encryptV2(String(value));
 };
 
 /**
- * Decrypt a stored value
+ * Decrypt a stored value (v2 or legacy CryptoJS format)
  * @param {string} ciphertext - The encrypted value
  * @returns {string|null} Decrypted plaintext, or null on failure / non-ciphertext
  */
@@ -70,13 +125,15 @@ const decrypt = (ciphertext) => {
   // Legacy plaintext rows (never encrypted) must not be forced through AES.
   if (!isEncrypted(ciphertext)) return String(ciphertext);
   try {
-    const bytes = CryptoJS.AES.decrypt(ciphertext, ENCRYPTION_KEY);
-    const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-    // Wrong key / tampered ciphertext → empty Utf8; never return garbage.
+    const decrypted = String(ciphertext).startsWith(V2_PREFIX)
+      ? decryptV2(String(ciphertext))
+      : decryptLegacy(String(ciphertext));
+    // Wrong key / tampered ciphertext → throw (caught below) or empty output;
+    // never return garbage.
     if (!decrypted) return null;
     return decrypted;
   } catch (error) {
-    console.error('Decryption error:', error.message);
+    // GCM auth failure / CBC bad padding — wrong key or tampering.
     return null;
   }
 };
@@ -122,13 +179,14 @@ const decryptFields = (instance, fields) => {
 };
 
 /**
- * Check if a value appears to be AES-encrypted (Base64 ciphertext)
+ * Check if a value appears to be ciphertext in either supported format
  * @param {string} value
  * @returns {boolean}
  */
 const isEncrypted = (value) => {
   if (typeof value !== 'string') return false;
-  // AES encrypted strings from CryptoJS are Base64 with specific pattern
+  if (value.startsWith(V2_PREFIX) && value.length > V2_PREFIX.length + 20) return true;
+  // Legacy CryptoJS AES strings are Base64 starting "U2Fsd" ("Salted__")
   return value.length > 20 && /^U2Fsd/.test(value);
 };
 

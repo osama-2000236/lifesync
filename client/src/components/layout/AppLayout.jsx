@@ -112,7 +112,7 @@ export default function AppLayout() {
           </div>
           <div className="flex items-center gap-3 p-3 rounded-xl bg-navy-50/60 hover:bg-navy-100/60 transition-colors duration-200">
             <Link to="/profile" className="flex items-center gap-3 flex-1 min-w-0 group">
-              {/* ponytail: ink (not navy) — navy ramp inverts under .dark and white initials fail AA */}
+              {/* ink (not navy) — navy ramp inverts under .dark and white initials fail AA */}
               <div className="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-ink-800 to-ink-700 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 group-hover:ring-2 group-hover:ring-emerald-400 transition-all">
                 {avatarSrc ? (
                   <img src={avatarSrc} alt={t('a11y.avatar')} className="w-full h-full object-cover" />

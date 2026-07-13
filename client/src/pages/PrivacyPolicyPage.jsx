@@ -61,8 +61,9 @@ const COPY = {
         items: [
           ['Railway', ' — backend hosting and database infrastructure'],
           ['Cloudflare', ' — frontend hosting and content delivery'],
-          ['Firebase (Google)', ' — real-time chat message synchronization'],
-          ['Google Gemini', ' — natural-language logging and generated summaries through the Gemini API'],
+          ['OpenRouter', ' — AI processing of chat messages through cloud language models'],
+          ['Groq', ' — text-to-speech synthesis for spoken assistant replies'],
+          ['Hugging Face', ' — hosting for the intent-classification model'],
           ['Nodemailer / SMTP provider', ' — transactional email delivery such as OTP codes'],
         ],
         after: 'We do not share your personal information with advertisers or data brokers.',
@@ -166,8 +167,9 @@ const COPY = {
         items: [
           ['Railway', ' — استضافة الخادم الخلفي وبنية قاعدة البيانات'],
           ['Cloudflare', ' — استضافة الواجهة الأمامية وتوصيل المحتوى'],
-          ['Firebase (Google)', ' — مزامنة رسائل المحادثة الفورية'],
-          ['Google Gemini', ' — التسجيل باللغة الطبيعية والملخّصات المولّدة عبر واجهة Gemini'],
+          ['OpenRouter', ' — معالجة رسائل المحادثة بالذكاء الاصطناعي عبر نماذج لغوية سحابية'],
+          ['Groq', ' — توليد الصوت المنطوق لردود المساعد'],
+          ['Hugging Face', ' — استضافة نموذج تصنيف النوايا'],
           ['Nodemailer / مزوّد SMTP', ' — إرسال رسائل البريد التشغيلية مثل رموز التحقق'],
         ],
         after: 'نحن لا نشارك معلوماتك الشخصية مع المعلنين أو وسطاء البيانات.',

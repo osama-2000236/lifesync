@@ -6,11 +6,6 @@
 
 // ─── Mocks (must be declared before any require) ───
 
-jest.mock('../server/config/firebase', () => ({
-  initializeFirebase: jest.fn(),
-  getFirestore: jest.fn(() => null),
-}));
-
 jest.mock('../server/config/database', () => {
   const { Sequelize } = require('sequelize');
   const sequelize = new Sequelize({

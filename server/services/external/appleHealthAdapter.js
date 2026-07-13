@@ -8,11 +8,9 @@
 // and POSTs to our sync endpoint.
 // ============================================
 
-const HealthPlatformAdapter = require('./healthAdapter');
-
-class AppleHealthAdapter extends HealthPlatformAdapter {
+class AppleHealthAdapter {
   constructor() {
-    super('apple_health');
+    this.name = 'apple_health';
   }
 
   /**

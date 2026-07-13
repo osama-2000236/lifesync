@@ -106,7 +106,6 @@ Important notes:
 
 - `CUSTOM_HF_ENDPOINT` above uses the hosted Space, which is the easiest setup for teammates.
 - `GOOGLE_AUTH_CLIENT_IDS` must include the same web client ID used by the frontend.
-- Firebase credentials are optional for local development.
 - SMTP credentials are optional in development.
 
 ### Frontend `client/.env`
@@ -136,7 +135,6 @@ What to expect:
 
 - the backend will connect to MySQL
 - Sequelize will auto-sync the tables in development
-- Firebase may print a warning if it is not configured
 
 Health check:
 
@@ -234,12 +232,6 @@ In development:
 - if Ethereal cannot be created, the OTP is logged to the backend console
 
 So teammates can still test registration and password reset locally without production mail infrastructure.
-
-### Firebase
-
-Firebase is optional locally.
-
-If it is not configured, the backend will start and print a warning. Firebase-backed features will be skipped.
 
 ### Google sign-in
 

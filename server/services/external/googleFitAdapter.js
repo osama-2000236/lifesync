@@ -10,7 +10,6 @@
 // ============================================
 
 const axios = require('axios');
-const HealthPlatformAdapter = require('./healthAdapter');
 
 // Google Fit API scopes
 const SCOPES = [
@@ -54,9 +53,9 @@ const firstAuthClientId = () => String(process.env.GOOGLE_AUTH_CLIENT_IDS || '')
   .map((s) => s.trim())
   .filter((s) => looksLikeRealCredential(s, { kind: 'client_id' }))[0] || '';
 
-class GoogleFitAdapter extends HealthPlatformAdapter {
+class GoogleFitAdapter {
   constructor() {
-    super('google_fit');
+    this.name = 'google_fit';
     // Prefer dedicated Fit OAuth client; fall back to the first real Google Sign-In
     // web client id when GOOGLE_CLIENT_ID is unset/placeholder.
     const dedicated = looksLikeRealCredential(process.env.GOOGLE_CLIENT_ID, { kind: 'client_id' })

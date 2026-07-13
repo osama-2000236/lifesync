@@ -146,7 +146,7 @@ function ProfileInfoSection({ user, onUpdate }) {
           {ok && <Alert tone="success" onDismiss={() => setOk('')}>{ok}</Alert>}
 
           <div className="flex items-center gap-4 pb-4 border-b border-navy-50">
-            {/* ponytail: ink stays dark in both themes; navy-* would invert under .dark */}
+            {/* ink stays dark in both themes; navy-* would invert under .dark */}
             <div className="relative w-16 h-16 flex-shrink-0">
               <div className="w-16 h-16 rounded-2xl overflow-hidden bg-gradient-to-br from-ink-800 to-ink-700">
                 {displaySrc ? (

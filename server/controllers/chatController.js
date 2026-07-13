@@ -29,7 +29,6 @@ const Category = require('../models/Category');
 const ChatLog = require('../models/ChatLog');
 const LinkedDomain = require('../models/LinkedDomain');
 const UserGoal = require('../models/UserGoal');
-const { getFirestore } = require('../config/firebase');
 const { createStore } = require('../services/ephemeralStore');
 const { success, error } = require('../utils/responseHelper');
 
@@ -211,36 +210,6 @@ const createCrossDomainLinks = async (healthEntries, financeEntries, originalMes
     }
   }
   return links;
-};
-
-const syncToFirebase = async (sessionId, userId, userMessage, assistantMessage, nlpResult) => {
-  const firestore = getFirestore();
-  if (!firestore) return;
-
-  try {
-    const sessionRef = firestore.collection('chat_sessions').doc(sessionId);
-    await sessionRef.set({
-      user_id: userId,
-      last_message_at: new Date(),
-    }, { merge: true });
-
-    const messagesRef = sessionRef.collection('messages');
-    await messagesRef.add({
-      role: 'user',
-      content: userMessage,
-      parsed_intent: nlpResult.intent,
-      entities: nlpResult.entities,
-      timestamp: new Date(),
-    });
-    await messagesRef.add({
-      role: 'assistant',
-      content: assistantMessage,
-      needs_clarification: nlpResult.needs_clarification,
-      timestamp: new Date(),
-    });
-  } catch (fbError) {
-    console.warn('Firebase sync warning:', fbError.message);
-  }
 };
 
 // ============================================
@@ -540,9 +509,6 @@ const processMessageStream = async (req, res) => {
         status: 'complete',
       });
 
-      // Firebase sync (non-blocking)
-      syncToFirebase(currentSessionId, userId, message, nlpResult.clarification_question, nlpResult).catch(() => {});
-
       sseWrite(res, 'complete', {
         session_id: currentSessionId,
         intent: nlpResult.intent,
@@ -621,10 +587,7 @@ const processMessageStream = async (req, res) => {
       status: 'complete',
     });
 
-    // ─── Step 6: Firebase sync (non-blocking) ───
-    syncToFirebase(currentSessionId, userId, message, nlpResult.response, nlpResult).catch(() => {});
-
-    // ─── Step 7: Send complete event ───
+    // ─── Step 6: Send complete event ───
     sseWrite(res, 'complete', {
       session_id: currentSessionId,
       intent: nlpResult.intent,
@@ -805,8 +768,6 @@ const processMessage = async (req, res, next) => {
         status: 'complete',
       });
 
-      syncToFirebase(currentSessionId, userId, message, nlpResult.clarification_question, nlpResult).catch(() => {});
-
       return success(res, {
         session_id: currentSessionId,
         intent: nlpResult.intent,
@@ -862,8 +823,6 @@ const processMessage = async (req, res, next) => {
       entities_json: assistantModelMeta(effectiveModelId),
       status: 'complete',
     });
-
-    syncToFirebase(currentSessionId, userId, message, nlpResult.response, nlpResult).catch(() => {});
 
     return success(res, {
       session_id: currentSessionId,

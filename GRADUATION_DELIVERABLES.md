@@ -4,6 +4,13 @@
 
 ---
 
+> **⚠️ Update — July 2026 (supersedes the June note where they conflict).**
+> - **Generative replies now come from cloud models via OpenRouter** (the local Gemma/Ollama picker described below was replaced). The **BERT intent classifier + deterministic router** is unchanged and still owns intent routing, entity extraction, and dashboard scores. Arabic voice replies use **Groq cloud TTS (Orpheus)**.
+> - **Deployment:** production runs on **Cloudflare Workers (both tiers)** with live API/Worker smoke suites; avatar upload verified end-to-end against production.
+> - **Tests:** **892 Jest server tests** (889 pass, 2 intentionally skipped, 1 timing-sensitive suite that passes in isolation — run serially via `npm run test:regression:unit`) and **317 Vitest client tests, all passing** (verified 2026-07-13). Playwright E2E unchanged.
+> - **Scope update:** the four features the June note rated *partial* now have complete server flows with passing integration suites: weekly report download (`GET /api/reports/:id/download`), hourly report + notification scheduler (wired in `server/app.js`), external health sync (`/api/external`), and admin routes.
+> - **Firebase removed (July 2026).** The Firestore chat mirror described below was dead code — the client never subscribed. Chat delivery is REST + SSE only; `server/config/firebase.js`, `client/src/services/firebase.js`, and the `firebase`/`firebase-admin` dependencies were deleted. References to Firebase (and the earlier Gemini API) in older sections are historical.
+
 > **⚠️ Update — June 2026 (supersedes earlier AI claims below).**
 > The AI layer changed since the February draft. **Read this first; where the text below conflicts, this note wins.**
 > - **NLP engine is no longer OpenAI GPT-4.** OpenAI was removed entirely. The default is a **local fine-tuned BERT intent classifier (`BertForSequenceClassification`, ONNX Runtime DirectML GPU / PyTorch CPU)** combined with a deterministic high-precision router + entity extractor. A **model picker** lets the user switch to **local Gemma 3 / Gemma 4** (via Ollama/LM Studio) — no silent fallback.

@@ -142,12 +142,42 @@ describe('Encryption Utility', () => {
       expect(dec(tampered)).toBeNull();
     });
 
-    test('decrypt with wrong key returns null', () => {
-      const CryptoJS = require('crypto-js');
-      const foreign = CryptoJS.AES.encrypt('secret-data', 'different-key-at-least-32-characters!!').toString();
-      // Looks encrypted (U2Fsd…) but wrong key → empty Utf8 → null
+    test('decrypt with wrong key returns null (legacy CryptoJS format)', () => {
+      // Build a legacy OpenSSL-EVP ("Salted__") ciphertext under a different
+      // key, exactly the format CryptoJS.AES.encrypt(text, passphrase) wrote.
+      const crypto = require('crypto');
+      const password = Buffer.from('different-key-at-least-32-characters!!', 'utf8');
+      const salt = crypto.randomBytes(8);
+      let block = Buffer.alloc(0);
+      let derived = Buffer.alloc(0);
+      while (derived.length < 48) {
+        block = crypto.createHash('md5').update(Buffer.concat([block, password, salt])).digest();
+        derived = Buffer.concat([derived, block]);
+      }
+      const cipher = crypto.createCipheriv('aes-256-cbc', derived.subarray(0, 32), derived.subarray(32, 48));
+      const body = Buffer.concat([cipher.update('secret-data', 'utf8'), cipher.final()]);
+      const foreign = Buffer.concat([Buffer.from('Salted__'), salt, body]).toString('base64');
+      // Looks encrypted (U2Fsd…) but wrong key → decrypt failure → null
       expect(isEncrypted(foreign)).toBe(true);
       expect(dec(foreign)).toBeNull();
+    });
+
+    test('decrypts a legacy CryptoJS ciphertext written with the current key', () => {
+      // Same EVP construction, current key — proves pre-migration rows still read.
+      const crypto = require('crypto');
+      const password = Buffer.from(process.env.ENCRYPTION_KEY || process.env.JWT_SECRET, 'utf8');
+      const salt = crypto.randomBytes(8);
+      let block = Buffer.alloc(0);
+      let derived = Buffer.alloc(0);
+      while (derived.length < 48) {
+        block = crypto.createHash('md5').update(Buffer.concat([block, password, salt])).digest();
+        derived = Buffer.concat([derived, block]);
+      }
+      const cipher = crypto.createCipheriv('aes-256-cbc', derived.subarray(0, 32), derived.subarray(32, 48));
+      const body = Buffer.concat([cipher.update('legacy-row-99.5', 'utf8'), cipher.final()]);
+      const legacy = Buffer.concat([Buffer.from('Salted__'), salt, body]).toString('base64');
+      expect(isEncrypted(legacy)).toBe(true);
+      expect(dec(legacy)).toBe('legacy-row-99.5');
     });
   });
 });

@@ -11,7 +11,6 @@ const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const { testConnection } = require('./config/database');
-const { initializeFirebase } = require('./config/firebase');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 // Import routes
@@ -174,9 +173,6 @@ const startServer = async () => {
     // for column changes; DB_ALTER=true is an emergency escape hatch.
     await db.sequelize.sync({ alter: process.env.DB_ALTER === 'true' });
     console.log('✅ Database tables synchronized (alter: ' + (process.env.DB_ALTER === 'true') + ').');
-
-    // Initialize Firebase (non-blocking)
-    initializeFirebase();
 
     // UC-14 weekly report + notification scheduler (hourly; opt out with REPORT_SCHEDULER=0)
     try {
