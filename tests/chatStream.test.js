@@ -428,6 +428,56 @@ describe('POST /api/chat/stream', () => {
     expect(assistantRow.intent).toBe('aborted');
     expect(assistantRow.status).toBe('error');
   });
+
+  // ─── Mid-chat model switching (same session, different model per turn) ───
+
+  const okParse = (response) => ({
+    success: true,
+    intent: 'general_chat',
+    domain: 'general',
+    entities: [],
+    response,
+    needs_clarification: false,
+    confidence: 0.9,
+    is_cross_domain: false,
+    processing_time_ms: 10,
+  });
+
+  const sendTurn = (sessionId, model, message) => request(app)
+    .post('/api/chat/stream')
+    .set('Authorization', 'Bearer fake-token')
+    .send({ message, session_id: sessionId, model });
+
+  test('turn 2 with a different model is honored — no deny event, per-turn attribution', async () => {
+    parseMessage.mockResolvedValue(okParse('Hi!'));
+    const session = `sess-switch-${Date.now()}`;
+
+    const res1 = await sendTurn(session, 'openai_chat', 'hello');
+    const ev1 = parseSSE(res1.text);
+    expect(ev1.find((e) => e.event === 'ack').data.catalog_model).toBe('openai_chat');
+
+    const res2 = await sendTurn(session, 'gemma4_local', 'hello again');
+    const ev2 = parseSSE(res2.text);
+    const ack2 = ev2.find((e) => e.event === 'ack');
+    expect(ack2.data.catalog_model).toBe('gemma4_local');
+    // No deny status, no lock leftovers anywhere in the stream
+    expect(ev2.some((e) => e.data && e.data.code === 'MODEL_SWITCH_DENIED')).toBe(false);
+    expect(res2.text).not.toMatch(/model_locked|model_switch_denied/);
+    const complete2 = ev2.find((e) => e.event === 'complete');
+    expect(complete2.data.model_runtime.catalog_model).toBe('gemma4_local');
+
+    // Each turn passed its own model to the pipeline
+    const models = parseMessage.mock.calls.map((c) => c[3].catalog_id);
+    expect(models).toEqual(['openai_chat', 'gemma4_local']);
+
+    // Assistant rows carry per-turn attribution in ChatLog
+    const ChatLog = require('../server/models/ChatLog');
+    const rows = await ChatLog.findAll({
+      where: { user_id: 1, session_id: session, role: 'assistant' },
+      order: [['id', 'ASC']],
+    });
+    expect(rows.map((r) => r.entities_json?.catalog_model)).toEqual(['openai_chat', 'gemma4_local']);
+  });
 });
 
 describe('resolveAIErrorMessage language parity', () => {

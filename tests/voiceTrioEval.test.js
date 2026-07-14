@@ -13,11 +13,9 @@ const {
 } = require('../server/services/ai/conversationService');
 const { _detectLang: detectLang } = require('../server/services/ai/nlpService');
 const {
-  resolveSessionModel,
   assistantModelMeta,
   _readCatalogModel,
 } = require('../server/services/ai/sessionModelLock');
-const ChatLog = require('../server/models/ChatLog');
 
 const VOICE_TRIO = ['openai_chat', 'openrouter_chat', 'gemma4_local'];
 
@@ -99,35 +97,8 @@ describe('language + cross-domain for every voice model path', () => {
   });
 });
 
-describe('session model lock (server-side mid-convo deny)', () => {
-  afterEach(() => jest.restoreAllMocks());
-
-  test('first turn adopts requested model; second turn denies after durable meta', async () => {
-    const session = `sess-lock-${Date.now()}`;
-    jest.spyOn(ChatLog, 'findAll')
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ entities_json: { catalog_model: 'openai_chat' } }]);
-
-    const first = await resolveSessionModel(42, session, 'openai_chat');
-    expect(first).toMatchObject({ modelId: 'openai_chat', denied: false, locked: null });
-
-    const second = await resolveSessionModel(42, session, 'gemma4_local');
-    expect(second.denied).toBe(true);
-    expect(second.modelId).toBe('openai_chat');
-    expect(second.locked).toBe('openai_chat');
-    expect(second.requested).toBe('gemma4_local');
-  });
-
-  test('new session unlocks model choice', async () => {
-    jest.spyOn(ChatLog, 'findAll').mockResolvedValue([]);
-    const a = await resolveSessionModel(7, 'sess-a', 'openai_chat');
-    expect(a.modelId).toBe('openai_chat');
-    const b = await resolveSessionModel(7, 'sess-b', 'gemma4_local');
-    expect(b.denied).toBe(false);
-    expect(b.modelId).toBe('gemma4_local');
-  });
-
-  test('assistantModelMeta + read round-trip for durable lock payload', () => {
+describe('per-turn model attribution (mid-chat switching allowed)', () => {
+  test('assistantModelMeta + read round-trip for attribution payload', () => {
     const meta = assistantModelMeta('openrouter_chat');
     expect(meta).toEqual({ catalog_model: 'openrouter_chat' });
     expect(_readCatalogModel(meta)).toBe('openrouter_chat');

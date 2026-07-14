@@ -65,10 +65,8 @@ export default function ChatPage() {
 
   const chooseModel = useCallback((id) => {
     if (id === modelId) return;
-    if (!canChangeModel({ messageCount: messages.length, busy: sending })) {
-      setModelLockHint(
-        sending ? t('model.lockedBusy') : t('model.lockedMidConvo'),
-      );
+    if (!canChangeModel({ busy: sending })) {
+      setModelLockHint(t('model.lockedBusy'));
       setTimeout(() => setModelLockHint(null), 5000);
       return;
     }
@@ -76,7 +74,7 @@ export default function ChatPage() {
     setModelId(id);
     saveChatModelId(id);
     authAPI.updateProfile({ preferred_model: id }).catch(() => { /* offline OK */ });
-  }, [modelId, messages.length, sending, t]);
+  }, [modelId, sending, t]);
 
   // ─── Load the live server catalog (fallback: static options) ───
   useEffect(() => {
@@ -174,13 +172,7 @@ export default function ChatPage() {
       onAck: (data) => {
         if (data.session_id && data.session_id !== sessionId) setSessionId(data.session_id);
       },
-      // Known status codes get localized copy — raw wire strings like
-      // "model_locked" must never reach the user.
-      onStatus: (data) => setStatusText(
-        data.code === 'MODEL_SWITCH_DENIED'
-          ? t('chat.status.modelLocked', { model: data.locked_model || '' })
-          : (data.message || t('chat.status.default')),
-      ),
+      onStatus: (data) => setStatusText(data.message || t('chat.status.default')),
       onDelta: (data) => {
         streamBufRef.current += data.text || '';
         if (!streamRafRef.current) {
@@ -367,7 +359,7 @@ export default function ChatPage() {
               models={models}
               value={modelId}
               onChange={chooseModel}
-              disabled={!canChangeModel({ messageCount: messages.length, busy: sending })}
+              disabled={!canChangeModel({ busy: sending })}
               t={t}
             />
           </div>

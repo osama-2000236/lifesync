@@ -51,9 +51,9 @@ describe('chatModel utils', () => {
     expect(list.map((m) => m.id)).toEqual(['gemma4_local', 'openai_chat']);
   });
 
-  it('canChangeModel locks mid-conversation and while busy', () => {
-    expect(canChangeModel({ messageCount: 0, busy: false })).toBe(true);
-    expect(canChangeModel({ messageCount: 2, busy: false })).toBe(false);
-    expect(canChangeModel({ messageCount: 0, busy: true })).toBe(false);
+  it('canChangeModel allows mid-conversation switch, locks only while busy', () => {
+    expect(canChangeModel({ busy: false })).toBe(true);
+    expect(canChangeModel({ messageCount: 2, busy: false })).toBe(true); // mid-chat OK
+    expect(canChangeModel({ busy: true })).toBe(false);
   });
 });

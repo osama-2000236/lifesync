@@ -216,7 +216,7 @@ export default function AssistantPage() {
     }
   };
 
-  /** New voice turn = new session_id + empty thread → model picker unlocks. */
+  /** New voice turn = new session_id + empty thread (model picker never locks mid-convo now). */
   const startFreshConversation = useCallback(() => {
     if (abortRef.current) { abortRef.current(); abortRef.current = null; }
     try { voiceRef.current?.stop?.(); } catch { /* best-effort */ }
@@ -226,19 +226,14 @@ export default function AssistantPage() {
     setSwitching(false);
   }, []);
 
-  const modelLocked = !canChangeModel({
-    messageCount: messages.length,
-    busy: talking || busy || switching,
-  });
+  const modelLocked = !canChangeModel({ busy: talking || busy || switching });
 
   const chooseModel = useCallback((id) => {
     const next = resolveVoiceModelId(id);
     if (next === modelIdRef.current) return;
-    // Mid-conversation switch feels inconsistent — deny with a friendly hint.
-    if (!canChangeModel({ messageCount: messages.length, busy: talking || busy })) {
-      setModelLockHint(
-        (talking || busy) ? t('model.lockedBusy') : t('model.lockedMidConvo'),
-      );
+    // Switch allowed mid-conversation; only a turn in flight blocks it.
+    if (!canChangeModel({ busy: talking || busy })) {
+      setModelLockHint(t('model.lockedBusy'));
       setTimeout(() => setModelLockHint(null), 5000);
       return;
     }
@@ -248,7 +243,7 @@ export default function AssistantPage() {
     authAPI.updateProfile({ preferred_model: next }).catch(() => {});
     setSwitching(true);
     setTimeout(() => setSwitching(false), 1200);
-  }, [messages.length, talking, busy, t]);
+  }, [talking, busy, t]);
 
   useEffect(() => () => {
     voiceRef.current?.stop?.();
@@ -423,7 +418,7 @@ export default function AssistantPage() {
                 : t('assistant.poweredBy', { model: modelLabel })}
               <span className="ms-2 text-white/35">· {t('assistant.modelNote')}</span>
               {modelLocked && !modelLockHint && (
-                <span className="ms-2 text-white/40" data-testid="model-locked-badge">· {t('model.lockedMidConvo').split('.')[0]}</span>
+                <span className="ms-2 text-white/40" data-testid="model-locked-badge">· {t('model.lockedBusy').split('.')[0]}</span>
               )}
             </p>
             {modelLockHint && (

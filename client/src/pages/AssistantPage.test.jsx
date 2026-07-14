@@ -407,13 +407,18 @@ describe('AssistantPage — converse + dictate', () => {
     expect(chatAPI.sendMessageStream.mock.calls[0][3].model).toBe('gemma4_local');
   });
 
-  it('denies model switch mid-conversation (picker disabled + lock badge)', async () => {
+  it('allows model switch mid-conversation — next turn uses the new model', async () => {
     await renderPage();
     act(() => voiceArgs.onUtterance('hi'));
-    // Message present → lock: button disabled, no open menu
-    expect(screen.getByTestId('model-picker-button')).toBeDisabled();
-    expect(screen.getByTestId('model-locked-badge')).toBeInTheDocument();
-    expect(localStorage.getItem('lifesync.chat.model')).not.toBe('gemma4_local');
+    // Messages present, no turn in flight → picker stays enabled, switch applies.
+    expect(screen.getByTestId('model-picker-button')).not.toBeDisabled();
+    expect(screen.queryByTestId('model-locked-badge')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('model-picker-button'));
+    fireEvent.click(screen.getByTestId('model-option-gemma4_local'));
+    expect(localStorage.getItem('lifesync.chat.model')).toBe('gemma4_local');
+    act(() => voiceArgs.onUtterance('again'));
+    const calls = chatAPI.sendMessageStream.mock.calls;
+    expect(calls[calls.length - 1][3].model).toBe('gemma4_local');
   });
 
   it('new chat clears the thread and unlocks the model picker', async () => {

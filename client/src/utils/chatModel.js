@@ -35,9 +35,8 @@ export const voiceModelsOnly = (models = []) => {
 };
 
 /**
- * Mid-conversation model switch hurts consistency (different style, free-pool hops).
- * Lock once the user has messages or voice is mid-turn / chat is sending.
+ * Model switch is allowed anytime — including mid-conversation. The next
+ * message uses the new model. Only lock while a reply is in flight, so the
+ * in-progress turn keeps its attribution.
  */
-export const canChangeModel = ({ messageCount = 0, busy = false } = {}) => (
-  !busy && Number(messageCount) === 0
-);
+export const canChangeModel = ({ busy = false } = {}) => !busy;

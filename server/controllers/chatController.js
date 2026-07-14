@@ -16,7 +16,7 @@ const { parseMessage, _detectLang } = require('../services/ai/nlpService');
 const { buildBertContext } = require('../services/ai/bertContextService');
 const { recordTurnMemories } = require('../services/ai/memoryService');
 const { resolveModel } = require('../services/ai/modelRuntimeManager');
-const { resolveSessionModel, assistantModelMeta } = require('../services/ai/sessionModelLock');
+const { assistantModelMeta } = require('../services/ai/sessionModelLock');
 const {
   entitiesForPersistence,
   isValidHealthEntity,
@@ -238,7 +238,7 @@ const resolveAIErrorMessage = (aiError, userMessage) =>
 
 /** Generative pick failed: log Track A entities if any, persist error row, return payload. */
 const handleGenerativeFailure = async ({
-  nlpResult, message, userId, userChatLog, assistantChatLog, effectiveModelId, sessionModel, currentSessionId,
+  nlpResult, message, userId, userChatLog, assistantChatLog, effectiveModelId, currentSessionId,
 }) => {
   let healthEntries = [];
   let financeEntries = [];
@@ -289,7 +289,6 @@ const handleGenerativeFailure = async ({
     model_runtime: {
       ...(nlpResult.model_runtime || {}),
       catalog_model: effectiveModelId || null,
-      model_switch_denied: Boolean(sessionModel.denied),
     },
     entities_logged: {
       health: healthEntries.map((e) => ({ id: e.id, type: e.type, value: e.getDataValue('value') })),
@@ -320,15 +319,10 @@ const processMessageStream = async (req, res) => {
   const { message, session_id } = req.body;
   const userId = req.user.id;
   const currentSessionId = session_id || randomUUID();
-  // Session model lock: mid-conversation model switch is denied server-side
-  // (client already shows a friendly hint; this keeps style consistent even
-  // if the request is forged). New session_id unlocks.
-  const sessionModel = await resolveSessionModel(
-    userId,
-    currentSessionId,
-    req.body?.model || req.user?.preferred_model || null,
-  );
-  const effectiveModelId = sessionModel.modelId || req.body?.model || req.user?.preferred_model || null;
+  // Mid-chat model switches are allowed: each turn uses the model the request
+  // names (falling back to the profile preference). Per-turn attribution is
+  // stored on the assistant row via assistantModelMeta.
+  const effectiveModelId = req.body?.model || req.user?.preferred_model || null;
   // lang = UI/client-detected hint (tiebreaker); server re-detects from text
   // and wins when scripts disagree — real-time AR↔EN switch.
   const aiOptions = {
@@ -389,16 +383,7 @@ const processMessageStream = async (req, res) => {
       user_message_id: userChatLog.id,
       assistant_message_id: assistantChatLog.id,
       catalog_model: effectiveModelId || null,
-      model_switch_denied: Boolean(sessionModel.denied),
     });
-    if (sessionModel.denied) {
-      sseWrite(res, 'status', {
-        message: 'model_locked',
-        code: 'MODEL_SWITCH_DENIED',
-        locked_model: sessionModel.locked,
-        requested_model: sessionModel.requested,
-      });
-    }
 
     // ─── Step 2: Check for pending clarification ───
     const pending = await pendingClarifications.get(userId);
@@ -478,7 +463,7 @@ const processMessageStream = async (req, res) => {
     if (nlpResult.generative_failed || nlpResult.model_runtime?.responder === 'model_error') {
       const payload = await handleGenerativeFailure({
         nlpResult, message, userId, userChatLog, assistantChatLog,
-        effectiveModelId, sessionModel, currentSessionId,
+        effectiveModelId, currentSessionId,
       });
       sseWrite(res, 'error', payload);
       sseWrite(res, 'done', {});
@@ -523,7 +508,6 @@ const processMessageStream = async (req, res) => {
         model_runtime: {
           ...(nlpResult.model_runtime || {}),
           catalog_model: effectiveModelId || null,
-          model_switch_denied: Boolean(sessionModel.denied),
         },
         processing_time_ms: nlpResult.processing_time_ms,
       });
@@ -610,7 +594,6 @@ const processMessageStream = async (req, res) => {
       model_runtime: {
         ...(nlpResult.model_runtime || {}),
         catalog_model: effectiveModelId || null,
-        model_switch_denied: Boolean(sessionModel.denied),
       },
       processing_time_ms: nlpResult.processing_time_ms,
     });
@@ -654,12 +637,7 @@ const processMessage = async (req, res, next) => {
     const { message, session_id } = req.body;
     const userId = req.user.id;
     const currentSessionId = session_id || randomUUID();
-    const sessionModel = await resolveSessionModel(
-      userId,
-      currentSessionId,
-      req.body?.model || req.user?.preferred_model || null,
-    );
-    const effectiveModelId = sessionModel.modelId || req.body?.model || req.user?.preferred_model || null;
+    const effectiveModelId = req.body?.model || req.user?.preferred_model || null;
     const aiOptions = {
       ...resolveChatOptions(effectiveModelId, req.user?.preferred_model),
       lang: req.body?.lang || null,
@@ -740,7 +718,7 @@ const processMessage = async (req, res, next) => {
     if (nlpResult.generative_failed || nlpResult.model_runtime?.responder === 'model_error') {
       const payload = await handleGenerativeFailure({
         nlpResult, message, userId, userChatLog, assistantChatLog,
-        effectiveModelId, sessionModel, currentSessionId,
+        effectiveModelId, currentSessionId,
       });
       return success(res, payload);
     }
@@ -781,7 +759,6 @@ const processMessage = async (req, res, next) => {
         model_runtime: {
           ...(nlpResult.model_runtime || {}),
           catalog_model: effectiveModelId || null,
-          model_switch_denied: Boolean(sessionModel.denied),
         },
         processing_time_ms: nlpResult.processing_time_ms,
       });
@@ -846,7 +823,6 @@ const processMessage = async (req, res, next) => {
       model_runtime: {
         ...(nlpResult.model_runtime || {}),
         catalog_model: effectiveModelId || null,
-        model_switch_denied: Boolean(sessionModel.denied),
       },
       processing_time_ms: nlpResult.processing_time_ms,
     });
