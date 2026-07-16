@@ -100,10 +100,36 @@ const COMMIT_SHA = (
   || process.env.SOURCE_VERSION
   || ''
 ).slice(0, 12) || null;
+// DB probe for the health endpoint: cached and timeout-bounded so the public,
+// unauthenticated route stays cheap, and never throws so liveness can't 500.
+// A 200 that hides a dead MySQL is a lying health check — report db.ok honestly
+// (smoke:api fails on db.ok:false; the HTTP status stays 200 = process alive).
+let dbProbe = { at: 0, ok: null };
+const DB_PROBE_TTL_MS = 10_000;
+const dbStatus = async () => {
+  if (Date.now() - dbProbe.at < DB_PROBE_TTL_MS) return dbProbe;
+  const { sequelize } = require('./config/database');
+  let ok = false;
+  let timer;
+  try {
+    await Promise.race([
+      sequelize.authenticate(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('db_ping_timeout')), 1500);
+      }),
+    ]);
+    ok = true;
+  } catch { /* ok stays false — reported, not thrown */ } finally {
+    clearTimeout(timer);
+  }
+  dbProbe = { at: Date.now(), ok };
+  return dbProbe;
+};
+
 app.get('/api/health', async (req, res) => {
-  // Secret-free readiness: redis status for multi-instance deploys; never keys.
+  // Secret-free readiness: redis + db status for deploy verification; never keys.
   const { redisEnabled, redisStatus } = require('./services/ephemeralStore');
-  const redis = await redisStatus();
+  const [redis, db] = await Promise.all([redisStatus(), dbStatus()]);
   res.status(200).json({
     success: true,
     message: 'LifeSync API is running.',
@@ -111,6 +137,9 @@ app.get('/api/health', async (req, res) => {
     version: '2.0.0',
     commit: COMMIT_SHA,
     env: process.env.NODE_ENV || 'development',
+    // Uptime resetting between polls = crash loop, visible without platform access.
+    uptime_s: Math.round(process.uptime()),
+    db: { ok: db.ok },
     redis: {
       configured: redis.configured,
       ok: redis.ok,
@@ -194,9 +223,36 @@ const startServer = async () => {
   }
 };
 
+// Last-gasp structured log for process-fatal events. The platform restarts the
+// process; this line is what ops greps to learn WHY. Rare by definition, so a
+// compressed stack belongs here (unlike per-request logs, where it would spam).
+const logFatal = (evt, err) => {
+  try {
+    console.error(JSON.stringify({
+      level: 'fatal',
+      msg: evt,
+      name: (err && err.name) || 'Error',
+      error: (err && err.message) || String(err),
+      stack: String((err && err.stack) || '').split('\n').slice(0, 6).join(' | '),
+    }));
+  } catch {
+    console.error(evt, err);
+  }
+};
+
 // Only start if not being required by tests
 if (require.main === module) {
+  // Preserve Node's crash-on-fatal semantics (state is undefined after either
+  // event) but emit a greppable line first. Registered only in the real server
+  // process — never under Jest, which owns its own handlers.
+  process.on('unhandledRejection', (err) => { logFatal('unhandled_rejection', err); process.exit(1); });
+  process.on('uncaughtException', (err) => { logFatal('uncaught_exception', err); process.exit(1); });
   startServer();
 }
 
-module.exports = { app, startServer };
+module.exports = {
+  app,
+  startServer,
+  _logFatal: logFatal,
+  _resetDbProbeForTests: () => { dbProbe = { at: 0, ok: null }; },
+};

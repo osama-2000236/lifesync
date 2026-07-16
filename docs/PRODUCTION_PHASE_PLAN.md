@@ -1,7 +1,7 @@
 # LifeSync — Production Hardening Plan (Phased)
 
-_Last fact-check: 2026-07-11_  
-_Orchestrator completed P1–P8 in-repo. Full Jest: **749 passed, 2 skipped**._
+_Last fact-check: 2026-07-17_  
+_Orchestrator completed P1–P8 in-repo; P5 deepened 2026-07-17. Full Jest: **900 passed, 2 skipped**._
 
 ---
 
@@ -13,7 +13,7 @@ _Orchestrator completed P1–P8 in-repo. Full Jest: **749 passed, 2 skipped**._
 | **P2** | Secrets, seed, demo-mode production locks | ✅ done |
 | **P3** | Shared Redis rate-limit store | ✅ done |
 | **P4** | Production env preflight + deploy smoke | ✅ done |
-| **P5** | Observability (health, structured error logs) | ✅ done |
+| **P5** | Observability (health, structured error logs) | ✅ done + deepened |
 | **P6** | Auth/email production path audit | ✅ done |
 | **P7** | OAuth pending-state durability | ✅ done |
 | **P8** | Final gate: regression + docs truth-up | ✅ done |
@@ -40,6 +40,22 @@ npm run preflight:production      # secrets + mail (from .env or host env)
 npm run preflight:release-env     # frontend Vite vars
 npm run smoke:api -- https://YOUR_API_HOST
 ```
+
+### P5 deepening (2026-07-17)
+
+- `/api/health` now also reports `db.ok` (cached 10 s, 1.5 s-bounded MySQL ping,
+  never throws) and `uptime_s` (resets between polls ⇒ crash loop). HTTP stays
+  200 = liveness; readiness is in the body.
+- `smoke:api` fails a deploy when `db.ok === false` or Redis is configured but
+  not answering PING (absent fields tolerated for older builds).
+- Process-fatal events (`unhandledRejection` / `uncaughtException`) now emit one
+  structured `level:fatal` JSON line with a compressed stack, then exit(1) —
+  crash semantics preserved, cause greppable in Railway logs.
+- Parallel-test flake fixed at the root: per-Jest-worker SQLite file in
+  `server/config/database.js` (5 suites were dropping each other's tables via a
+  shared file). `npm test` is now green in parallel, not just `--runInBand`.
+- Tests: `tests/observability.test.js` (8) — health honesty, probe cache +
+  timeout, structured 5xx line, prod message sanitization, fatal logger.
 
 ### Key modules
 

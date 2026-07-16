@@ -44,7 +44,20 @@ if (health.status !== 200 || health.body?.success !== true) {
   console.error('[smoke:api] /api/health failed:', JSON.stringify(health.body));
   failed = true;
 } else {
-  console.log('[smoke:api] version=', health.body.version, 'commit=', health.body.commit, 'redis=', health.body.redis);
+  console.log(
+    '[smoke:api] version=', health.body.version, 'commit=', health.body.commit,
+    'uptime_s=', health.body.uptime_s, 'db=', health.body.db, 'redis=', health.body.redis,
+  );
+  // Liveness stays 200 with a dead MySQL, but a deploy is NOT verified then.
+  // db.ok is absent on pre-upgrade builds — only explicit false fails.
+  if (health.body.db?.ok === false) {
+    console.error('[smoke:api] /api/health reports db.ok=false — MySQL unreachable.');
+    failed = true;
+  }
+  if (health.body.redis?.configured === true && health.body.redis?.ok === false) {
+    console.error('[smoke:api] Redis is configured but not answering PING.');
+    failed = true;
+  }
 }
 
 try {

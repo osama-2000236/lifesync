@@ -26,7 +26,14 @@ const config = {
 
 if (dialect === 'sqlite') {
   config.dialect = 'sqlite';
-  config.storage = process.env.DB_STORAGE || './lifesync_db.sqlite';
+  // Parallel Jest workers must not share one file: a sync({ force: true }) in
+  // one suite drops tables under another mid-run (5 suites flaked this way).
+  // Per-worker file isolates them; :memory: is already per-process; non-test
+  // runs (no JEST_WORKER_ID) keep the configured path untouched.
+  const storage = process.env.DB_STORAGE || './lifesync_db.sqlite';
+  config.storage = process.env.JEST_WORKER_ID && storage !== ':memory:'
+    ? storage.replace(/(\.sqlite)?$/, `.w${process.env.JEST_WORKER_ID}$1`)
+    : storage;
 } else {
   // MySQL configuration
   config.dialect = 'mysql';
