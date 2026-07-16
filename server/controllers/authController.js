@@ -7,8 +7,11 @@
 
 const { body } = require('express-validator');
 const { Op } = require('sequelize');
+const bcrypt = require('bcryptjs');
 const User = require('../models/User');
-const { generateTokenPair, verifyRefreshToken } = require('../utils/tokenUtils');
+const {
+  generateTokenPair, verifyRefreshToken, issuedBeforePasswordChange,
+} = require('../utils/tokenUtils');
 const { success, created, error } = require('../utils/responseHelper');
 const { verifyGoogleCredential } = require('../services/googleAuthService');
 const { generateUniqueUsername } = require('../utils/usernameUtils');
@@ -126,6 +129,10 @@ const changeEmailVerifyValidation = [
 ];
 
 const isGoogleManagedAccount = (user) => Boolean(user?.firebase_uid);
+
+// Valid cost-12 hash of a fixed non-password string — only used to burn the
+// same bcrypt time on unknown emails as comparePassword burns on real ones.
+const DUMMY_BCRYPT_HASH = '$2b$12$BJ0hmWVcMsjXeGj3/6.rb.iX4Ech7e.GsVSQBqhd1sy/hCYKUe0Zm';
 
 const handleOtpDeliveryFailure = async (res, email, emailResult) => {
   await consumeOTP(email);
@@ -256,6 +263,10 @@ const login = async (req, res, next) => {
 
     const user = await User.findOne({ where: { email } });
     if (!user) {
+      // Timing equalizer: unknown email must cost the same as a wrong password,
+      // or response time becomes an account-existence oracle. Same bcrypt cost
+      // (12) as real hashes; the result is always "invalid credentials".
+      await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
       return error(res, 'Invalid email or password.', 401, 'INVALID_CREDENTIALS');
     }
 
@@ -381,6 +392,12 @@ const refreshToken = async (req, res, next) => {
     const user = await User.findByPk(decoded.id);
     if (!user || !user.is_active) {
       return error(res, 'User not found or account deactivated.', 401);
+    }
+
+    // A password change revokes all earlier refresh tokens — a stolen 30-day
+    // token must die the moment the victim resets their password.
+    if (issuedBeforePasswordChange(decoded, user)) {
+      return error(res, 'Session expired after a password change. Please login again.', 401, 'TOKEN_REVOKED');
     }
 
     const tokens = generateTokenPair(user);
@@ -521,7 +538,7 @@ const resetPassword = async (req, res, next) => {
       );
     }
 
-    await user.update({ hashed_password: password });
+    await user.update({ hashed_password: password, password_changed_at: new Date() });
     await consumeOTP(email);
 
     return success(res, null, 'Password reset successfully. You can now sign in.');
@@ -547,8 +564,10 @@ const changePassword = async (req, res, next) => {
       return error(res, 'Current password is incorrect.', 401, 'WRONG_PASSWORD');
     }
 
-    await req.user.update({ hashed_password: newPassword });
-    return success(res, null, 'Password changed successfully.');
+    await req.user.update({ hashed_password: newPassword, password_changed_at: new Date() });
+    // Every earlier token (this device's included) is now revoked; hand the
+    // caller a fresh pair so a client that stores them stays signed in.
+    return success(res, { ...generateTokenPair(req.user) }, 'Password changed successfully.');
   } catch (err) {
     next(err);
   }

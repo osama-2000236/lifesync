@@ -138,7 +138,11 @@ describe('authController account flows', () => {
 
     await authController.changePassword(req, res, jest.fn());
 
-    expect(update).toHaveBeenCalledWith({ hashed_password: 'NewPass123' });
+    // Must also stamp the revocation moment — tokens issued before it die.
+    expect(update).toHaveBeenCalledWith({
+      hashed_password: 'NewPass123',
+      password_changed_at: expect.any(Date),
+    });
     expect(res.status).toHaveBeenCalledWith(200);
   });
 

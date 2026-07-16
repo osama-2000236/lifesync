@@ -5,7 +5,7 @@
 // ============================================
 
 const User = require('../models/User');
-const { verifyAccessToken } = require('../utils/tokenUtils');
+const { verifyAccessToken, issuedBeforePasswordChange } = require('../utils/tokenUtils');
 
 /**
  * Middleware: Verify JWT token from Authorization header
@@ -69,6 +69,15 @@ const authenticate = async (req, res, next) => {
       });
     }
 
+    // Password change revokes every earlier token (stolen sessions included).
+    if (issuedBeforePasswordChange(decoded, user)) {
+      return res.status(401).json({
+        success: false,
+        error: 'Session expired after a password change. Please login again.',
+        code: 'TOKEN_REVOKED',
+      });
+    }
+
     // Attach user to request
     req.user = user;
     next();
@@ -105,7 +114,7 @@ const optionalAuth = async (req, res, next) => {
     const user = await User.findByPk(decoded.id, {
       attributes: { exclude: ['hashed_password'] },
     });
-    if (user && user.is_active) {
+    if (user && user.is_active && !issuedBeforePasswordChange(decoded, user)) {
       req.user = user;
     }
     return next();

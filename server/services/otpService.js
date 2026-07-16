@@ -30,6 +30,23 @@ const hasConfiguredSmtp = () => (
   Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
 );
 
+// All three HTTP mail providers go through here: the SMTP path has four
+// timeouts, but a bare fetch() has none — one hanging provider would stall
+// registration requests until the platform killed them.
+const mailApiPost = async (url, headers, bodyObj) => {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(bodyObj),
+    signal: AbortSignal.timeout(SMTP_TIMEOUT_MS),
+  });
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => '');
+    throw new Error(`${new URL(url).hostname} ${resp.status}: ${detail.slice(0, 300)}`);
+  }
+  return resp;
+};
+
 /**
  * Generate a cryptographically random numeric OTP
  * @returns {string} 6-digit OTP code
@@ -308,47 +325,29 @@ const sendOTPEmail = async (email, code) => {
     if (process.env.BREVO_API_KEY) {
       const sender = process.env.BREVO_FROM || process.env.SMTP_FROM_EMAIL;
       if (!sender) throw new Error('BREVO_FROM (a Brevo-verified sender email) is not set.');
-      const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: {
-          'api-key': process.env.BREVO_API_KEY,
-          'Content-Type': 'application/json',
-          accept: 'application/json',
-        },
-        body: JSON.stringify({
-          sender: { email: sender, name: fromName },
-          to: [{ email }],
-          subject,
-          htmlContent: html,
-        }),
+      await mailApiPost('https://api.brevo.com/v3/smtp/email', {
+        'api-key': process.env.BREVO_API_KEY,
+        accept: 'application/json',
+      }, {
+        sender: { email: sender, name: fromName },
+        to: [{ email }],
+        subject,
+        htmlContent: html,
       });
-      if (!resp.ok) {
-        const detail = await resp.text().catch(() => '');
-        throw new Error(`Brevo API ${resp.status}: ${detail.slice(0, 300)}`);
-      }
       return { success: true, message: 'Verification email sent.' };
     }
 
     if (process.env.SENDGRID_API_KEY) {
       const sender = process.env.SENDGRID_FROM || process.env.SMTP_FROM_EMAIL;
       if (!sender) throw new Error('SENDGRID_FROM (a SendGrid-verified sender email) is not set.');
-      const resp = await fetch('https://api.sendgrid.com/v3/mail/send', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          personalizations: [{ to: [{ email }] }],
-          from: { email: sender, name: fromName },
-          subject,
-          content: [{ type: 'text/html', value: html }],
-        }),
+      await mailApiPost('https://api.sendgrid.com/v3/mail/send', {
+        Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`,
+      }, {
+        personalizations: [{ to: [{ email }] }],
+        from: { email: sender, name: fromName },
+        subject,
+        content: [{ type: 'text/html', value: html }],
       });
-      if (!resp.ok) {
-        const detail = await resp.text().catch(() => '');
-        throw new Error(`SendGrid API ${resp.status}: ${detail.slice(0, 300)}`);
-      }
       return { success: true, message: 'Verification email sent.' };
     }
 
@@ -359,18 +358,9 @@ const sendOTPEmail = async (email, code) => {
       const from = process.env.RESEND_FROM
         || process.env.SMTP_FROM_EMAIL
         || 'LifeSync <onboarding@resend.dev>';
-      const resendResp = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ from, to: [email], subject, html }),
-      });
-      if (!resendResp.ok) {
-        const detail = await resendResp.text().catch(() => '');
-        throw new Error(`Resend API ${resendResp.status}: ${detail.slice(0, 300)}`);
-      }
+      await mailApiPost('https://api.resend.com/emails', {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      }, { from, to: [email], subject, html });
       return { success: true, message: 'Verification email sent.' };
     }
 

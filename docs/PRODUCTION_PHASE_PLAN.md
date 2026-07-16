@@ -1,7 +1,7 @@
 # LifeSync — Production Hardening Plan (Phased)
 
 _Last fact-check: 2026-07-17_  
-_Orchestrator completed P1–P8 in-repo; P5 deepened 2026-07-17. Full Jest: **900 passed, 2 skipped**._
+_Orchestrator completed P1–P8 in-repo; P5+P6 deepened 2026-07-17. Full Jest: **911 passed, 2 skipped**; client Vitest: **317 passed**._
 
 ---
 
@@ -14,7 +14,7 @@ _Orchestrator completed P1–P8 in-repo; P5 deepened 2026-07-17. Full Jest: **90
 | **P3** | Shared Redis rate-limit store | ✅ done |
 | **P4** | Production env preflight + deploy smoke | ✅ done |
 | **P5** | Observability (health, structured error logs) | ✅ done + deepened |
-| **P6** | Auth/email production path audit | ✅ done |
+| **P6** | Auth/email production path audit | ✅ done + deepened |
 | **P7** | OAuth pending-state durability | ✅ done |
 | **P8** | Final gate: regression + docs truth-up | ✅ done |
 
@@ -56,6 +56,30 @@ npm run smoke:api -- https://YOUR_API_HOST
   shared file). `npm test` is now green in parallel, not just `--runInBand`.
 - Tests: `tests/observability.test.js` (8) — health honesty, probe cache +
   timeout, structured 5xx line, prod message sanitization, fatal logger.
+
+### P6 deepening (2026-07-17)
+
+- **Token revocation on password change** — stateless JWTs used to outlive a
+  password reset: a stolen 30-day refresh token kept working after the victim
+  changed their password. New `users.password_changed_at` (migration 009);
+  `issuedBeforePasswordChange()` in `tokenUtils` rejects older-iat tokens at
+  the refresh endpoint AND per-request in the auth middleware (2 s slack for
+  same-second replacement tokens). `changePassword` returns a fresh pair; the
+  Profile page adopts it so the active session survives.
+- **Login timing oracle closed** — unknown email now burns the same cost-12
+  bcrypt compare as a wrong password (`DUMMY_BCRYPT_HASH`), so response time
+  no longer reveals account existence.
+- **HTTP mail-provider timeouts** — Brevo/SendGrid/Resend fetches route
+  through one `mailApiPost` helper with `AbortSignal.timeout` (SMTP path
+  already had timeouts; the HTTP path had none and could stall registration).
+- Tests: `tests/passwordRevocation.test.js` (9) + otp timeout/failure tests;
+  `schemaIntegrity` migration list now derived from the directory so new
+  migrations can never dodge the parity guard.
+- Deliberately unchanged: registration duplicate-email 409 (UX-required;
+  existence enumeration bounded by `otpLimiter`), forgot-password
+  `GOOGLE_ACCOUNT` hint (Google users would otherwise wait for a code that
+  never comes), OTP attempt-counter read-modify-write race (bounded by
+  `otpLimiter` 3/5 min; atomic INCR needs Lua — revisit only if limits loosen).
 
 ### Key modules
 

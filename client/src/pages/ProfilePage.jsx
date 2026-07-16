@@ -465,7 +465,12 @@ function ChangePasswordSection({ isGoogleUser }) {
     setOk('');
     setLoading(true);
     try {
-      await authAPI.changePassword(currentPassword, newPassword);
+      const { data } = await authAPI.changePassword(currentPassword, newPassword);
+      // The server revokes every token issued before the change (stolen
+      // sessions included) and hands back a fresh pair — adopt it so THIS
+      // session survives instead of bouncing to login on the next request.
+      if (data?.data?.accessToken) localStorage.setItem('accessToken', data.data.accessToken);
+      if (data?.data?.refreshToken) localStorage.setItem('refreshToken', data.data.refreshToken);
       setOk(t('profile.password.changed'));
       setCurrentPassword('');
       setNewPassword('');

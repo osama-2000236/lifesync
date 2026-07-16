@@ -201,5 +201,43 @@ describe('OTP Service', () => {
       }));
       expect(elapsedMs).toBeLessThan(1000);
     });
+
+    test('HTTP mail providers send with an abort timeout (hanging API cannot stall requests)', async () => {
+      const savedFetch = global.fetch;
+      const savedKey = process.env.BREVO_API_KEY;
+      const savedFrom = process.env.BREVO_FROM;
+      global.fetch = jest.fn().mockResolvedValue({ ok: true });
+      process.env.BREVO_API_KEY = 'test-key';
+      process.env.BREVO_FROM = 'noreply@example.com';
+      try {
+        const result = await sendOTPEmail('test@example.com', '123456');
+        expect(result.success).toBe(true);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        const options = global.fetch.mock.calls[0][1];
+        expect(options.signal).toBeInstanceOf(AbortSignal);
+      } finally {
+        global.fetch = savedFetch;
+        if (savedKey === undefined) delete process.env.BREVO_API_KEY; else process.env.BREVO_API_KEY = savedKey;
+        if (savedFrom === undefined) delete process.env.BREVO_FROM; else process.env.BREVO_FROM = savedFrom;
+      }
+    });
+
+    test('provider API error fails closed with EMAIL_SEND_FAILED (no code leak)', async () => {
+      const savedFetch = global.fetch;
+      const savedKey = process.env.BREVO_API_KEY;
+      const savedFrom = process.env.BREVO_FROM;
+      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+      process.env.BREVO_API_KEY = 'test-key';
+      process.env.BREVO_FROM = 'noreply@example.com';
+      try {
+        const result = await sendOTPEmail('test@example.com', '123456');
+        expect(result).toEqual(expect.objectContaining({ success: false, code: 'EMAIL_SEND_FAILED' }));
+        expect(result.message).not.toContain('123456');
+      } finally {
+        global.fetch = savedFetch;
+        if (savedKey === undefined) delete process.env.BREVO_API_KEY; else process.env.BREVO_API_KEY = savedKey;
+        if (savedFrom === undefined) delete process.env.BREVO_FROM; else process.env.BREVO_FROM = savedFrom;
+      }
+    });
   });
 });

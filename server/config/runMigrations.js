@@ -55,6 +55,8 @@ const isMigrationAlreadyInSchema = async (qi, file, tables) => {
     case '20260711-008-avatar-url-text.js':
       // Column type change — if avatar_url exists, treat as applied.
       return await hasColumn(qi, 'users', 'avatar_url');
+    case '20260717-009-password-changed-at.js':
+      return await hasColumn(qi, 'users', 'password_changed_at');
     default:
       // Unknown newer migration: must run.
       return false;

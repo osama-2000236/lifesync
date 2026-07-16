@@ -67,6 +67,11 @@ const User = sequelize.define('users', {
     type: DataTypes.DATE,
     allowNull: true,
   },
+  password_changed_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'JWTs issued before this moment are invalid (revocation on password change)',
+  },
   is_active: {
     type: DataTypes.BOOLEAN,
     allowNull: false,

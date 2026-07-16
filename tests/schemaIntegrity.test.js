@@ -4,16 +4,11 @@ const fs = require('fs');
 const path = require('path');
 const { Sequelize, QueryTypes } = require('sequelize');
 
-const MIGRATIONS = [
-  '20250208-001-initial-schema.js',
-  '20260410-002-add-status-to-chat-logs.js',
-  '20260620-003-add-user-memory-and-preferred-model.js',
-  '20260710-004-health-value-text-to-text.js',
-  '20260711-005-add-user-integrations.js',
-  '20260711-006-weekly-reports-and-notifications.js',
-  '20260711-007-integration-token-expires-at.js',
-  '20260711-008-avatar-url-text.js',
-];
+// Derived from the directory (same as runMigrations) so a new migration can
+// never silently miss this parity guard.
+const MIGRATIONS = fs.readdirSync(path.join(__dirname, '..', 'server', 'migrations'))
+  .filter((f) => f.endsWith('.js'))
+  .sort();
 
 const MODEL_TABLES = {
   users: () => require('../server/models/User'),

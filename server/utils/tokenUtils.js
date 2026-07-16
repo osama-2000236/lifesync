@@ -86,11 +86,26 @@ const verifyRefreshToken = (token) => {
   return jwt.verify(token, requireSecret('JWT_REFRESH_SECRET'), VERIFY_HS256);
 };
 
+/**
+ * True when the token predates the user's last password change — i.e. it was
+ * revoked. 2s slack: a change and its replacement tokens can land in the same
+ * second (iat is seconds-resolution); a stolen token is minutes-to-days older,
+ * so the slack never saves it.
+ * @param {{iat?: number}} decoded - verified JWT payload
+ * @param {{password_changed_at?: Date}} user
+ */
+const issuedBeforePasswordChange = (decoded, user) => {
+  const changedAt = user && user.password_changed_at;
+  if (!changedAt || !decoded || !decoded.iat) return false;
+  return new Date(changedAt).getTime() - decoded.iat * 1000 > 2000;
+};
+
 module.exports = {
   generateAccessToken,
   generateRefreshToken,
   generateTokenPair,
   verifyAccessToken,
   verifyRefreshToken,
+  issuedBeforePasswordChange,
   _requireSecret: requireSecret,
 };
