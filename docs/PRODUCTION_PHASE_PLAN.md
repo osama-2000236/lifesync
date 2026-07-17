@@ -22,6 +22,32 @@ _Orchestrator completed P1–P8 in-repo; P5+P6 deepened 2026-07-17. Full Jest: *
 
 Code-side production hardening for multi-instance + fail-closed secrets is **done**.
 
+### ⚠️ OPEN PROD INCIDENT — OTP email delivery (found 2026-07-17, P6 live probe)
+
+`POST /auth/register/send-otp` returns `EMAIL_SEND_FAILED` for every non-owner
+address ⇒ **registration and password reset are broken in production.**
+
+Root cause (verified against the live Resend API): the Resend account has
+**zero verified domains**, so the only usable sender is `onboarding@resend.dev`,
+which Resend delivers **only to the account owner's own inbox**. Not a code
+regression — it predates the P6 deploy (the UC-01 live contract only asserted
+"send-otp returns no 500", never real delivery). Also fixed in code (`e8e5044`):
+prod set `RESEND_FROM_EMAIL` but the code read only `RESEND_FROM`, so the
+operator's sender never applied — now honored.
+
+**Required (operator, not code) — pick one:**
+1. Resend: verify a domain (add DNS records), then set
+   `RESEND_FROM_EMAIL=verify@yourdomain` (not `onboarding@resend.dev`).
+2. Brevo/SendGrid single-sender: verify ONE sender email in their dashboard,
+   set `BREVO_API_KEY`+`BREVO_FROM` (or `SENDGRID_API_KEY`+`SENDGRID_FROM`).
+   No domain/DNS needed — the code already prefers these over Resend.
+
+Until then the live P6 revocation proof is blocked at the "create a password
+account" step (registration needs email). Revocation logic itself is proven by
+`tests/passwordRevocation.test.js` (9, real signed JWTs through the live
+middleware + refresh controller) and partially live (login + GOOGLE_ACCOUNT
+guard verified on prod; migration 009 applied, `db.ok:true`).
+
 ### What operators must still configure (not code)
 
 1. Managed MySQL + backups  
