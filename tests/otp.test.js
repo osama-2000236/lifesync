@@ -222,6 +222,35 @@ describe('OTP Service', () => {
       }
     });
 
+    test('Resend honors RESEND_FROM_EMAIL + RESEND_FROM_NAME (not just RESEND_FROM)', async () => {
+      const saved = {
+        fetch: global.fetch,
+        key: process.env.RESEND_API_KEY,
+        from: process.env.RESEND_FROM,
+        email: process.env.RESEND_FROM_EMAIL,
+        name: process.env.RESEND_FROM_NAME,
+      };
+      global.fetch = jest.fn().mockResolvedValue({ ok: true });
+      process.env.RESEND_API_KEY = 're_test';
+      delete process.env.RESEND_FROM; // only the *_EMAIL/_NAME form is set (the prod shape)
+      process.env.RESEND_FROM_EMAIL = 'verify@lifesync.app';
+      process.env.RESEND_FROM_NAME = 'LifeSync';
+      try {
+        const result = await sendOTPEmail('user@example.com', '123456');
+        expect(result.success).toBe(true);
+        const sentBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+        expect(sentBody.from).toBe('LifeSync <verify@lifesync.app>'); // not onboarding@resend.dev
+      } finally {
+        global.fetch = saved.fetch;
+        for (const [k, v] of Object.entries({
+          RESEND_API_KEY: saved.key, RESEND_FROM: saved.from,
+          RESEND_FROM_EMAIL: saved.email, RESEND_FROM_NAME: saved.name,
+        })) {
+          if (v === undefined) delete process.env[k]; else process.env[k] = v;
+        }
+      }
+    });
+
     test('provider API error fails closed with EMAIL_SEND_FAILED (no code leak)', async () => {
       const savedFetch = global.fetch;
       const savedKey = process.env.BREVO_API_KEY;

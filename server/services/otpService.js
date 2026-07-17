@@ -315,7 +315,7 @@ const sendOTPEmail = async (email, code) => {
         </div>
       `;
     const subject = 'LifeSync — Your Verification Code';
-    const fromName = process.env.SMTP_FROM_NAME || 'LifeSync';
+    const fromName = process.env.RESEND_FROM_NAME || process.env.SMTP_FROM_NAME || 'LifeSync';
 
     // ── Single-sender HTTP providers (no domain needed) ──────────────────────
     // Brevo / SendGrid let you verify ONE sender address and send to anyone, over
@@ -355,9 +355,14 @@ const sendOTPEmail = async (email, code) => {
     // it works on hosts that block outbound SMTP ports — e.g. Railway, where
     // the SMTP path fails with a connection timeout to smtp.gmail.com:587.
     if (process.env.RESEND_API_KEY) {
+      // Accept the env names operators actually set: RESEND_FROM (full
+      // "Name <email>"), or RESEND_FROM_EMAIL (bare address) combined with
+      // fromName. Prod had RESEND_FROM_EMAIL set but the code only read
+      // RESEND_FROM, silently falling back to the onboarding@resend.dev test
+      // sender (which Resend only delivers to the account owner).
+      const resendEmail = process.env.RESEND_FROM_EMAIL || process.env.SMTP_FROM_EMAIL;
       const from = process.env.RESEND_FROM
-        || process.env.SMTP_FROM_EMAIL
-        || 'LifeSync <onboarding@resend.dev>';
+        || (resendEmail ? `${fromName} <${resendEmail}>` : 'LifeSync <onboarding@resend.dev>');
       await mailApiPost('https://api.resend.com/emails', {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
       }, { from, to: [email], subject, html });
